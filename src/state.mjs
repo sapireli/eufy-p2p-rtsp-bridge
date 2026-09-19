@@ -25,6 +25,7 @@ export function newSlot(sn) {
     sn,
     feed: undefined,
     client: undefined,
+    opening: false,
     lastBytesAt: 0,
     startedAt: 0,
     firstFailureAt: 0,

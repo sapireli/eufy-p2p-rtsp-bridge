@@ -1,0 +1,131 @@
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
+import { createStreamManager } from "../src/stream-manager.mjs";
+import { createState } from "../src/state.mjs";
+
+// Keep test output pristine: capture the manager's console.log/warn/error for the whole file.
+const originals = {};
+before(() => {
+  for (const k of ["log", "warn", "error"]) {
+    originals[k] = console[k];
+    console[k] = () => {};
+  }
+});
+after(() => {
+  for (const k of ["log", "warn", "error"]) console[k] = originals[k];
+});
+
+// SPS+PPS+IDR (keyframe) and a delta-frame chunk, both Annex-B.
+const KEY = Buffer.from([0,0,0,1,0x67,0x42,0xc0,0x1e,0xda,0x02,0x80,0xf6,0x80,0x6d,0x0a,0x13,0x50, 0,0,0,1,0x68,0xce,0x38,0x80, 0,0,0,1,0x65,0x88,0x84,0x00]);
+const DELTA = Buffer.from([0,0,0,1,0x41,0x9a,0x00,0x11]);
+
+function fakeRes() {
+  const chunks = [];
+  return { chunks, writableNeedDrain: false, destroyed: false, write(b) { chunks.push(b); return true; }, end() { this.destroyed = true; } };
+}
+
+function ctxWith({ feeds, exit }) {
+  const state = createState();
+  let opens = 0;
+  return {
+    state,
+    cfg: { stall: { stallMs: 12000, gapMs: 45000, exitAfterMs: 300000, backoffMs: [10, 20, 40] } },
+    exit: exit ?? (() => {}),
+    getCamera: () => ({ enabled: true }),
+    isBlocked: () => false,
+    applyPins: async () => {},
+    sdk: {
+      streamClientFor: async () => ({}),
+      openFeed: async () => { opens++; return feeds[Math.min(opens, feeds.length) - 1](); },
+      extractParamSets: (b) => (b[4] === 0x67 ? { codec: "h264", sps: [b.subarray(4, 17)], pps: [] } : undefined),
+      codedGeometry: () => ({ width: 640, height: 480 }),
+    },
+    opens: () => opens,
+  };
+}
+
+// Poll until `predicate()` is true or the cap elapses, instead of a bare fixed sleep.
+async function waitUntil(predicate, capMs = 500) {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > capMs) break;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+test("warm feed sniffs codec/geometry, primes late consumer with last keyframe, streams deltas", async () => {
+  const feed = new PassThrough();
+  const ctx = ctxWith({ feeds: [() => feed] });
+  const sm = createStreamManager(ctx);
+  await sm.ensureWarm("A");
+  feed.write(KEY);
+  feed.write(DELTA);
+  await new Promise((r) => setImmediate(r));
+  const st = sm.streamStatus("A");
+  assert.equal(st.streaming, true);
+  assert.equal(st.codec, "h264");
+  assert.equal(st.width, 640);
+  const res = fakeRes();
+  sm.attachConsumer("A", res);
+  assert.equal(res.chunks[0], KEY, "primed with last keyframe");
+  feed.write(DELTA);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(res.chunks.length, 2);
+  assert.equal(ctx.state.streaming.has("A"), true);
+});
+
+test("consumer under backpressure drops until next keyframe", async () => {
+  const feed = new PassThrough();
+  const ctx = ctxWith({ feeds: [() => feed] });
+  const sm = createStreamManager(ctx);
+  await sm.ensureWarm("A");
+  feed.write(KEY);
+  await new Promise((r) => setImmediate(r));
+  const res = fakeRes();
+  sm.attachConsumer("A", res);
+  res.writableNeedDrain = true;
+  feed.write(DELTA);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(res.chunks.length, 1, "delta dropped while draining");
+  res.writableNeedDrain = false;
+  feed.write(DELTA);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(res.chunks.length, 1, "still waiting for a keyframe");
+  feed.write(KEY);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(res.chunks.length, 2, "resumed at keyframe");
+});
+
+test("stall → feed destroyed and reopened with backoff; gap → consumers ended; exit after continuous failure", async () => {
+  const f1 = new PassThrough(), f2 = new PassThrough();
+  let exited = 0;
+  const ctx = ctxWith({ feeds: [() => f1, () => f2], exit: () => exited++ });
+  const sm = createStreamManager(ctx);
+  await sm.ensureWarm("A");
+  const t0 = 1_000_000;
+  f1.write(KEY);
+  await new Promise((r) => setImmediate(r));
+  ctx.state.slots.get("A").lastBytesAt = t0;
+  const res = fakeRes();
+  sm.attachConsumer("A", res);
+  sm.streamTick(t0 + 13_000); // > stallMs
+  assert.equal(sm.streamStatus("A").stalls, 1);
+  assert.equal(f1.destroyed, true);
+  await waitUntil(() => ctx.opens() === 2); // backoff 10ms → reopen (poll instead of a fixed sleep)
+  assert.equal(ctx.opens(), 2);
+  assert.equal(ctx.state.slots.get("A").feed, f2);
+  sm.streamTick(t0 + 46_000); // > gapMs with no bytes → consumers dropped
+  assert.equal(res.destroyed, true);
+  ctx.state.slots.get("A").firstFailureAt = t0;
+  sm.streamTick(t0 + 301_000);
+  assert.equal(exited, 1, "exit(1) requested after exitAfterMs of failure");
+});
+
+test("blocked camera is not warmed", async () => {
+  const ctx = ctxWith({ feeds: [() => new PassThrough()] });
+  ctx.isBlocked = () => true;
+  const sm = createStreamManager(ctx);
+  await sm.ensureWarm("A");
+  assert.equal(ctx.opens(), 0);
+});
