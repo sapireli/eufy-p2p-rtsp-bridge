@@ -1,0 +1,26 @@
+[Unit]
+Description=eufy-wall-bridge (eufy P2P → RTSP for the camera wall)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=eufy-wall
+Group=eufy-wall
+WorkingDirectory=/opt/eufy-wall-bridge/server
+EnvironmentFile=-/etc/eufy-wall-bridge.env
+Environment=BRIDGE_CONFIG=/etc/eufy-wall-bridge.yaml
+Environment=BRIDGE_DATA_DIR=/var/lib/eufy-wall-bridge
+Environment=GO2RTC_BIN=/opt/eufy-wall-bridge/bin/go2rtc
+ExecStart=/usr/bin/node /opt/eufy-wall-bridge/server/server.mjs
+Restart=always
+RestartSec=5
+# The bridge exits(1) on purpose after 5 min of continuous stream failure; systemd brings it back.
+StartLimitIntervalSec=0
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/eufy-wall-bridge
+
+[Install]
+WantedBy=multi-user.target

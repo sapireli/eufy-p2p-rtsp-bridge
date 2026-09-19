@@ -1,0 +1,54 @@
+# Runbook — eufy-wall-bridge (server)
+
+## Install (Debian, arm64 or x86, no Docker)
+    git clone <this repo> && cd eufy-p2p-rtsp-bridge
+    sudo deploy/install-server.sh
+    sudo nano /etc/eufy-wall-bridge.env      # EUFY_EMAIL / EUFY_PASSWORD / EUFY_COUNTRY (dedicated account!)
+    sudo nano /etc/eufy-wall-bridge.yaml     # lan.cidr, cameras, defaults
+    sudo systemctl start eufy-wall-bridge && journalctl -fu eufy-wall-bridge
+
+## First-run login (2FA / captcha)
+    curl -s localhost:3000/auth/status
+    # {"state":"require_2fa","method":"email"}  → get the code from email/SMS:
+    curl -s -X POST 'localhost:3000/auth/tfa?code=123456'
+    # {"state":"require_captcha"} →
+    curl -s localhost:3000/auth/captcha -o captcha.png   # open it
+    curl -s -X POST 'localhost:3000/auth/captcha?code=AB3D'
+    # {"state":"pending"} after a failure → curl -s -X POST localhost:3000/auth/retry
+The session token is saved in /var/lib/eufy-wall-bridge/.eufy-session.json; later restarts need no code.
+Opening the eufy phone app with the SAME account kicks the bridge (state "reauth") — use a dedicated account.
+
+## Check
+    curl -s localhost:3000/healthz | jq          # auth ok, streaming [...], blocked {}, go2rtc running
+    curl -s localhost:3000/api/cameras | jq      # codec must be "h264" for Pi clients
+    ffplay rtsp://<server>:8554/<sn>             # from any machine on the LAN
+
+## Camera settings the wall depends on
+- Streaming quality: 1080p or 720p ⇒ H.264. 2K/Max ⇒ H.265 (Pi cannot decode). The SDK 0.1.1 cannot
+  write this setting; set it in the eufy app (camera → Settings → Video → Streaming quality). The bridge
+  logs `stream is H265` if a camera is wrong; /api/cameras shows `codec`.
+- Dual-lens (E340 doorbell/floodlight, S340): the bridge sends view mode `dual_view` (default split=12)
+  on boot and after reconnects.
+
+## Force-LAN
+`lan.force: true` closes any P2P session whose peer is outside `lan.cidr` and marks the camera
+`blocked: wan-path <ip>` in /healthz and /api/cameras (HTTP 423 on /stream). The stream manager retries
+with backoff. Verify with: `sudo tcpdump -ni <iface> udp and not net <lan.cidr>` — no sustained traffic.
+If a station keeps connecting via WAN, add its LAN IP under `lan.station_addresses`.
+
+## Robustness behaviour
+- 12 s without video bytes → feed restarted with backoff 2→60 s (`stalls` counter in /healthz).
+- 45 s gap → HTTP consumers (go2rtc) disconnected so they reconnect cleanly.
+- 5 min continuous failure on any camera → process exit(1); systemd restarts it (`Restart=always`).
+- go2rtc child dies → restarted after 3 s.
+- Cloud poll silent ≥ 30 min or push down ≥ 15 min → re-login in place, else exit(1).
+
+## Upgrading
+- SDK: bump `@mega-yfue/eufy-sdk` in server/package.json (exact version), `npm test` (contract test
+  fails loudly on removed APIs), rerun install script.
+- Vendored ha-eufy-sdk-bridge modules: `server/scripts/sync-upstream.sh` shows diffs; `--apply` copies;
+  update the SHA in server/src/vendor/ha-bridge/VENDOR.md.
+
+## Verified devices (fill in from spike A)
+| sn | model | power | codec | WxH | dual view | p2p peer |
+|----|-------|-------|-------|-----|-----------|----------|
