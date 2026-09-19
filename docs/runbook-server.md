@@ -39,6 +39,14 @@ Opening the eufy phone app with the SAME account kicks the bridge (state "reauth
 with backoff. Verify with: `sudo tcpdump -ni <iface> udp and not net <lan.cidr>` — no sustained traffic.
 If a station keeps connecting via WAN, add its LAN IP under `lan.station_addresses`.
 
+## Security (LAN-trust model)
+Nothing on the bridge is authenticated: `:3000` (HTTP /stream, /api, /auth) and `:8554` (RTSP) trust
+every host on the LAN, so run it on a network you control (a VLAN with the TVs is ideal) and never
+port-forward it. The go2rtc API is pinned to `127.0.0.1:1984` and its WebRTC listener is removed by
+the bridge when it writes go2rtc.yaml (the upstream generator would open both on all interfaces).
+Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session token in
+`/var/lib/eufy-wall-bridge/`.
+
 ## Robustness behaviour
 - 12 s without video bytes → feed restarted with backoff 2→60 s (`stalls` counter in /healthz).
 - 45 s gap → HTTP consumers (go2rtc) disconnected so they reconnect cleanly.

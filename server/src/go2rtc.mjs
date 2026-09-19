@@ -1,7 +1,22 @@
 // go2rtc lifecycle: write its yaml from the enabled camera list (vendored generator) and run the binary
 // as a child, restarting it with a short delay if it dies. Not fatal when the binary is missing (dev).
 import { spawn } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
+import { parseDocument } from "yaml";
 import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
+
+/**
+ * Harden the generated go2rtc.yaml: upstream (an HA add-on behind its own auth) opens the go2rtc API
+ * and WebRTC on every interface, unauthenticated. The wall's clients only pull RTSP on :8554, so the
+ * API is pinned to loopback and WebRTC is dropped. Done as a post-pass so the vendored generator
+ * stays verbatim. Comments in the generated file are preserved (yaml Document round-trip).
+ */
+export function hardenGo2rtcYaml(text) {
+  const doc = parseDocument(text);
+  doc.setIn(["api", "listen"], "127.0.0.1:1984");
+  doc.delete("webrtc");
+  return doc.toString();
+}
 
 export function createGo2rtc(ctx) {
   const { cfg, state } = ctx;
@@ -10,6 +25,7 @@ export function createGo2rtc(ctx) {
   async function writeGo2rtc() {
     const devices = ctx.listCameras().filter((c) => c.enabled).map((c) => ({ sn: c.sn, stream: `/stream/${c.sn}` }));
     const sns = await writeGo2rtcConfig(cfg, devices);
+    await writeFile(cfg.go2rtcConfig, hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8")), "utf8");
     console.log(`[bridge] go2rtc config written (${sns.length} stream(s)) → ${cfg.go2rtcConfig}`);
     return sns;
   }
