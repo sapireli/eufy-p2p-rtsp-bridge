@@ -9,8 +9,8 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 PREFIX=/opt/eufy-wall-bridge
 GO2RTC_VERSION=${GO2RTC_VERSION:-1.9.14}
 
-# 1. Node 24 + rsync (always needed for step 3)
-apt-get update && apt-get install -y ca-certificates curl gnupg rsync
+# 1. Node 24 + rsync (step 3) + ffmpeg (go2rtc's generated `ffmpeg:` sources spawn the ffmpeg binary)
+apt-get update && apt-get install -y ca-certificates curl gnupg rsync ffmpeg
 if ! command -v node >/dev/null || [[ $(node -v | sed 's/v\([0-9]*\).*/\1/') -lt 24 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
