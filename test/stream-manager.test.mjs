@@ -58,43 +58,51 @@ test("warm feed sniffs codec/geometry, primes late consumer with last keyframe, 
   const feed = new PassThrough();
   const ctx = ctxWith({ feeds: [() => feed] });
   const sm = createStreamManager(ctx);
-  await sm.ensureWarm("A");
-  feed.write(KEY);
-  feed.write(DELTA);
-  await new Promise((r) => setImmediate(r));
-  const st = sm.streamStatus("A");
-  assert.equal(st.streaming, true);
-  assert.equal(st.codec, "h264");
-  assert.equal(st.width, 640);
-  const res = fakeRes();
-  sm.attachConsumer("A", res);
-  assert.equal(res.chunks[0], KEY, "primed with last keyframe");
-  feed.write(DELTA);
-  await new Promise((r) => setImmediate(r));
-  assert.equal(res.chunks.length, 2);
-  assert.equal(ctx.state.streaming.has("A"), true);
+  try {
+    await sm.ensureWarm("A");
+    feed.write(KEY);
+    feed.write(DELTA);
+    await new Promise((r) => setImmediate(r));
+    const st = sm.streamStatus("A");
+    assert.equal(st.streaming, true);
+    assert.equal(st.codec, "h264");
+    assert.equal(st.width, 640);
+    const res = fakeRes();
+    sm.attachConsumer("A", res);
+    assert.equal(res.chunks[0], KEY, "primed with last keyframe");
+    feed.write(DELTA);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(res.chunks.length, 2);
+    assert.equal(ctx.state.streaming.has("A"), true);
+  } finally {
+    await sm.stopAll();
+  }
 });
 
 test("consumer under backpressure drops until next keyframe", async () => {
   const feed = new PassThrough();
   const ctx = ctxWith({ feeds: [() => feed] });
   const sm = createStreamManager(ctx);
-  await sm.ensureWarm("A");
-  feed.write(KEY);
-  await new Promise((r) => setImmediate(r));
-  const res = fakeRes();
-  sm.attachConsumer("A", res);
-  res.writableNeedDrain = true;
-  feed.write(DELTA);
-  await new Promise((r) => setImmediate(r));
-  assert.equal(res.chunks.length, 1, "delta dropped while draining");
-  res.writableNeedDrain = false;
-  feed.write(DELTA);
-  await new Promise((r) => setImmediate(r));
-  assert.equal(res.chunks.length, 1, "still waiting for a keyframe");
-  feed.write(KEY);
-  await new Promise((r) => setImmediate(r));
-  assert.equal(res.chunks.length, 2, "resumed at keyframe");
+  try {
+    await sm.ensureWarm("A");
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    const res = fakeRes();
+    sm.attachConsumer("A", res);
+    res.writableNeedDrain = true;
+    feed.write(DELTA);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(res.chunks.length, 1, "delta dropped while draining");
+    res.writableNeedDrain = false;
+    feed.write(DELTA);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(res.chunks.length, 1, "still waiting for a keyframe");
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(res.chunks.length, 2, "resumed at keyframe");
+  } finally {
+    await sm.stopAll();
+  }
 });
 
 test("stall → feed destroyed and reopened with backoff; gap → consumers ended; exit after continuous failure", async () => {
@@ -102,30 +110,75 @@ test("stall → feed destroyed and reopened with backoff; gap → consumers ende
   let exited = 0;
   const ctx = ctxWith({ feeds: [() => f1, () => f2], exit: () => exited++ });
   const sm = createStreamManager(ctx);
-  await sm.ensureWarm("A");
-  const t0 = 1_000_000;
-  f1.write(KEY);
-  await new Promise((r) => setImmediate(r));
-  ctx.state.slots.get("A").lastBytesAt = t0;
-  const res = fakeRes();
-  sm.attachConsumer("A", res);
-  sm.streamTick(t0 + 13_000); // > stallMs
-  assert.equal(sm.streamStatus("A").stalls, 1);
-  assert.equal(f1.destroyed, true);
-  await waitUntil(() => ctx.opens() === 2); // backoff 10ms → reopen (poll instead of a fixed sleep)
-  assert.equal(ctx.opens(), 2);
-  assert.equal(ctx.state.slots.get("A").feed, f2);
-  sm.streamTick(t0 + 46_000); // > gapMs with no bytes → consumers dropped
-  assert.equal(res.destroyed, true);
-  ctx.state.slots.get("A").firstFailureAt = t0;
-  sm.streamTick(t0 + 301_000);
-  assert.equal(exited, 1, "exit(1) requested after exitAfterMs of failure");
+  try {
+    await sm.ensureWarm("A");
+    const slot = ctx.state.slots.get("A");
+    const t0 = 1_000_000;
+    f1.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    // Pretend f1 has been up and silent since t0 on both counts — lastBytesAt AND startedAt — so the
+    // fixed silence calc (Math.max of the two) measures against our fake clock, not real Date.now().
+    slot.lastBytesAt = t0;
+    slot.startedAt = t0;
+    const res = fakeRes();
+    sm.attachConsumer("A", res);
+    sm.streamTick(t0 + 13_000); // > stallMs
+    assert.equal(sm.streamStatus("A").stalls, 1);
+    assert.equal(f1.destroyed, true);
+    // slot.feed is now undefined (closeFeed ran synchronously above) and the reopen is only scheduled
+    // (setTimeout backoff), not yet fired — check the gap here, before awaiting that reopen, so the
+    // stall check (which requires slot.feed) does not also re-fire on the same stale silence.
+    sm.streamTick(t0 + 46_000); // > gapMs with no bytes → consumers dropped, no additional stall
+    assert.equal(sm.streamStatus("A").stalls, 1, "gap tick alone must not double-count as a stall");
+    assert.equal(res.destroyed, true);
+    await waitUntil(() => ctx.opens() === 2); // backoff 10ms → reopen (poll instead of a fixed sleep)
+    assert.equal(ctx.opens(), 2);
+    assert.equal(slot.feed, f2);
+    slot.firstFailureAt = t0;
+    sm.streamTick(t0 + 301_000);
+    assert.equal(exited, 1, "exit(1) requested after exitAfterMs of failure");
+  } finally {
+    await sm.stopAll();
+  }
+});
+
+test("reopened feed gets a fresh stall window instead of being re-stalled immediately", async () => {
+  const f1 = new PassThrough(), f2 = new PassThrough();
+  const ctx = ctxWith({ feeds: [() => f1, () => f2] });
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    const slot = ctx.state.slots.get("A");
+    const t0 = 1_000_000;
+    f1.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    slot.lastBytesAt = t0;
+    slot.startedAt = t0;
+    sm.streamTick(t0 + 13_000); // stall #1
+    assert.equal(sm.streamStatus("A").stalls, 1);
+    assert.equal(f1.destroyed, true);
+    await waitUntil(() => ctx.opens() === 2); // backoff 10ms → reopen
+    assert.equal(slot.feed, f2);
+    const startedAt = slot.startedAt; // real Date.now(), stamped by ensureWarm on this reopen
+    sm.streamTick(startedAt + 2_000); // well within a fresh stallMs window
+    assert.equal(sm.streamStatus("A").stalls, 1, "fresh feed must not be re-stalled immediately");
+    assert.equal(f2.destroyed, false);
+    sm.streamTick(startedAt + 13_000); // genuinely silent for stallMs → stalls normally, like any feed
+    assert.equal(sm.streamStatus("A").stalls, 2);
+    assert.equal(f2.destroyed, true);
+  } finally {
+    await sm.stopAll();
+  }
 });
 
 test("blocked camera is not warmed", async () => {
   const ctx = ctxWith({ feeds: [() => new PassThrough()] });
   ctx.isBlocked = () => true;
   const sm = createStreamManager(ctx);
-  await sm.ensureWarm("A");
-  assert.equal(ctx.opens(), 0);
+  try {
+    await sm.ensureWarm("A");
+    assert.equal(ctx.opens(), 0);
+  } finally {
+    await sm.stopAll();
+  }
 });

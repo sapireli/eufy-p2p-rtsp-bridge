@@ -124,7 +124,10 @@ export function createStreamManager(ctx) {
   /** Every 2 s: stall → restart; gap → drop consumers so go2rtc reconnects cleanly; long failure → exit. */
   function streamTick(now = Date.now()) {
     for (const slot of state.slots.values()) {
-      const silent = slot.lastBytesAt ? now - slot.lastBytesAt : now - (slot.startedAt || now);
+      // A reopened feed gets a fresh stallMs window from startedAt — lastBytesAt from a prior
+      // (now-closed) feed must not count as silence against the new one.
+      const since = Math.max(slot.lastBytesAt, slot.startedAt);
+      const silent = since ? now - since : 0;
       if (slot.feed && silent >= cfg.stall.stallMs) {
         slot.stalls++;
         console.warn(`[bridge] ${slot.sn}: no bytes for ${Math.round(silent / 1000)} s — restarting feed (stall #${slot.stalls})`);
