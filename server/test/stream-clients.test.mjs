@@ -36,7 +36,7 @@ test("streamClientFor passes lan.station_addresses through as localAddresses", a
   assert.equal(c2.opts.localAddresses, undefined, "empty map → option omitted (SDK default)");
 });
 
-test("concurrent streamClientFor(sn) calls share one client; distinct sns get distinct clients", async () => {
+test("concurrent streamClientFor calls share one client; distinct stations get distinct clients", async () => {
   const { Fake, made } = fakeCtor();
   const sc = createStreamClients({ cfg: cfg({}), EufyMega: Fake });
   const [a, b] = await Promise.all([sc.streamClientFor("CAM1"), sc.streamClientFor("CAM1")]);
@@ -49,6 +49,18 @@ test("concurrent streamClientFor(sn) calls share one client; distinct sns get di
   await sc.closeStreamClients();
   assert.equal(a.disconnected, true);
   assert.equal(other.disconnected, true);
+});
+
+test("two cameras behind one station share one client (one P2P session, multiplexed by channel)", async () => {
+  const { Fake, made } = fakeCtor();
+  const sc = createStreamClients({ cfg: cfg({}), EufyMega: Fake });
+  const frontDoor = await sc.streamClientFor("CAM_A", "HB3");
+  const garage = await sc.streamClientFor("CAM_B", "HB3"); // same HomeBase
+  assert.equal(frontDoor, garage, "co-located cameras reuse the station's client/session");
+  assert.equal(made.length, 1, "only one EufyMega for the whole station");
+  const standalone = await sc.streamClientFor("CAM_C"); // its own station (stationSn defaults to sn)
+  assert.notEqual(standalone, frontDoor);
+  assert.equal(made.length, 2);
 });
 
 test("onClient hook fires before login with the client and sn; failed hydrate is not cached", async () => {

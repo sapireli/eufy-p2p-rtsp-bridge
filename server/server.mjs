@@ -3,6 +3,11 @@
 //   HTTP :3000/api/cameras   camera list for display clients       /healthz  /auth/*
 import http from "node:http";
 import fs from "node:fs";
+// Load local.env (git-ignored: EUFY_EMAIL/PASSWORD/COUNTRY) if present, so `node server.mjs` needs no
+// wrapper to see the secrets. Env already set by the shell/systemd wins — loadEnvFile does not overwrite.
+for (const f of [process.env.BRIDGE_ENV, "./local.env"]) {
+  if (f && fs.existsSync(f)) { try { process.loadEnvFile(f); } catch {} }
+}
 import { loadConfig } from "./src/config.mjs";
 import { createState } from "./src/state.mjs";
 import { createSdk } from "./src/sdk-adapter.mjs";

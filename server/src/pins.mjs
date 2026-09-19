@@ -14,7 +14,7 @@ export function createPins(ctx) {
 
     if (cam.isDual && cam.viewModeCmd && cam.dualView) {
       try {
-        const client = await ctx.sdk.streamClientFor(sn); // same session the stream will use
+        const client = await ctx.sdk.streamClientFor(sn, cam.stationSn); // same station session the stream will use
         await ctx.sdk.sendSetPayload(client, sn, cam.viewModeCmd, { restore: 1, video_type: DUAL_VIEW_VALUES[cam.dualView] });
         console.log(`[bridge] ${sn}: dual view pinned to ${cam.dualView} (cmd ${cam.viewModeCmd})`);
         result.dualView = "set";

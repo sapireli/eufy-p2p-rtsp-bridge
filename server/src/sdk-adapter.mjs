@@ -17,10 +17,14 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     pollMs: cfg.pollMs,
     prewarmEvents: [], // no speculative P2P warm-ups on push events (Phase 1 streams are always warm anyway)
     localAddresses: Object.keys(cfg.lan.stationAddresses).length ? cfg.lan.stationAddresses : undefined,
-    logger: DEBUG ? new ConsoleLogger("info") : undefined,
+    logger: DEBUG ? new ConsoleLogger("debug") : undefined,
   });
 
-  const streamClients = createStreamClients({ cfg, onClient: (client, sn) => hooks.onStreamClient?.(client, sn) });
+  const streamClients = createStreamClients({
+    cfg,
+    onClient: (client, sn) => hooks.onStreamClient?.(client, sn),
+    logger: DEBUG ? new ConsoleLogger("debug") : undefined,
+  });
 
   const sdk = {
     LoginStatus,
@@ -31,11 +35,19 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     streamClientFor: streamClients.streamClientFor,
     closeStreamClients: streamClients.closeStreamClients,
 
-    /** Open the raw Annex-B Readable for a camera on the given client. */
-    async openFeed(client, sn) {
+    /**
+     * Open the raw Annex-B Readable for a camera on the given client.
+     *
+     * `powered` (the bridge's evidence-based verdict from cameras.mjs) is forwarded as the SDK's live
+     * `powered` hint. The SDK otherwise infers it from the `battery` capability, which it grants to some
+     * mains models (Floodlight E340/2 Pro, doorbells), so it arms a ~45 s battery budget and tears the
+     * stream down mid-flight — an always-on wired camera then flaps every budget cycle. Telling it "wired"
+     * disables that budget; a real battery camera keeps the SDK default so its budget still applies.
+     */
+    async openFeed(client, sn, { powered } = {}) {
       const cam = (await client.getDevice(sn)).camera?.();
       if (!cam?.openReadable) throw new Error(`${sn}: no live video (not a camera or openReadable unavailable)`);
-      return cam.openReadable();
+      return cam.openReadable(powered ? { powered: "wired" } : {});
     },
 
     /** Manifest + power source for the /api shape. */

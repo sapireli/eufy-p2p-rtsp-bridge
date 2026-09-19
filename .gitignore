@@ -11,3 +11,5 @@ dist/
 server/config.yaml
 server/bin/
 server/spike-out/
+run.log
+server/run.log

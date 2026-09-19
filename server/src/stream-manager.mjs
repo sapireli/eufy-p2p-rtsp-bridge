@@ -92,10 +92,10 @@ export function createStreamManager(ctx) {
   async function openFeedInto(slot, sn) {
     if (slot.feed) return; // opened while queued
     try {
-      const client = await ctx.sdk.streamClientFor(sn);
+      const client = await ctx.sdk.streamClientFor(sn, ctx.getCamera?.(sn)?.stationSn);
       slot.client = client;
       ctx.attachLanGuard?.(client, sn);
-      const feed = await ctx.sdk.openFeed(client, sn);
+      const feed = await ctx.sdk.openFeed(client, sn, { powered: ctx.getCamera?.(sn)?.powered });
       slot.feed = feed;
       slot.startedAt = Date.now();
       feed.on("data", (chunk) => onChunk(slot, chunk));
