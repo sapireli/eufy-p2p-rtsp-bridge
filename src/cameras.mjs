@@ -34,7 +34,7 @@ export function createCameras(ctx) {
       const enabled = c.enabled ?? !m.battery;
       const modelKey = String(m.model ?? "").slice(0, 5).toUpperCase();
       const isDual = modelKey in DUAL_MODELS;
-      if (!enabled && !(m.sn in ctx.cfg.cameras)) console.log(`[bridge] ${m.sn} (${m.name}) is battery-powered — skipped in phase 1 (set cameras.${m.sn}.enabled: true to force)`);
+      if (m.battery && c.enabled == null) console.log(`[bridge] ${m.sn} (${m.name}) is battery-powered — skipped in phase 1 (set cameras.${m.sn}.enabled: true to force)`);
       out.push({
         sn: m.sn,
         name: c.name ?? m.name,

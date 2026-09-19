@@ -61,3 +61,32 @@ test("DUAL_MODELS map", () => {
   assert.equal(DUAL_MODELS.T8425, 6243);
   assert.equal(DUAL_MODELS.T8213, 2700);
 });
+
+test("battery camera with name override (no enabled key) logs exclusion", async () => {
+  const logs = [];
+  const origLog = console.log;
+  console.log = (...args) => logs.push(args.join(" "));
+  try {
+    const c = createCameras(ctxWith([batt], { T8113B: { name: "Custom Yard" } }));
+    await c.refreshCameras();
+    assert.equal(c.getCamera("T8113B").enabled, false);
+    assert.equal(c.getCamera("T8113B").name, "Custom Yard");
+    assert.equal(logs.some((l) => l.includes("[bridge] T8113B") && l.includes("battery-powered")), true);
+  } finally {
+    console.log = origLog;
+  }
+});
+
+test("battery camera with explicit enabled: false does not log exclusion", async () => {
+  const logs = [];
+  const origLog = console.log;
+  console.log = (...args) => logs.push(args.join(" "));
+  try {
+    const c = createCameras(ctxWith([batt], { T8113B: { enabled: false } }));
+    await c.refreshCameras();
+    assert.equal(c.getCamera("T8113B").enabled, false);
+    assert.equal(logs.some((l) => l.includes("[bridge] T8113B") && l.includes("battery-powered")), false);
+  } finally {
+    console.log = origLog;
+  }
+});
