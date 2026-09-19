@@ -38,3 +38,12 @@ test("annex-b helpers behave", () => {
   assert.equal(sets.codec, "h264");
   assert.equal(sdk.extractParamSets(Buffer.from([0,0,0,1,0x41,0x9a,0x00])), undefined, "delta frame → no sets");
 });
+
+test("P2PSession exposes connectAddress and close (used by lan-guard)", () => {
+  // The SDK ships as one bundled dist/index.js (no separate transport/p2p/p2p-session.js), so read the
+  // same entry file the version/exports checks above resolve and grep it for the internals sdk-adapter.mjs
+  // relies on (sessionPeerHost reads connectAddress; closeSession calls close()).
+  const src = readFileSync(entryPath, "utf8");
+  assert.match(src, /this\.connectAddress = /, "connectAddress field assigned on connect");
+  assert.match(src, /async close\(\)/, "close() method");
+});
