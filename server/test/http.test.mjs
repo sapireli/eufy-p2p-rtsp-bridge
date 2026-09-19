@@ -87,3 +87,23 @@ test("auth endpoints drive login", async () => {
     assert.equal((await fetch(`${base}/auth/tfa`, { method: "POST" })).status, 400);
   });
 });
+
+test("a synchronous throw inside the handler answers 500 instead of hanging the socket", async () => {
+  const ctx = ctxWith({ listCameras: () => { throw new Error("boom"); } });
+  const logs = [];
+  const origError = console.error;
+  console.error = (...a) => logs.push(a.join(" "));
+  try {
+    await withServer(ctx, async (base) => {
+      const r = await fetch(`${base}/api/cameras`, { signal: AbortSignal.timeout(2000) });
+      assert.equal(r.status, 500);
+      assert.deepEqual(await r.json(), { error: "boom" });
+      // Malformed Host header → `new URL` throws before any route ran.
+      const bad = await fetch(`${base}/healthz`, { headers: { host: "not a host:xx" }, signal: AbortSignal.timeout(2000) });
+      assert.equal(bad.status, 500);
+    });
+    assert.equal(logs.length, 2);
+  } finally {
+    console.error = origError;
+  }
+});

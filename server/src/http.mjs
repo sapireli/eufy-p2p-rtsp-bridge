@@ -41,6 +41,18 @@ export function createHttpHandler(ctx) {
   }
 
   return async function handle(req, res) {
+    try {
+      return await route(req, res);
+    } catch (e) {
+      // A throw before/without a response (e.g. malformed URL or Host header) must not leave the socket
+      // hanging open; once headers are out there is nothing safe left to write, so just close.
+      console.error(`[bridge] ${req.method} ${req.url}: ${e?.stack ?? e}`);
+      if (res.headersSent) return res.destroy();
+      return json(res, 500, { error: String(e?.message ?? e) });
+    }
+  };
+
+  async function route(req, res) {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
     const [, kind, arg] = url.pathname.split("/");
     const host = (req.headers.host ?? "127.0.0.1").replace(/:\d+$/, "");
@@ -90,5 +102,5 @@ export function createHttpHandler(ctx) {
     }
 
     return json(res, 404, { error: "not found" });
-  };
+  }
 }
