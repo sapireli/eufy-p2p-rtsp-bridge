@@ -12,6 +12,7 @@ import { createStreamManager } from "./src/stream-manager.mjs";
 import { createLanGuard } from "./src/lan-guard.mjs";
 import { createGo2rtc } from "./src/go2rtc.mjs";
 import { createHttpHandler } from "./src/http.mjs";
+import { installRecoveryRepin } from "./src/recovery.mjs";
 import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
 import { createWatchdog } from "./src/vendor/ha-bridge/watchdog.mjs";
 
@@ -30,6 +31,7 @@ Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), cre
 // Guard every per-camera client from the moment it exists: pins.mjs opens its P2P session (and fires
 // p2pConnect) before the stream manager ever sees it.
 hooks.onStreamClient = (client, sn) => ctx.attachLanGuard(client, sn);
+installRecoveryRepin(ctx); // pins re-applied after watchdog / kicked-session re-logins
 
 /** Runs once after the first successful login (re-auth calls it again and it returns immediately). */
 ctx.completeBoot = async function completeBoot() {
