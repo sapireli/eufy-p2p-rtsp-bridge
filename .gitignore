@@ -8,3 +8,6 @@ dist/
 .DS_Store
 .worktrees/
 .superpowers/
+server/config.yaml
+server/bin/
+server/spike-out/
