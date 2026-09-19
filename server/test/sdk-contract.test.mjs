@@ -28,6 +28,7 @@ test("EufyMega instance methods used by the bridge", () => {
   assert.equal(typeof eufy.pollIntervalMs, "number");
   // Internal escape hatch used by pins.mjs for the dual-view raw command (no public capability yet).
   assert.equal(typeof eufy.commandSinkFor, "function", "commandSinkFor (private in TS, reachable in JS)");
+  assert.equal(typeof eufy.commandContext, "function", "commandContext (private in TS; supplies the device channel for set-payload)");
 });
 
 test("annex-b helpers behave", () => {

@@ -54,12 +54,15 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
 
     /**
      * Raw SET_PAYLOAD (1350) sub-command on a device channel — the escape hatch for settings the SDK has
-     * no capability for yet (dual-lens view mode 6243/2700). Uses the SDK's private commandSinkFor; the
-     * contract test asserts it exists. Replace with a public capability once upstream ships one.
+     * no capability for yet (dual-lens view mode 6243/2700). Uses the SDK's private commandContext (for
+     * the device's HomeBase channel — a SET_PAYLOAD without it goes to channel 0, i.e. the wrong device
+     * on a multi-camera station) and commandSinkFor; the contract test asserts both exist. Replace with
+     * a public capability once upstream ships one.
      */
     async sendSetPayload(client, sn, cmd, payload) {
+      const { channel } = await client.commandContext(sn);
       const sink = client.commandSinkFor(sn);
-      await sink.dispatch({ kind: "set-payload", cmd, payload, mValue3: 0 });
+      await sink.dispatch({ kind: "set-payload", cmd, payload, channel, mValue3: 0 });
     },
 
     /** The IP the P2P session for `stationSn` is talking to, or undefined if unknown/not connected. */
