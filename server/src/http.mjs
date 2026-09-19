@@ -74,6 +74,34 @@ export function createHttpHandler(ctx) {
       });
     }
     if (kind === "auth") return auth(req, res, url, arg);
+
+    // DEBUG API — loopback only. Lets the operator drive LAN experiments through the (LAN-permitted)
+    // bridge process over 127.0.0.1, since a process without macOS Local Network permission still reaches
+    // loopback. Gated by BRIDGE_DEBUG and a same-host check.
+    if (kind === "debug") {
+      const remote = req.socket.remoteAddress ?? "";
+      const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+      if (!ctx.DEBUG || !isLocal) return json(res, 404, { error: "not found" });
+      if (arg === "p2p") {
+        // Active P2P sessions on the control client (stream clients are separate instances).
+        const sessions = [...(ctx.eufy.getP2pSessions?.() ?? new Map())].map(([sn, s]) => ({
+          station: sn, connected: s.connected === true, peer: s.connectAddress?.host, hasLevel2: s.hasLevel2Key,
+        }));
+        return json(res, 200, { sessions });
+      }
+      if (arg === "probe-sessions") {
+        const sns = (url.searchParams.get("sns") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        if (!sns.length) return json(res, 400, { error: "?sns=SN1,SN2" });
+        const seconds = Math.min(Number(url.searchParams.get("seconds") ?? 30), 120);
+        // Fire-and-forget: opening sessions can block on a connect timeout, so don't hold the HTTP
+        // response. Progress + result land in run.log as [probe] lines; poll /debug/probe-result.
+        void ctx.sdk.probeSessions(sns, { seconds });
+        return json(res, 202, { started: true, sns, seconds, poll: "/debug/probe-result" });
+      }
+      if (arg === "probe-result") return json(res, 200, ctx.sdk.getLastProbe() ?? { status: "no probe run yet" });
+      return json(res, 404, { error: "debug: unknown probe" });
+    }
+
     if (!flags.ready) return json(res, 503, { error: "not authenticated", auth: ctx.authStatus() });
 
     if (url.pathname === "/api/cameras") return json(res, 200, ctx.listCameras().map((c) => ctx.apiShape(c, host)));

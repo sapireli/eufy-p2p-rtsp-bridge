@@ -26,14 +26,61 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     logger: DEBUG ? new ConsoleLogger("debug") : undefined,
   });
 
+  let lastProbe = null; // most recent /debug/probe-sessions result, for polling over loopback
+
   const sdk = {
     LoginStatus,
     extractParamSets,
     codedGeometry,
 
-    /** Dedicated per-camera EufyMega (adapted upstream workaround: one P2P session per streaming camera). */
+    /** Shared per-station EufyMega (one P2P session per station, cameras multiplexed by channel). */
     streamClientFor: streamClients.streamClientFor,
     closeStreamClients: streamClients.closeStreamClients,
+
+    /**
+     * DEBUG probe: open N throwaway P2P sessions (one fresh client each) to the given cameras at once and
+     * report which deliver bytes. Answers "can this host hold multiple concurrent sessions to one HomeBase?"
+     * without touching the live bridge. Each client logs in against the shared session file (hydrate, no
+     * re-login) and is torn down after `seconds`. Returns per-sn {connected,bytes,error}.
+     */
+    async probeSessions(sns, { seconds = 30, powered = true } = {}) {
+      const local = cfg.lan?.stationAddresses ?? {};
+      const mkOpts = () => ({
+        email: cfg.email, password: cfg.password, countryCode: cfg.country,
+        store: new FileSessionStore(cfg.session),
+        localAddresses: Object.keys(local).length ? local : undefined,
+        logger: DEBUG ? new ConsoleLogger("debug") : undefined,
+      });
+      const results = Object.fromEntries(sns.map((sn) => [sn, { connected: false, bytes: 0, error: null }]));
+      const clients = [];
+      console.log(`[probe] opening ${sns.length} concurrent session(s): ${sns.join(", ")} (${seconds}s)`);
+      await Promise.all(sns.map(async (sn) => {
+        const client = new EufyMega(mkOpts());
+        clients.push(client);
+        client.on("error", (e) => { results[sn].error ??= String(e?.message ?? e); });
+        try {
+          const r = await client.login();
+          if (r.status !== LoginStatus.Ok) throw new Error(`login ${r.status}`);
+          const cam = (await client.getDevice(sn)).camera?.();
+          if (!cam?.openReadable) throw new Error("no camera/openReadable");
+          const feed = await cam.openReadable(powered ? { powered: "wired" } : {});
+          feed.on("data", (c) => {
+            if (!results[sn].connected) console.log(`[probe] ${sn}: FIRST BYTES (concurrent session connected)`);
+            results[sn].connected = true; results[sn].bytes += c.length;
+          });
+          feed.on("error", (e) => { results[sn].error ??= String(e?.message ?? e); });
+        } catch (e) {
+          results[sn].error ??= String(e?.message ?? e);
+          console.log(`[probe] ${sn}: open failed: ${results[sn].error}`);
+        }
+      }));
+      await new Promise((r) => setTimeout(r, seconds * 1000));
+      await Promise.all(clients.map((c) => c.disconnect?.().catch(() => {})));
+      lastProbe = { at: new Date().toISOString(), seconds, results };
+      console.log(`[probe] RESULT: ${sns.map((sn) => `${sn}=${results[sn].connected ? `STREAMING(${results[sn].bytes}B)` : `no(${results[sn].error ?? "no bytes"})`}`).join("  ")}`);
+      return results;
+    },
+    getLastProbe() { return lastProbe; },
 
     /**
      * Open the raw Annex-B Readable for a camera on the given client.
