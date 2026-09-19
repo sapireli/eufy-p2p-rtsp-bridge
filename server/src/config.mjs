@@ -61,9 +61,10 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
       stallMs: Number(raw.stall?.stall_ms ?? 30_000),
       gapMs: Number(raw.stall?.gap_ms ?? 45_000),
       exitAfterMs: Number(raw.stall?.exit_after_ms ?? 300_000),
-      // After this many consecutive open failures, recreate the stream client (fresh P2P session) — a
-      // reused session can stay wedged when the device still holds the dropped one. See stream-manager.
-      recreateClientAfter: Number(raw.stall?.recreate_client_after ?? 3),
+      // Tear the station's P2P session down before EVERY reopen (1 = each failure): a reused session keeps
+      // targeting the same stale looked-up port, so a full teardown forces a fresh lookup that picks up the
+      // station's current live port. Raise it to teardown less often. See stream-manager openFeedInto.
+      recreateClientAfter: Number(raw.stall?.recreate_client_after ?? 1),
       // The socket-sweep connect is reliable (it retries dropped probes continuously), so a reopen means
       // a real session drop, not a flaky connect — recover fast rather than backing off to a full minute.
       backoffMs: raw.stall?.backoff_ms ?? [1000, 2000, 4000, 8000],

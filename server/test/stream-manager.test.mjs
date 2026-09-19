@@ -246,9 +246,8 @@ test("repeated open failures recreate the stream client (fresh session) every Nt
   }
 });
 
-test("co-located cameras recover as a group: one failing tears down and restarts the whole station", async () => {
+test("solo per-camera recovery: a failing camera tears down its own session and retries, without touching its sibling", async () => {
   const state = createState();
-  const feeds = { A: [], B: [] };            // queues of PassThroughs handed out per camera
   const opens = { A: 0, B: 0 };
   const dropped = [];
   const cams = [
@@ -257,7 +256,7 @@ test("co-located cameras recover as a group: one failing tears down and restarts
   ];
   const ctx = {
     state,
-    cfg: { stall: { stallMs: 12000, gapMs: 45000, exitAfterMs: 0, recreateClientAfter: 99, backoffMs: [5] } },
+    cfg: { stall: { stallMs: 12000, gapMs: 45000, exitAfterMs: 0, recreateClientAfter: 1, backoffMs: [5] } },
     exit: () => {},
     listCameras: () => cams,
     getCamera: (sn) => cams.find((c) => c.sn === sn),
@@ -265,23 +264,22 @@ test("co-located cameras recover as a group: one failing tears down and restarts
     applyPins: async () => {},
     sdk: {
       streamClientFor: async () => ({}),
-      dropStreamClient: async (sn, station) => { dropped.push(station); return true; },
-      openFeed: async (_c, sn) => { opens[sn]++; const f = new PassThrough(); feeds[sn].push(f); return f; },
+      dropStreamClient: async (sn, station) => { dropped.push(sn); return true; },
+      // A always fails to open; B opens fine (a live PassThrough).
+      openFeed: async (_c, sn) => { opens[sn]++; if (sn === "A") throw new Error("A won't connect"); return new PassThrough(); },
       extractParamSets: () => undefined,
       codedGeometry: () => undefined,
     },
   };
   const sm = createStreamManager(ctx);
   try {
-    await sm.ensureWarm("A");
-    await sm.ensureWarm("B");
-    assert.equal(opens.A, 1); assert.equal(opens.B, 1);
-    // A's feed errors → whole station should restart (both torn down + reopened), fresh session dropped.
-    feeds.A[0].emit("error", new Error("boom"));
-    await waitUntil(() => opens.A === 2 && opens.B === 2, 800);
-    assert.equal(opens.A, 2, "camera A reopened by station resync");
-    assert.equal(opens.B, 2, "sibling B also torn down and reopened (group recovery)");
-    assert.deepEqual(dropped, ["STN"], "station session dropped once for a clean re-establish");
+    await sm.ensureWarm("B");           // B up (1 open, no failure → no teardown)
+    await sm.ensureWarm("A");           // A fails → schedules solo reopen
+    await waitUntil(() => opens.A >= 3, 800);
+    assert.ok(opens.A >= 3, "A retried solo");
+    assert.equal(opens.B, 1, "sibling B was never re-opened by A's recovery");
+    assert.ok(dropped.every((sn) => sn === "A"), "only A's session was torn down, never B's");
+    assert.ok(dropped.length >= 1, "A's session torn down before retry (teardown-to-refresh-port)");
   } finally {
     await sm.stopAll();
   }

@@ -13,7 +13,7 @@ const entryPath = fileURLToPath(import.meta.resolve("@mega-yfue/eufy-sdk"));
 const pkgRoot = dirname(dirname(entryPath)); // dist/index.js -> dist -> root
 const version = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")).version;
 
-test("pinned sdk version", () => assert.equal(version, "0.1.1"));
+test("pinned sdk version", () => assert.equal(version, "0.2.0-beta.22"));
 
 test("exports used by the bridge exist", () => {
   for (const name of ["EufyMega", "FileSessionStore", "LoginStatus", "ConsoleLogger", "extractParamSets", "codedGeometry"])

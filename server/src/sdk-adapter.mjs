@@ -1,7 +1,6 @@
 // The ONLY non-vendored file that imports @mega-yfue/eufy-sdk. Everything the bridge needs from the SDK
 // is re-exposed here with stable names, so an SDK API change is a one-file edit (+ the contract test).
 import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry } from "@mega-yfue/eufy-sdk";
-import { createStreamClients } from "./stream-clients.mjs";
 
 /**
  * @param {object} o
@@ -20,12 +19,6 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     logger: DEBUG ? new ConsoleLogger("debug") : undefined,
   });
 
-  const streamClients = createStreamClients({
-    cfg,
-    onClient: (client, sn) => hooks.onStreamClient?.(client, sn),
-    logger: DEBUG ? new ConsoleLogger("debug") : undefined,
-  });
-
   let lastProbe = null; // most recent /debug/probe-sessions result, for polling over loopback
 
   const sdk = {
@@ -33,10 +26,27 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     extractParamSets,
     codedGeometry,
 
-    /** Shared per-station EufyMega (one P2P session per station, cameras multiplexed by channel). */
-    streamClientFor: streamClients.streamClientFor,
-    dropStreamClient: streamClients.dropClient,
-    closeStreamClients: streamClients.closeStreamClients,
+    /**
+     * SINGLE client for control + all streams. The beta SDK opens a dedicated per-camera media session
+     * ("<stationSn>#live:<channel>") on demand, so one logged-in client streams every camera — including
+     * multiple cameras off one HomeBase concurrently — with no extra logins. This replaces the old
+     * per-camera-client workaround (streams.mjs), which predated the SDK's per-camera sessions and caused
+     * self-contention: multiple logins on one account/identity displace each other's cloud session, which
+     * silently breaks the DSK/cipher lookups a P2P connect needs. One client, one identity, no contention.
+     */
+    streamClientFor: async () => eufy,
+    /** Tear down the station's P2P session (control + its media sessions) so the next open re-lookups a
+     *  fresh port. Returns whether a session existed to close. */
+    async dropStreamClient(sn, stationSn) {
+      const key = stationSn ?? sn;
+      const sessions = eufy.getP2pSessions?.() ?? new Map();
+      let closed = false;
+      for (const [k, s] of sessions) {
+        if (k === key || String(k).startsWith(`${key}#`)) { await s.close?.().catch?.(() => {}); closed = true; }
+      }
+      return closed;
+    },
+    async closeStreamClients() { /* single client is owned by createSdk; disconnected on shutdown elsewhere */ },
 
     /**
      * DEBUG probe: open N throwaway P2P sessions (one fresh client each) to the given cameras at once and

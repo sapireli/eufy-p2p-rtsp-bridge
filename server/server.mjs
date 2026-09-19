@@ -8,6 +8,9 @@ import fs from "node:fs";
 for (const f of [process.env.BRIDGE_ENV, "./local.env"]) {
   if (f && fs.existsSync(f)) { try { process.loadEnvFile(f); } catch {} }
 }
+// TEST toggle: a `.no-sweep` marker file disables the SDK local-port sweep so the beta SDK's native
+// cloud-brokered per-camera connect can be evaluated on its own. Remove the file to restore the sweep.
+if (fs.existsSync("./.no-sweep")) { globalThis.__ewNoSweep = true; console.log("[bridge] .no-sweep present — SDK port sweep DISABLED (testing native connect)"); }
 import { loadConfig } from "./src/config.mjs";
 import { createState } from "./src/state.mjs";
 import { createSdk } from "./src/sdk-adapter.mjs";
