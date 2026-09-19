@@ -6,3 +6,5 @@ client/bin/
 dist/
 *.log
 .DS_Store
+.worktrees/
+.superpowers/
