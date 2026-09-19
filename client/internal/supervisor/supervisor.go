@@ -54,10 +54,12 @@ func Run(ctx context.Context, bin string, args []string, r config.Restart, log f
 		}
 		cmd := exec.Command(bin, args...)
 		cmd.Env = append(os.Environ(), "GST_DEBUG_NO_COLOR=1")
-		stdout, _ := cmd.StdoutPipe()
-		stderr, _ := cmd.StderrPipe()
+		stdout, stdoutErr := cmd.StdoutPipe()
+		stderr, stderrErr := cmd.StderrPipe()
 		start := time.Now()
-		if err := cmd.Start(); err != nil {
+		if stdoutErr != nil || stderrErr != nil {
+			log(fmt.Sprintf("pipe failed: stdout=%v stderr=%v", stdoutErr, stderrErr))
+		} else if err := cmd.Start(); err != nil {
 			log(fmt.Sprintf("start failed: %v", err))
 		} else {
 			log(fmt.Sprintf("started pid %d", cmd.Process.Pid))

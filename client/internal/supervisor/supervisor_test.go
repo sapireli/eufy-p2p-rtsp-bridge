@@ -46,6 +46,41 @@ func TestRestartsWithBackoffAndStopsOnCancel(t *testing.T) {
 	}
 }
 
+func TestStartFailureKeepsLoopingUntilCancel(t *testing.T) {
+	var mu sync.Mutex
+	var lines []string
+	log := func(s string) { mu.Lock(); lines = append(lines, s); mu.Unlock() }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, "eufy-wall-does-not-exist-xyz", nil, config.Restart{MinSeconds: 0, MaxSeconds: 0, StableSeconds: 60}, log)
+	}()
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after cancel")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	failures, restarts := 0, 0
+	for _, l := range lines {
+		if strings.Contains(l, "start failed") {
+			failures++
+		}
+		if strings.Contains(l, "restarting in") {
+			restarts++
+		}
+	}
+	if failures < 2 || restarts < 2 {
+		t.Fatalf("expected repeated start failures and restarts, got failures=%d restarts=%d lines=%v", failures, restarts, lines)
+	}
+}
+
 func TestBackoffSchedule(t *testing.T) {
 	r := config.Restart{MinSeconds: 1, MaxSeconds: 8, StableSeconds: 60}
 	b := newBackoff(r)
