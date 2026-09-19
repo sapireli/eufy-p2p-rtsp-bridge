@@ -1,11 +1,14 @@
 #!/usr/bin/env node
-// Idempotent postinstall patch for @mega-yfue/eufy-sdk.
+// Idempotent postinstall patches for @mega-yfue/eufy-sdk. Re-run automatically on `npm install`; safe to
+// run repeatedly (each patch is skipped when its marker is already present). If a block can't be found the
+// SDK version likely changed — we warn and exit 0 (never fail the install). See docs/hb3-local-port.md.
 //
-// The SDK has no HomeBase-3 local-connect path: the cloud only exposes a NAT-translated P2P port, and
-// the device's real local port is a per-session mapping bound to the connecting socket. This patch makes
-// the P2P session, when a LAN address is pinned (localAddresses), sweep CHECK_CAM across all local ports
-// ON ITS OWN SOCKET so the CAM_ID reply lands on it and the normal onConnected path fires — a pure-LAN
-// session. See docs/hb3-local-port.md. Re-run automatically on `npm install`; safe to run repeatedly.
+// 1. local-port sweep — HomeBase 3 doesn't answer LOCAL_LOOKUP and the cloud only exposes a NAT'd port;
+//    the real local port is ephemeral and socket-bound, so sweep CHECK_CAM across all local ports on the
+//    session's own socket until CAM_ID arrives (pure-LAN connect).
+// 2. multi-channel — the SDK refuses a second camera on a station session ("one camera at a time"), but
+//    that's a client-side pre-check: an HB3 serves multiple channels on one session (verified live), so a
+//    wall shows co-located cameras at once with no extra IPs. Bypass the refusal unless opted out.
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -17,18 +20,11 @@ try {
   process.exit(0);
 }
 
-const MARK = "_ewSweeping";
-let src = readFileSync(entry, "utf8");
-if (src.includes(MARK)) {
-  console.log("[patch-sdk] local-port sweep patch already present");
-  process.exit(0);
-}
-
-const ORIGINAL =
+const SWEEP_ORIGINAL =
   `    if (this.cfg.localAddress)\n` +
   `      this.send({ host: this.cfg.localAddress, port: LOCAL_LOOKUP_PORT }, RequestMessageType.LOCAL_LOOKUP, localPayload);\n`;
 
-const PATCHED =
+const SWEEP_PATCHED =
   `    if (this.cfg.localAddress) {\n` +
   `      const [lh] = String(this.cfg.localAddress).split(":");\n` +
   `      this.send({ host: lh, port: LOCAL_LOOKUP_PORT }, RequestMessageType.LOCAL_LOOKUP, localPayload);\n` +
@@ -58,14 +54,46 @@ const PATCHED =
   `      }\n` +
   `    }\n`;
 
-if (!src.includes(ORIGINAL)) {
-  console.warn(
-    "[patch-sdk] could not find the expected sendLookups block — the SDK version may have changed. " +
-      "Local HomeBase-3 streaming will NOT work until the patch is updated (see docs/hb3-local-port.md).",
-  );
-  process.exit(0); // don't fail the install
-}
+const MULTI_ORIGINAL =
+  `    if (homeBaseAttached) {\n` +
+  `      const serving = this.occupiedSiblingChannel(parentSn, key);\n` +
+  `      if (serving !== void 0)\n` +
+  `        throw new StationBusyError(serving);\n` +
+  `    }\n`;
 
-src = src.replace(ORIGINAL, PATCHED);
-writeFileSync(entry, src);
-console.log("[patch-sdk] applied local-port sweep patch to @mega-yfue/eufy-sdk");
+const MULTI_PATCHED =
+  `    // eufy-wall patch: allow MULTIPLE cameras (channels) on ONE station session. The "one camera per\n` +
+  `    // session" refusal is a CLIENT-side pre-check, not the station rejecting — an HB3 (T8030) serves two\n` +
+  `    // channels on a single P2P session / single client IP (verified live), so a wall shows co-located\n` +
+  `    // cameras at once with no extra IPs and no hole-punch. releaseLingeringSiblings only releases siblings\n` +
+  `    // with NO consumers, so a watched camera is never dropped. Opt out with globalThis.__ewMultiChannel === false.\n` +
+  `    if (homeBaseAttached && globalThis.__ewMultiChannel === false) {\n` +
+  `      const serving = this.occupiedSiblingChannel(parentSn, key);\n` +
+  `      if (serving !== void 0)\n` +
+  `        throw new StationBusyError(serving);\n` +
+  `    }\n`;
+
+const PATCHES = [
+  { name: "local-port sweep", mark: "_ewSweeping", original: SWEEP_ORIGINAL, patched: SWEEP_PATCHED },
+  { name: "multi-channel", mark: "__ewMultiChannel === false", original: MULTI_ORIGINAL, patched: MULTI_PATCHED },
+];
+
+let src = readFileSync(entry, "utf8");
+let changed = false;
+for (const p of PATCHES) {
+  if (src.includes(p.mark)) {
+    console.log(`[patch-sdk] ${p.name} patch already present`);
+    continue;
+  }
+  if (!src.includes(p.original)) {
+    console.warn(
+      `[patch-sdk] could not find the block for the ${p.name} patch — the SDK version may have changed. ` +
+        "The affected feature will not work until the patch is updated (see docs/hb3-local-port.md).",
+    );
+    continue;
+  }
+  src = src.replace(p.original, p.patched);
+  changed = true;
+  console.log(`[patch-sdk] applied ${p.name} patch to @mega-yfue/eufy-sdk`);
+}
+if (changed) writeFileSync(entry, src);

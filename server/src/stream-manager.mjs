@@ -151,7 +151,8 @@ export function createStreamManager(ctx) {
       // (now-closed) feed must not count as silence against the new one.
       const since = Math.max(slot.lastBytesAt, slot.startedAt);
       const silent = since ? now - since : 0;
-      if (slot.feed && silent >= cfg.stall.stallMs) {
+      const stallMs = globalThis.__ewStallMs ?? cfg.stall.stallMs; // runtime-tunable for multi-channel tests
+      if (slot.feed && silent >= stallMs) {
         slot.stalls++;
         console.warn(`[bridge] ${slot.sn}: no bytes for ${Math.round(silent / 1000)} s — restarting feed (stall #${slot.stalls})`);
         closeFeed(slot);

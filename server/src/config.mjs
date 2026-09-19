@@ -54,7 +54,11 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     },
     cameras: Object.fromEntries(Object.entries(raw.cameras ?? {}).map(([sn, c]) => [sn, cameraEntry(sn, c ?? {})])),
     stall: {
-      stallMs: Number(raw.stall?.stall_ms ?? 12_000),
+      // 30 s, not 12 s: a HomeBase-attached camera can briefly go silent while the station favours a
+      // sibling channel, and the SDK's own LiveStream re-assert recovers it within a few seconds. Tearing
+      // the feed down too eagerly fights that recovery and makes co-located cameras flap. A truly dead
+      // session is caught faster by the SDK's heartbeat (feed error/close), not this timer.
+      stallMs: Number(raw.stall?.stall_ms ?? 30_000),
       gapMs: Number(raw.stall?.gap_ms ?? 45_000),
       exitAfterMs: Number(raw.stall?.exit_after_ms ?? 300_000),
       // The socket-sweep connect is reliable (it retries dropped probes continuously), so a reopen means
