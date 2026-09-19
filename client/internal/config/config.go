@@ -89,6 +89,12 @@ func Parse(data []byte) (*Config, error) {
 	default:
 		return nil, fmt.Errorf("config: sink must be auto|planes|compositor|window (got %q)", c.Sink)
 	}
+	if c.Restart.MinSeconds < 1 {
+		return nil, fmt.Errorf("config: restart.min_seconds must be >= 1 (got %d)", c.Restart.MinSeconds)
+	}
+	if c.Restart.MaxSeconds < c.Restart.MinSeconds {
+		return nil, fmt.Errorf("config: restart.max_seconds (%d) must be >= restart.min_seconds (%d)", c.Restart.MaxSeconds, c.Restart.MinSeconds)
+	}
 	if len(c.Tiles) == 0 {
 		return nil, fmt.Errorf("config: at least one tile is required")
 	}
