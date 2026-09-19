@@ -8,6 +8,11 @@ export function createStreamManager(ctx) {
   const exit = (code) => (ctx.exit ?? process.exit)(code);
   const slotFor = (sn) => state.slots.get(sn) ?? state.slots.set(sn, newSlot(sn)).get(sn);
   const stationChains = new Map(); // parentStationSn -> Promise: serialises P2P opens per HomeBase
+  const stationRestart = new Map(); // station -> { timer, idx }: coordinated restart backoff for co-located cams
+
+  /** Enabled cameras on a station (a standalone camera is its own station). */
+  const camsForStation = (station) =>
+    (ctx.listCameras?.() ?? []).filter((c) => c.enabled && (c.stationSn ?? c.sn) === station);
 
   function onChunk(slot, chunk) {
     const now = Date.now();
@@ -16,6 +21,8 @@ export function createStreamManager(ctx) {
     slot.failures = 0;
     slot.backoffIdx = 0;
     slot.gapFired = false; // bytes are flowing again → allow one fresh gap-disconnect if it stalls later
+    const st = stationRestart.get(ctx.getCamera?.(slot.sn)?.stationSn ?? slot.sn);
+    if (st) st.idx = 0; // this station is delivering again → reset its coordinated-restart backoff
     if (!state.streaming.has(slot.sn)) {
       state.streaming.add(slot.sn);
       console.log(`[bridge] ${slot.sn}: streaming`);
@@ -43,6 +50,13 @@ export function createStreamManager(ctx) {
   }
 
   function scheduleReopen(slot, why) {
+    // Co-located cameras (>1 enabled camera on the station) recover as a GROUP: a lone re-warm contends
+    // with its still-live sibling for the HomeBase (which serves one camera's start at a time), which
+    // cascades both down. Instead, tear the whole station down and bring every camera back together in one
+    // clean multi-channel establishment — the state that reliably holds. See scheduleStationResync.
+    const station = ctx.getCamera?.(slot.sn)?.stationSn ?? slot.sn;
+    if (camsForStation(station).length > 1) return scheduleStationResync(station, `${slot.sn}: ${why}`);
+
     if (slot.restartTimer) return;
     const delay = cfg.stall.backoffMs[Math.min(slot.backoffIdx, cfg.stall.backoffMs.length - 1)];
     slot.backoffIdx++;
@@ -50,6 +64,32 @@ export function createStreamManager(ctx) {
     slot.restartTimer = setTimeout(() => {
       slot.restartTimer = null;
       void ensureWarm(slot.sn);
+    }, delay);
+  }
+
+  /**
+   * Restart EVERY camera on a station together (debounced, backoff per station). Tears down all their feeds
+   * and the shared P2P session, then re-opens them all — so they re-establish in one clean multi-channel
+   * setup instead of a lone camera fighting its sibling for the station. Backoff resets when bytes flow
+   * again (onChunk). Standalone cameras never reach here (their station has one camera).
+   */
+  function scheduleStationResync(station, why) {
+    let st = stationRestart.get(station);
+    if (st?.timer) return; // a restart is already scheduled for this station
+    if (!st) { st = { timer: null, idx: 0 }; stationRestart.set(station, st); }
+    const delay = cfg.stall.backoffMs[Math.min(st.idx, cfg.stall.backoffMs.length - 1)];
+    st.idx++;
+    const cams = camsForStation(station);
+    console.log(`[bridge] station ${station}: ${why} — restarting all ${cams.length} cameras together in ${delay} ms`);
+    st.timer = setTimeout(async () => {
+      st.timer = null;
+      for (const c of cams) {
+        const s = slotFor(c.sn);
+        if (s.restartTimer) { clearTimeout(s.restartTimer); s.restartTimer = null; }
+        closeFeed(s);
+      }
+      await ctx.sdk.dropStreamClient?.(cams[0]?.sn, station); // fresh session for the whole station
+      for (const c of cams) void ensureWarm(c.sn);
     }, delay);
   }
 

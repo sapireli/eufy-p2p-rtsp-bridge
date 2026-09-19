@@ -100,3 +100,5 @@ process.on("SIGTERM", shutdown);
 process.on("unhandledRejection", (e) => console.error(`[bridge] unhandled rejection: ${e?.stack ?? e}`));
 
 main().catch((e) => { console.error("[bridge] fatal:", e); process.exit(1); });
+
+// eufy-wall: bridge entry (see docs/). Restart marker.

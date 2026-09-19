@@ -245,3 +245,44 @@ test("repeated open failures recreate the stream client (fresh session) every Nt
     await sm.stopAll();
   }
 });
+
+test("co-located cameras recover as a group: one failing tears down and restarts the whole station", async () => {
+  const state = createState();
+  const feeds = { A: [], B: [] };            // queues of PassThroughs handed out per camera
+  const opens = { A: 0, B: 0 };
+  const dropped = [];
+  const cams = [
+    { sn: "A", enabled: true, stationSn: "STN", powered: true },
+    { sn: "B", enabled: true, stationSn: "STN", powered: true },
+  ];
+  const ctx = {
+    state,
+    cfg: { stall: { stallMs: 12000, gapMs: 45000, exitAfterMs: 0, recreateClientAfter: 99, backoffMs: [5] } },
+    exit: () => {},
+    listCameras: () => cams,
+    getCamera: (sn) => cams.find((c) => c.sn === sn),
+    isBlocked: () => false,
+    applyPins: async () => {},
+    sdk: {
+      streamClientFor: async () => ({}),
+      dropStreamClient: async (sn, station) => { dropped.push(station); return true; },
+      openFeed: async (_c, sn) => { opens[sn]++; const f = new PassThrough(); feeds[sn].push(f); return f; },
+      extractParamSets: () => undefined,
+      codedGeometry: () => undefined,
+    },
+  };
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    await sm.ensureWarm("B");
+    assert.equal(opens.A, 1); assert.equal(opens.B, 1);
+    // A's feed errors → whole station should restart (both torn down + reopened), fresh session dropped.
+    feeds.A[0].emit("error", new Error("boom"));
+    await waitUntil(() => opens.A === 2 && opens.B === 2, 800);
+    assert.equal(opens.A, 2, "camera A reopened by station resync");
+    assert.equal(opens.B, 2, "sibling B also torn down and reopened (group recovery)");
+    assert.deepEqual(dropped, ["STN"], "station session dropped once for a clean re-establish");
+  } finally {
+    await sm.stopAll();
+  }
+});
