@@ -1,0 +1,16 @@
+# eufy-wall display client configuration (/etc/eufy-wall.yaml)
+rtsp_base: rtsp://192.168.1.10:8554   # the eufy-wall-bridge server (go2rtc RTSP)
+layout: 1+5                            # 1 | 2x2 | 3x3 | 1+5
+primary_position: left                 # 1+5 only: left | right
+# screen: { width: 1920, height: 1080 }  # omit → auto-detect from /sys/class/drm
+decoder: auto                          # auto | v4l2 (Pi) | va (x86 VAAPI) | software
+sink: auto                             # auto | planes (Pi, one kmssink per tile) | compositor | window (dev)
+# planes: [31, 32, 33, 34, 35, 36]     # DRM overlay plane ids for sink=planes → `modetest -M vc4 -p`
+latency_ms: 200
+tiles:                                 # order = placement order (row-major after the primary)
+  - { camera: T8410XXXXXXXXXXX, role: primary }
+  - { camera: T8214XXXXXXXXXXX, aspect: tall }     # E340 split-view → 1x2 tall tile
+  - { camera: T8420XXXXXXXXXXX }
+  - { camera: T8411XXXXXXXXXXX }
+  - { camera: T8412XXXXXXXXXXX }
+restart: { min_seconds: 1, max_seconds: 30, stable_seconds: 60 }
