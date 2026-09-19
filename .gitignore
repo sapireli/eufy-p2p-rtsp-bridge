@@ -1,0 +1,8 @@
+node_modules/
+server/data/
+server/go2rtc.yaml
+*.env
+client/bin/
+dist/
+*.log
+.DS_Store
