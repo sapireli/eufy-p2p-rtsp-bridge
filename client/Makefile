@@ -2,7 +2,7 @@ BIN=bin/eufy-wall
 PKG=./cmd/eufy-wall
 LDFLAGS=-s -w
 
-.PHONY: test host pi1 pi3 pi64 amd64 all clean
+.PHONY: test host pi1 pi3 pi64 amd64 darwin all clean
 test:
 	go test ./...
 host:
@@ -15,6 +15,9 @@ pi64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(BIN)-arm64 $(PKG)
 amd64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BIN)-amd64 $(PKG)
-all: pi1 pi3 pi64 amd64
+darwin:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(BIN)-darwin-arm64 $(PKG)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BIN)-darwin-amd64 $(PKG)
+all: pi1 pi3 pi64 amd64 darwin
 clean:
 	rm -rf bin
