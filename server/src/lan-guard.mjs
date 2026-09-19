@@ -24,29 +24,34 @@ export function createLanGuard(ctx) {
 
   /** Decide for one connected session. Returns "ok" | "blocked" | "unknown". */
   async function checkSession(client, stationSn, label) {
-    if (!cfg.lan.cidr) return "ok";
-    const host = ctx.sdk.sessionPeerHost(client, stationSn);
-    if (!host) {
-      console.warn(`[bridge] ${label}: P2P connected to ${stationSn} but peer address unknown — cannot verify LAN path`);
+    try {
+      if (!cfg.lan.cidr) return "ok";
+      const host = ctx.sdk.sessionPeerHost(client, stationSn);
+      if (!host) {
+        console.warn(`[bridge] ${label}: P2P connected to ${stationSn} but peer address unknown — cannot verify LAN path`);
+        return "unknown";
+      }
+      if (inCidr(host, cfg.lan.cidr)) {
+        if (state.blocked.delete(label)) console.log(`[bridge] ${label}: LAN path restored via ${host} — unblocked`);
+        return "ok";
+      }
+      if (!cfg.lan.force) {
+        console.warn(`[bridge] ${label}: P2P peer ${host} is outside ${cfg.lan.cidr} (lan.force=false, allowing)`);
+        return "ok";
+      }
+      const reason = `wan-path ${host}`;
+      state.blocked.set(label, reason);
+      console.error(`[bridge] ${label}: P2P peer ${host} is outside ${cfg.lan.cidr} — closing session (force-LAN)`);
+      try {
+        await ctx.sdk.closeSession(client, stationSn);
+      } catch (e) {
+        console.error(`[bridge] ${label}: close after WAN detect failed: ${e?.message ?? e}`);
+      }
+      return "blocked";
+    } catch (e) {
+      console.error(`[bridge] ${label}: LAN check failed: ${e?.message ?? e}`);
       return "unknown";
     }
-    if (inCidr(host, cfg.lan.cidr)) {
-      if (state.blocked.delete(label)) console.log(`[bridge] ${label}: LAN path restored via ${host} — unblocked`);
-      return "ok";
-    }
-    if (!cfg.lan.force) {
-      console.warn(`[bridge] ${label}: P2P peer ${host} is outside ${cfg.lan.cidr} (lan.force=false, allowing)`);
-      return "ok";
-    }
-    const reason = `wan-path ${host}`;
-    state.blocked.set(label, reason);
-    console.error(`[bridge] ${label}: P2P peer ${host} is outside ${cfg.lan.cidr} — closing session (force-LAN)`);
-    try {
-      await ctx.sdk.closeSession(client, stationSn);
-    } catch (e) {
-      console.error(`[bridge] ${label}: close after WAN detect failed: ${e?.message ?? e}`);
-    }
-    return "blocked";
   }
 
   /** Subscribe once per EufyMega client (the control client and each per-camera stream client). */
