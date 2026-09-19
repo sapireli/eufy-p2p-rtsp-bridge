@@ -52,5 +52,6 @@ KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the 
   the supervisor restarts the pipeline; upgrade the kernel (`sudo apt full-upgrade`).
 - One camera down restarts the whole wall (single pipeline) — expected in Phase 1; the bridge keeps the
   others warm so they return in ~2 s.
-- Too slow (dropped frames, CPU > 80 %) → lower secondaries' quality on the server (`cameras.<sn>.quality:
-  "HD (720P)"`) or use a smaller layout.
+- Too slow (dropped frames, CPU > 80 %) → lower the secondaries' streaming quality to 720p in the eufy
+  app (camera → Settings → Video → Streaming quality; the bridge cannot set it — see the server runbook)
+  or use a smaller layout.
