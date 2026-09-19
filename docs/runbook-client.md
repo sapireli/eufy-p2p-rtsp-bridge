@@ -7,9 +7,12 @@
 - Cameras must stream **H.264** (the bridge's /api/cameras shows `codec`). The Pi has no HEVC decoder.
 
 ## Install
+The install script expects the repo layout (`deploy/` next to `client/`), so copy both directories:
+
     make pi3            # on your workstation (or pi1 / pi64 / amd64) → client/bin/eufy-wall-armv7
-    scp client/bin/eufy-wall-armv7 pi:/tmp/ ; scp -r deploy client/config.example.yaml pi:/tmp/
-    sudo deploy/install-client.sh /tmp/eufy-wall-armv7
+    ssh pi 'mkdir -p /tmp/eufy-wall' && scp -r deploy client pi:/tmp/eufy-wall/
+    ssh pi
+    sudo /tmp/eufy-wall/deploy/install-client.sh /tmp/eufy-wall/client/bin/eufy-wall-armv7
     sudo nano /etc/eufy-wall.yaml      # rtsp_base → your server, tiles, layout
     eufy-wall -config /etc/eufy-wall.yaml -dry-run   # shows the tile table + the gst-launch line
     sudo systemctl start eufy-wall && journalctl -fu eufy-wall

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Install eufy-wall on a Raspberry Pi (OS Lite, Bookworm/Trixie) or Debian x86 box. Run as root from the
-# repo root after building the binary (make pi1|pi3|pi64|amd64) or with a downloaded release binary.
-#   sudo deploy/install-client.sh client/bin/eufy-wall-armv7
+# Install eufy-wall on a Raspberry Pi (OS Lite, Bookworm/Trixie) or Debian x86 box. Run as root after
+# building the binary (make pi1|pi3|pi64|amd64) or with a downloaded release binary. Expects the repo
+# layout around it (deploy/ next to client/ — `scp -r deploy client pi:/tmp/eufy-wall/`):
+#   sudo /tmp/eufy-wall/deploy/install-client.sh /tmp/eufy-wall/client/bin/eufy-wall-armv7
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run as root"; exit 1; }
 BIN=${1:?path to eufy-wall binary}
@@ -14,7 +15,13 @@ apt-get install -y gstreamer1.0-vaapi gstreamer1.0-libav 2>/dev/null || true
 
 install -m 755 "$BIN" /usr/local/bin/eufy-wall
 id -u wall >/dev/null 2>&1 || useradd --system --shell /usr/sbin/nologin --groups video,render wall
-[[ -f /etc/eufy-wall.yaml ]] || { cp "$REPO/client/config.example.yaml" /etc/eufy-wall.yaml; echo "edit /etc/eufy-wall.yaml"; }
+if [[ ! -f /etc/eufy-wall.yaml ]]; then
+  if [[ -f "$REPO/client/config.example.yaml" ]]; then
+    cp "$REPO/client/config.example.yaml" /etc/eufy-wall.yaml; echo "edit /etc/eufy-wall.yaml"
+  else
+    echo "warning: $REPO/client/config.example.yaml not found — write /etc/eufy-wall.yaml by hand (see docs/runbook-client.md)" >&2
+  fi
+fi
 cp "$REPO/deploy/eufy-wall.service" /etc/systemd/system/
 systemctl daemon-reload && systemctl enable eufy-wall
 
