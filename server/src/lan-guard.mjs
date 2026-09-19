@@ -21,6 +21,7 @@ export function inCidr(ip, cidr) {
 export function createLanGuard(ctx) {
   const { cfg, state } = ctx;
   const attached = new WeakSet();
+  const seen = new Set(); // label:station:host already announced
 
   /** Decide for one connected session. Returns "ok" | "blocked" | "unknown". */
   async function checkSession(client, stationSn, label) {
@@ -33,6 +34,8 @@ export function createLanGuard(ctx) {
       }
       if (inCidr(host, cfg.lan.cidr)) {
         if (state.blocked.delete(label)) console.log(`[bridge] ${label}: LAN path restored via ${host} — unblocked`);
+        else if (!seen.has(`${label}:${stationSn}:${host}`)) console.log(`[bridge] ${label}: P2P peer ${host} for ${stationSn} (LAN)`);
+        seen.add(`${label}:${stationSn}:${host}`);
         return "ok";
       }
       if (!cfg.lan.force) {

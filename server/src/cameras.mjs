@@ -56,11 +56,17 @@ export function createCameras(ctx) {
       const modelKey = String(m.model ?? "").slice(0, 5).toUpperCase();
       const isDual = modelKey in DUAL_MODELS;
       if (!powered && c.enabled == null) console.log(`[bridge] ${m.sn} (${m.name}) is battery-powered — skipped in phase 1 (set cameras.${m.sn}.enabled: true to force)`);
+      // Parent station (HomeBase) serial; equals the camera's own sn for a standalone camera. Used to
+      // serialise per-HomeBase P2P session opens (so their level-2 E2E keys don't race) and to decide
+      // which cameras need the local-port sweep (HomeBase-attached only).
+      const stationSn = d.stationSn ?? d.raw?.station_sn ?? m.sn;
       out.push({
         sn: m.sn,
         name: c.name ?? m.name,
         model: m.model,
         modelName: m.modelName,
+        stationSn,
+        standalone: stationSn === m.sn,
         battery: m.battery,
         powered,
         enabled,

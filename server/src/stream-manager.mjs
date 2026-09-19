@@ -7,6 +7,7 @@ export function createStreamManager(ctx) {
   const { state, cfg } = ctx;
   const exit = (code) => (ctx.exit ?? process.exit)(code);
   const slotFor = (sn) => state.slots.get(sn) ?? state.slots.set(sn, newSlot(sn)).get(sn);
+  const stationChains = new Map(); // parentStationSn -> Promise: serialises P2P opens per HomeBase
 
   function onChunk(slot, chunk) {
     const now = Date.now();
@@ -14,6 +15,7 @@ export function createStreamManager(ctx) {
     slot.firstFailureAt = 0;
     slot.failures = 0;
     slot.backoffIdx = 0;
+    slot.gapFired = false; // bytes are flowing again → allow one fresh gap-disconnect if it stalls later
     if (!state.streaming.has(slot.sn)) {
       state.streaming.add(slot.sn);
       console.log(`[bridge] ${slot.sn}: streaming`);
@@ -69,6 +71,26 @@ export function createStreamManager(ctx) {
     const slot = slotFor(sn);
     if (slot.feed || slot.opening) return;
     slot.opening = true;
+    // Serialise opens per parent station: two cameras behind one HomeBase each open their own P2P
+    // session (session-per-camera), and if they connect at once they race the station's level-2 E2E
+    // key negotiation — the loser fails with "level-2 key not ready". Chaining the opens for a station
+    // lets each session settle its key before the next starts. Standalone cams (station === own sn)
+    // are their own chain, so different stations still open in parallel.
+    const station = cam?.stationSn ?? sn;
+    const prev = stationChains.get(station) ?? Promise.resolve();
+    const mine = prev.catch(() => {}).then(() => openFeedInto(slot, sn));
+    stationChains.set(station, mine);
+    try {
+      await mine;
+    } finally {
+      if (stationChains.get(station) === mine) stationChains.delete(station);
+      slot.opening = false;
+    }
+  }
+
+  /** The actual open, run serialised per station by ensureWarm. */
+  async function openFeedInto(slot, sn) {
+    if (slot.feed) return; // opened while queued
     try {
       const client = await ctx.sdk.streamClientFor(sn);
       slot.client = client;
@@ -90,8 +112,6 @@ export function createStreamManager(ctx) {
       console.error(`[bridge] ${sn}: open failed: ${e?.message ?? e}`);
       noteFailure(slot);
       scheduleReopen(slot, "open failed");
-    } finally {
-      slot.opening = false;
     }
   }
 
@@ -138,14 +158,18 @@ export function createStreamManager(ctx) {
         noteFailure(slot);
         scheduleReopen(slot, "stalled");
       }
-      if (silent >= cfg.stall.gapMs && slot.consumers.size) {
+      // Disconnect consumers ONCE per silent episode (not every tick): after they drop, go2rtc
+      // reconnects, and without this latch the still-stale `since` would re-fire the disconnect every
+      // 2 s — the "NNN s gap" churn. `gapFired` clears in onChunk when bytes flow again.
+      if (silent >= cfg.stall.gapMs && slot.consumers.size && !slot.gapFired) {
         console.warn(`[bridge] ${slot.sn}: ${Math.round(silent / 1000)} s gap — disconnecting ${slot.consumers.size} consumer(s)`);
         for (const c of slot.consumers) c.end();
         slot.consumers.clear();
+        slot.gapFired = true;
       }
       // A blocked camera (WAN-only station, force-LAN) fails by design; it must not restart the process.
       if (ctx.isBlocked?.(slot.sn)) { slot.firstFailureAt = 0; continue; }
-      if (slot.firstFailureAt && now - slot.firstFailureAt >= cfg.stall.exitAfterMs) {
+      if (cfg.stall.exitAfterMs > 0 && slot.firstFailureAt && now - slot.firstFailureAt >= cfg.stall.exitAfterMs) {
         console.error(`[bridge] ${slot.sn}: failing continuously for ${Math.round((now - slot.firstFailureAt) / 1000)} s — exiting for a clean restart`);
         exit(1);
         return;

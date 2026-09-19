@@ -88,5 +88,14 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
       if (s) await s.close();
     },
   };
+
+  // NOTE on local-port discovery: HomeBase 3's real local P2P port is a per-session NAT mapping the
+  // cloud never exposes correctly, and it is bound to whichever socket first reaches it. So discovery
+  // MUST happen on the connecting session's own socket — it lives in the SDK P2P-session patch (a
+  // CHECK_CAM sweep, see patches/ + docs/hb3-local-port.md), not here. A host-side pre-scan would find
+  // a port for the WRONG socket. This module only needs to supply the station's LAN *host*, which comes
+  // from cfg.lan.station_addresses; the session sweep finds the port itself, fresh, every session —
+  // which is also why there is nothing to cache and nothing to go stale.
+
   return { eufy, sdk };
 }

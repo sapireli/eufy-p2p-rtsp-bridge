@@ -25,7 +25,9 @@ function ctxWith({ peer, force = true, cidr = "192.168.1.0/24" }) {
 test("WAN peer with force → session closed and camera blocked; LAN peer → ok", async () => {
   const logs = [];
   const origError = console.error;
+  const origLog = console.log;
   console.error = (...args) => logs.push(args.join(" "));
+  console.log = (...args) => logs.push(args.join(" ")); // capture the "P2P peer … (LAN)" line too
   try {
     const ctx = ctxWith({ peer: "203.0.113.9" });
     const g = createLanGuard(ctx);
@@ -46,6 +48,7 @@ test("WAN peer with force → session closed and camera blocked; LAN peer → ok
     assert.equal(g2.isBlocked("CAM1"), false);
   } finally {
     console.error = origError;
+    console.log = origLog;
   }
 });
 
