@@ -67,8 +67,9 @@ test("force off → WAN peer only warns; unknown address → unknown, not blocke
 
 test("a later LAN connect clears the block", async () => {
   const logs = [];
-  const origLog = console.log;
+  const origLog = console.log, origError = console.error;
   console.log = (...args) => logs.push(args.join(" "));
+  console.error = () => {}; // the initial WAN block message is asserted in the first test
   try {
     let peer = "203.0.113.9";
     const ctx = ctxWith({ peer });
@@ -82,6 +83,7 @@ test("a later LAN connect clears the block", async () => {
     assert.equal(logs.some((l) => l.includes("LAN path restored")), true);
   } finally {
     console.log = origLog;
+    console.error = origError;
   }
 });
 

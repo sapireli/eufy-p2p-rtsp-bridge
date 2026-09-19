@@ -20,10 +20,16 @@ const door = { sn: "T8214C", name: "Door", model: "T8214", modelName: "Doorbell 
 const hub = { sn: "T8010D", name: "HomeBase", model: "T8010", modelName: "HomeBase 2", isCamera: false, battery: false };
 
 test("wired cameras enabled by default, battery excluded, non-cameras dropped", async () => {
-  const c = createCameras(ctxWith([wired, batt, door, hub]));
-  const cams = await c.refreshCameras();
-  assert.deepEqual(cams.map((x) => [x.sn, x.enabled]), [["T8410A", true], ["T8113B", false], ["T8214C", true]]);
-  assert.equal(c.getCamera("T8010D"), undefined);
+  const origLog = console.log;
+  console.log = () => {}; // battery-skip notice is asserted in its own test below
+  try {
+    const c = createCameras(ctxWith([wired, batt, door, hub]));
+    const cams = await c.refreshCameras();
+    assert.deepEqual(cams.map((x) => [x.sn, x.enabled]), [["T8410A", true], ["T8113B", false], ["T8214C", true]]);
+    assert.equal(c.getCamera("T8010D"), undefined);
+  } finally {
+    console.log = origLog;
+  }
 });
 
 test("config overrides name/enabled/quality/dual view; dual models flagged with command id", async () => {
