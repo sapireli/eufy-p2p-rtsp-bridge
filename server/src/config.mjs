@@ -6,6 +6,13 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 
 const CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
+
+/** True for a well-formed IPv4 CIDR: four 0–255 octets and a 0–32 prefix length (the regex only checks shape). */
+export function isValidCidr(v) {
+  if (typeof v !== "string" || !CIDR_RE.test(v)) return false;
+  const [net, bits] = v.split("/");
+  return net.split(".").every((o) => Number(o) <= 255) && Number(bits) <= 32;
+}
 const DUAL_VIEWS = new Set(["split", "pip-tl", "pip-tr", "pip-bl", "pip-br", "single"]);
 
 function cameraEntry(sn, raw) {
@@ -54,7 +61,7 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     },
   };
   if (!cfg.email || !cfg.password) throw new Error("eufy email/password are required (config.yaml eufy.* or EUFY_EMAIL/EUFY_PASSWORD)");
-  if (cfg.lan.cidr != null && !CIDR_RE.test(cfg.lan.cidr)) throw new Error(`lan.cidr must look like 192.168.1.0/24 (got ${cfg.lan.cidr})`);
+  if (cfg.lan.cidr != null && !isValidCidr(cfg.lan.cidr)) throw new Error(`lan.cidr must be an IPv4 CIDR like 192.168.1.0/24 — octets 0–255, prefix 0–32 (got ${cfg.lan.cidr})`);
   if (cfg.lan.force && !cfg.lan.cidr) throw new Error("lan.force=true requires lan.cidr");
   if (!DUAL_VIEWS.has(cfg.defaults.dualView)) throw new Error(`defaults.dual_view must be one of ${[...DUAL_VIEWS].join(", ")}`);
   const DEBUG = /^(1|true|yes)$/i.test(env.BRIDGE_DEBUG ?? "");

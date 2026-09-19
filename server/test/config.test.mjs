@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadConfig } from "../src/config.mjs";
+import { loadConfig, isValidCidr } from "../src/config.mjs";
 
 function tmpYaml(text) {
   const dir = mkdtempSync(join(tmpdir(), "ewb-"));
@@ -46,6 +46,19 @@ test("rejects missing credentials and bad cidr", () => {
   assert.throws(() => loadConfig({ env: {}, configPath: p }), /password/);
   const p2 = tmpYaml(`eufy: { email: a@b.c, password: x }\nlan: { cidr: nope }`);
   assert.throws(() => loadConfig({ env: {}, configPath: p2 }), /lan.cidr/);
+});
+
+test("lan.cidr: octets must be 0–255 and prefix 0–32, not just regex-shaped", () => {
+  for (const bad of ["192.168.1.0/33", "192.168.1.0/99", "256.0.0.0/8", "10.0.0.999/8", "1.2.3/8", "10.0.0.0"]) {
+    assert.equal(isValidCidr(bad), false, bad);
+    const p = tmpYaml(`eufy: { email: a@b.c, password: x }\nlan: { cidr: "${bad}" }`);
+    assert.throws(() => loadConfig({ env: {}, configPath: p }), /lan\.cidr/, bad);
+  }
+  for (const good of ["0.0.0.0/0", "255.255.255.255/32", "10.0.0.0/8", "192.168.1.0/24"]) {
+    assert.equal(isValidCidr(good), true, good);
+    const p = tmpYaml(`eufy: { email: a@b.c, password: x }\nlan: { cidr: "${good}" }`);
+    assert.equal(loadConfig({ env: {}, configPath: p }).cfg.lan.cidr, good);
+  }
 });
 
 test("missing config file → env-only config", () => {
