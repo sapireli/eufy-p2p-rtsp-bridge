@@ -11,7 +11,7 @@ const originals = {};
 before(() => { for (const k of ["log", "warn", "error"]) { originals[k] = console[k]; console[k] = () => {}; } });
 after(() => { for (const k of ["log", "warn", "error"]) console[k] = originals[k]; });
 
-test("writeGo2rtc: one ffmpeg copy source per enabled camera, API on loopback only, no webrtc", async () => {
+test("writeGo2rtc: one ffmpeg copy source per enabled camera, API on loopback only, webrtc off", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ewb-go2rtc-"));
   const cfg = { go2rtcConfig: join(dir, "nested", "go2rtc.yaml"), selfHost: "127.0.0.1", port: 3000, go2rtcBin: "go2rtc" };
   const cams = [{ sn: "T8410A", enabled: true }, { sn: "T8113B", enabled: false }, { sn: "T8214C", enabled: true }];
@@ -21,7 +21,7 @@ test("writeGo2rtc: one ffmpeg copy source per enabled camera, API on loopback on
   const text = readFileSync(cfg.go2rtcConfig, "utf8");
   const y = parse(text);
   assert.equal(y.api.listen, "127.0.0.1:1984", "go2rtc API must not be reachable off-host");
-  assert.equal(y.webrtc, undefined, "webrtc block removed");
+  assert.equal(y.webrtc.listen, "", "webrtc disabled (empty listen; go2rtc defaults it ON when the block is absent)");
   assert.equal(y.rtsp.listen, ":8554", "RTSP stays on all interfaces for the display clients");
   assert.deepEqual(y.streams, {
     T8410A: "ffmpeg:http://127.0.0.1:3000/stream/T8410A#video=copy",
@@ -34,5 +34,6 @@ test("writeGo2rtc: one ffmpeg copy source per enabled camera, API on loopback on
 test("hardenGo2rtcYaml is idempotent and tolerates a file without webrtc", () => {
   const once = hardenGo2rtcYaml('api:\n  listen: ":1984"\nrtsp:\n  listen: ":8554"\nstreams: {}\n');
   assert.equal(parse(once).api.listen, "127.0.0.1:1984");
+  assert.equal(parse(once).webrtc.listen, "");
   assert.equal(hardenGo2rtcYaml(once), once);
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createCameras, DUAL_MODELS } from "../src/cameras.mjs";
+import { createCameras, DUAL_MODELS, isPowered } from "../src/cameras.mjs";
 import { createState } from "../src/state.mjs";
 
 function ctxWith(devices, cfgCams = {}, defaults = { quality: "Full HD (1080P)", dualView: "split" }) {
@@ -15,7 +15,7 @@ function ctxWith(devices, cfgCams = {}, defaults = { quality: "Full HD (1080P)",
 }
 
 const wired = { sn: "T8410A", name: "Garage", model: "T8410", modelName: "Indoor Cam", isCamera: true, battery: false };
-const batt = { sn: "T8113B", name: "Yard", model: "T8113", modelName: "eufyCam 2C", isCamera: true, battery: true };
+const batt = { sn: "T8113B", name: "Yard", model: "T8113", modelName: "eufyCam 2C", isCamera: true, battery: true, batteryLevel: 40, charging: false };
 const door = { sn: "T8214C", name: "Door", model: "T8214", modelName: "Doorbell E340", isCamera: true, battery: false };
 const hub = { sn: "T8010D", name: "HomeBase", model: "T8010", modelName: "HomeBase 2", isCamera: false, battery: false };
 
@@ -95,4 +95,14 @@ test("battery camera with explicit enabled: false does not log exclusion", async
   } finally {
     console.log = origLog;
   }
+});
+
+test("isPowered: evidence beats the battery capability flag", () => {
+  const base = { battery: true, model: "T8113", batteryLevel: 40, charging: false };
+  assert.equal(isPowered(base), false, "real battery camera");
+  assert.equal(isPowered({ ...base, battery: false }), true, "no battery capability");
+  assert.equal(isPowered({ ...base, model: "T8425" }), true, "Floodlight E340 is mains despite reporting a level");
+  assert.equal(isPowered({ ...base, model: "T8423", batteryLevel: undefined }), true, "Floodlight 2 Pro reports no level");
+  assert.equal(isPowered({ ...base, model: "T8214", charging: true }), true, "hardwired doorbell is charging");
+  assert.equal(isPowered({ ...base, model: "T8214", charging: false }), false, "battery doorbell not charging");
 });

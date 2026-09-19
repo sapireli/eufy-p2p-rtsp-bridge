@@ -42,6 +42,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     async describe(sn) {
       const dev = await eufy.getDevice(sn);
       const m = dev.describe();
+      const props = dev.getProperties?.() ?? {};
       return {
         sn: m.sn,
         name: m.name,
@@ -49,6 +50,11 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
         modelName: m.modelName,
         isCamera: m.capabilities.includes("camera") || m.capabilities.includes("video"),
         battery: dev.has("battery"),
+        // Evidence for cameras.mjs' power decision: `battery` above is only a *capability* flag (the SDK
+        // grants it to some mains models, e.g. Floodlight E340/2 Pro); a reported level + charging state
+        // tell the real story.
+        batteryLevel: props.battery?.value,
+        charging: props.charging?.value,
       };
     },
 
@@ -69,6 +75,12 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     sessionPeerHost(client, stationSn) {
       const s = client.getP2pSessions().get(stationSn);
       return s?.connectAddress?.host; // private field in TS, reachable at runtime; contract test guards
+    },
+
+    /** True while a station's session exists but has not finished its handshake (no peer yet). */
+    sessionConnecting(client, stationSn) {
+      const s = client.getP2pSessions().get(stationSn);
+      return Boolean(s) && s.connected !== true;
     },
 
     async closeSession(client, stationSn) {

@@ -63,7 +63,11 @@ export function createLanGuard(ctx) {
     attached.add(client);
     client.on("p2pConnect", (stationSn) => void checkSession(client, stationSn, label));
     const existing = typeof client.getP2pSessions === "function" ? client.getP2pSessions() : undefined;
-    for (const stationSn of existing?.keys?.() ?? []) void checkSession(client, stationSn, label);
+    for (const stationSn of existing?.keys?.() ?? []) {
+      // A session still mid-handshake has no peer yet; its own p2pConnect will bring it here.
+      if (ctx.sdk.sessionConnecting?.(client, stationSn)) continue;
+      void checkSession(client, stationSn, label);
+    }
   }
 
   const isBlocked = (sn) => state.blocked.has(sn);

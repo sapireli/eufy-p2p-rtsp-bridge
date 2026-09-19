@@ -8,13 +8,14 @@ import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
 /**
  * Harden the generated go2rtc.yaml: upstream (an HA add-on behind its own auth) opens the go2rtc API
  * and WebRTC on every interface, unauthenticated. The wall's clients only pull RTSP on :8554, so the
- * API is pinned to loopback and WebRTC is dropped. Done as a post-pass so the vendored generator
+ * API is pinned to loopback and WebRTC is disabled (go2rtc enables it by default even without a
+ * `webrtc:` block, so the block must exist with an empty listen). Done as a post-pass so the vendored generator
  * stays verbatim. Comments in the generated file are preserved (yaml Document round-trip).
  */
 export function hardenGo2rtcYaml(text) {
   const doc = parseDocument(text);
   doc.setIn(["api", "listen"], "127.0.0.1:1984");
-  doc.delete("webrtc");
+  doc.setIn(["webrtc", "listen"], "");
   return doc.toString();
 }
 

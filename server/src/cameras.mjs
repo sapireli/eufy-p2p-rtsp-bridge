@@ -15,6 +15,26 @@ export const DUAL_MODELS = {
 /** Config names → wire `video_type` values (bropat DualCamWatchViewMode states). */
 export const DUAL_VIEW_VALUES = { "pip-tl": 2, "pip-tr": 3, "pip-bl": 4, "pip-br": 5, split: 12, single: 0 };
 
+/**
+ * Camera models the SDK tags with a `battery` capability although they are mains-powered (mirrors the
+ * SDK's own MAINS_CAMERA_MODELS plus the Floodlight Cam 2 Pro, which reports no battery params at all).
+ */
+export const MAINS_MODELS = ["T8425", "T8419", "T8423"];
+
+/**
+ * Is this camera safe to stream 24/7? Evidence beats the capability flag: no `battery` capability, a
+ * known mains model, no reported battery level, or a battery that is currently charging (hardwired
+ * doorbell) all mean "powered". `cameras.<sn>.enabled` in config still overrides the answer.
+ */
+export function isPowered(m) {
+  if (!m.battery) return true;
+  const model = String(m.model ?? "").toUpperCase();
+  if (MAINS_MODELS.some((p) => model.startsWith(p))) return true;
+  if (m.batteryLevel == null) return true;
+  if (m.charging === true) return true;
+  return false;
+}
+
 export function createCameras(ctx) {
   let cache = [];
 
@@ -31,16 +51,18 @@ export function createCameras(ctx) {
       }
       if (!m.isCamera) continue;
       const c = ctx.cfg.cameras[m.sn] ?? {};
-      const enabled = c.enabled ?? !m.battery;
+      const powered = isPowered(m);
+      const enabled = c.enabled ?? powered;
       const modelKey = String(m.model ?? "").slice(0, 5).toUpperCase();
       const isDual = modelKey in DUAL_MODELS;
-      if (m.battery && c.enabled == null) console.log(`[bridge] ${m.sn} (${m.name}) is battery-powered — skipped in phase 1 (set cameras.${m.sn}.enabled: true to force)`);
+      if (!powered && c.enabled == null) console.log(`[bridge] ${m.sn} (${m.name}) is battery-powered — skipped in phase 1 (set cameras.${m.sn}.enabled: true to force)`);
       out.push({
         sn: m.sn,
         name: c.name ?? m.name,
         model: m.model,
         modelName: m.modelName,
         battery: m.battery,
+        powered,
         enabled,
         quality: c.quality ?? ctx.cfg.defaults.quality ?? null,
         isDual,
@@ -64,7 +86,7 @@ export function createCameras(ctx) {
       model: cam.model,
       modelName: cam.modelName,
       enabled: cam.enabled,
-      powered: !cam.battery,
+      powered: cam.powered,
       dual: cam.isDual,
       dualView: cam.dualView,
       quality: cam.quality,
