@@ -1,0 +1,29 @@
+name: upstream-sync
+on:
+  schedule: [{ cron: "17 6 * * 1" }]   # Mondays 06:17 UTC
+  workflow_dispatch:
+permissions: { contents: write, pull-requests: write }
+jobs:
+  vendored-ha-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check drift
+        id: drift
+        run: |
+          if server/scripts/sync-upstream.sh --check > drift.txt; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+          cat drift.txt
+      - name: Apply upstream and record SHA
+        if: steps.drift.outputs.changed == 'true'
+        run: |
+          server/scripts/sync-upstream.sh --apply
+          SHA=$(git ls-remote https://github.com/mega-yfue/ha-eufy-sdk-bridge HEAD | cut -f1)
+          sed -i "s/^- Commit: .*/- Commit: $SHA/" server/src/vendor/ha-bridge/VENDOR.md
+      - uses: peter-evans/create-pull-request@v7
+        if: steps.drift.outputs.changed == 'true'
+        with:
+          branch: chore/upstream-ha-bridge
+          title: "chore(server): sync vendored ha-eufy-sdk-bridge modules"
+          commit-message: "chore(server): sync vendored ha-eufy-sdk-bridge modules"
+          body-path: drift.txt
+          labels: upstream, server

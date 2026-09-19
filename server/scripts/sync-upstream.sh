@@ -5,6 +5,7 @@
 # Note: macOS ships bash 3.2 (no associative arrays), so this uses parallel
 # indexed arrays instead of `declare -A` to stay portable with /usr/bin/env bash.
 set -euo pipefail
+MODE=${1:-}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 VEND="$HERE/src/vendor/ha-bridge"
 TMP=$(mktemp -d)
@@ -20,9 +21,10 @@ for i in "${!OURS[@]}"; do
     changed=1
     echo "== $ours differs from upstream ${THEIRS[$i]} =="
     cat "$TMP/$ours.diff"
-    [[ "${1:-}" == "--apply" ]] && cp "$theirs" "$VEND/$ours" && echo "applied $ours"
+    [[ "$MODE" == "--apply" ]] && cp "$theirs" "$VEND/$ours" && echo "applied $ours"
   fi
 done
 echo "upstream HEAD: $(git -C "$TMP/up" rev-parse HEAD)  (recorded: $(grep -o 'Commit: .*' "$VEND/VENDOR.md"))"
-[[ $changed -eq 0 ]] && echo "vendored files are up to date"
+if [[ $changed -eq 0 ]]; then echo "vendored files are up to date"; exit 0; fi
+[[ "$MODE" == "--check" ]] && exit 1
 exit 0
