@@ -17,7 +17,7 @@ try {
   process.exit(0);
 }
 
-const MARK = "_ewLocalSwept";
+const MARK = "_ewSweeping";
 let src = readFileSync(entry, "utf8");
 if (src.includes(MARK)) {
   console.log("[patch-sdk] local-port sweep patch already present");
@@ -34,19 +34,27 @@ const PATCHED =
   `      this.send({ host: lh, port: LOCAL_LOOKUP_PORT }, RequestMessageType.LOCAL_LOOKUP, localPayload);\n` +
   `      // eufy-wall patch: HomeBase 3 does not answer LOCAL_LOOKUP and the cloud only exposes a\n` +
   `      // NAT-translated port; the real local P2P port is ephemeral and bound to whichever socket first\n` +
-  `      // reaches it. Sweep CHECK_CAM across ALL local ports ON THIS SESSION'S OWN SOCKET so the CAM_ID\n` +
-  `      // reply lands here and the normal onConnected path fires — a pure-LAN session.\n` +
-  `      if (!this._ewLocalSwept) {\n` +
-  `        this._ewLocalSwept = true;\n` +
+  `      // reaches it. So sweep CHECK_CAM across ALL local ports ON THIS SESSION'S OWN SOCKET — the CAM_ID\n` +
+  `      // reply then lands here and the normal onConnected path fires, giving a pure-LAN session.\n` +
+  `      if (!this._ewSweeping) {\n` +
+  `        this._ewSweeping = true;\n` +
   `        const camPayload = buildCheckCamPayload(this.cfg.p2pDid);\n` +
-  `        let port = 1;\n` +
-  `        const burst = () => {\n` +
-  `          if (this.connected || this.closed || port > 65535) return;\n` +
-  `          const end = Math.min(port + 2048, 65536);\n` +
-  `          for (; port < end; port++) this.send({ host: lh, port }, RequestMessageType.CHECK_CAM, camPayload);\n` +
-  `          setTimeout(burst, 20);\n` +
+  `        // Sweep CONTINUOUSLY until connected: one dropped UDP probe to the (single, ephemeral) real port\n` +
+  `        // would otherwise cost a full 15 s connect timeout. Repeating the pass gives ~15 chances in the\n` +
+  `        // window, so a drop is retried a beat later instead of failing the whole attempt.\n` +
+  `        const sweep = () => {\n` +
+  `          if (this.connected || this.closed) return;\n` +
+  `          let port = 1;\n` +
+  `          const burst = () => {\n` +
+  `            if (this.connected || this.closed) return;\n` +
+  `            const end = Math.min(port + 1024, 65536);\n` +
+  `            for (; port < end; port++) this.send({ host: lh, port }, RequestMessageType.CHECK_CAM, camPayload);\n` +
+  `            if (port <= 65535) setTimeout(burst, 12);\n` +
+  `            else setTimeout(sweep, 150); // finished a pass, still not connected → sweep again\n` +
+  `          };\n` +
+  `          burst();\n` +
   `        };\n` +
-  `        burst();\n` +
+  `        sweep();\n` +
   `      }\n` +
   `    }\n`;
 

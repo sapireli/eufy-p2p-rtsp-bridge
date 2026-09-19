@@ -57,7 +57,9 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
       stallMs: Number(raw.stall?.stall_ms ?? 12_000),
       gapMs: Number(raw.stall?.gap_ms ?? 45_000),
       exitAfterMs: Number(raw.stall?.exit_after_ms ?? 300_000),
-      backoffMs: raw.stall?.backoff_ms ?? [2000, 4000, 8000, 15000, 30000, 60000],
+      // The socket-sweep connect is reliable (it retries dropped probes continuously), so a reopen means
+      // a real session drop, not a flaky connect — recover fast rather than backing off to a full minute.
+      backoffMs: raw.stall?.backoff_ms ?? [1000, 2000, 4000, 8000],
     },
   };
   if (!cfg.email || !cfg.password) throw new Error("eufy email/password are required (config.yaml eufy.* or EUFY_EMAIL/EUFY_PASSWORD)");
