@@ -171,13 +171,44 @@ test("reopened feed gets a fresh stall window instead of being re-stalled immedi
   }
 });
 
-test("blocked camera is not warmed", async () => {
-  const ctx = ctxWith({ feeds: [() => new PassThrough()] });
+test("blocked camera is still opened and retried (the p2pConnect re-check is the only way to unblock)", async () => {
+  const feed = new PassThrough();
+  const ctx = ctxWith({ feeds: [() => feed] });
   ctx.isBlocked = () => true;
   const sm = createStreamManager(ctx);
   try {
     await sm.ensureWarm("A");
-    assert.equal(ctx.opens(), 0);
+    assert.equal(ctx.opens(), 1, "opened despite being blocked");
+    const slot = ctx.state.slots.get("A");
+    assert.equal(slot.feed, feed);
+    feed.destroy(); // guard closed the WAN session → feed closes → normal backoff retry
+    await waitUntil(() => ctx.opens() === 2);
+    assert.equal(ctx.opens(), 2, "retried with backoff while blocked");
+  } finally {
+    await sm.stopAll();
+  }
+});
+
+test("blocked slot failing for longer than exitAfterMs does not exit the process", async () => {
+  let exited = 0;
+  const ctx = ctxWith({ feeds: [() => { throw new Error("wan session closed"); }], exit: () => exited++ });
+  const blocked = new Set(["A"]);
+  ctx.isBlocked = (sn) => blocked.has(sn);
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    const slot = ctx.state.slots.get("A");
+    assert.ok(slot.failures >= 1);
+    const t0 = 1_000_000;
+    slot.firstFailureAt = t0;
+    sm.streamTick(t0 + 301_000);
+    assert.equal(exited, 0, "blocked slot excluded from the exit-after-stall check");
+    assert.equal(slot.firstFailureAt, 0, "failure clock reset while blocked");
+    // Once unblocked the normal rule applies again from the next failure onwards.
+    blocked.clear();
+    slot.firstFailureAt = t0;
+    sm.streamTick(t0 + 301_000);
+    assert.equal(exited, 1);
   } finally {
     await sm.stopAll();
   }

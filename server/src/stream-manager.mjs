@@ -58,11 +58,14 @@ export function createStreamManager(ctx) {
     if (f) { f.removeAllListeners(); f.destroy(); }
   }
 
-  /** Open the camera's feed if it is not open. Idempotent; failures schedule a backoff retry. */
+  /**
+   * Open the camera's feed if it is not open. Idempotent; failures schedule a backoff retry.
+   * A camera blocked by the LAN guard (WAN path) is still opened: only the resulting p2pConnect lets
+   * the guard re-check the peer and clear the block, so refusing to reconnect would be a one-way door.
+   */
   async function ensureWarm(sn) {
     const cam = ctx.getCamera?.(sn);
     if (cam && !cam.enabled) return;
-    if (ctx.isBlocked?.(sn)) return;
     const slot = slotFor(sn);
     if (slot.feed || slot.opening) return;
     slot.opening = true;
@@ -140,6 +143,8 @@ export function createStreamManager(ctx) {
         for (const c of slot.consumers) c.end();
         slot.consumers.clear();
       }
+      // A blocked camera (WAN-only station, force-LAN) fails by design; it must not restart the process.
+      if (ctx.isBlocked?.(slot.sn)) { slot.firstFailureAt = 0; continue; }
       if (slot.firstFailureAt && now - slot.firstFailureAt >= cfg.stall.exitAfterMs) {
         console.error(`[bridge] ${slot.sn}: failing continuously for ${Math.round((now - slot.firstFailureAt) / 1000)} s — exiting for a clean restart`);
         exit(1);
