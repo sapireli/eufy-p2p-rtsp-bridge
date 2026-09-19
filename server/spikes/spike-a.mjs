@@ -35,13 +35,14 @@ for (const d of await eufy.getDevices()) {
     const feed = await sdk.openFeed(client, m.sn);
     const out = [];
     let codec, geom;
-    const t = setTimeout(() => feed.destroy(), 10_000);
+    const deadline = Date.now() + 10_000;
     for await (const chunk of feed) {
       out.push(chunk);
       const sets = sdk.extractParamSets(chunk);
       if (sets && !codec) { codec = sets.codec; geom = sdk.codedGeometry(sets); }
+      if (Date.now() >= deadline) break;
     }
-    clearTimeout(t);
+    feed.destroy();
     const file = `spike-out/${m.sn}.${codec === "h265" ? "h265" : "h264"}`;
     writeFileSync(file, Buffer.concat(out));
     console.log(`  ${m.sn}: codec=${codec} ${geom?.width}x${geom?.height} bytes=${Buffer.concat(out).length} → ${file} (verify: ffprobe ${file})`);

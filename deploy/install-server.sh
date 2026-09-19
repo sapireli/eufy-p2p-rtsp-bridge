@@ -9,9 +9,9 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 PREFIX=/opt/eufy-wall-bridge
 GO2RTC_VERSION=${GO2RTC_VERSION:-1.9.14}
 
-# 1. Node 24
+# 1. Node 24 + rsync (always needed for step 3)
+apt-get update && apt-get install -y ca-certificates curl gnupg rsync
 if ! command -v node >/dev/null || [[ $(node -v | sed 's/v\([0-9]*\).*/\1/') -lt 24 ]]; then
-  apt-get update && apt-get install -y ca-certificates curl gnupg
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
 fi
