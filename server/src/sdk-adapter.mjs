@@ -35,6 +35,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
 
     /** Shared per-station EufyMega (one P2P session per station, cameras multiplexed by channel). */
     streamClientFor: streamClients.streamClientFor,
+    dropStreamClient: streamClients.dropClient,
     closeStreamClients: streamClients.closeStreamClients,
 
     /**

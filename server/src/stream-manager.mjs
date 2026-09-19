@@ -92,7 +92,17 @@ export function createStreamManager(ctx) {
   async function openFeedInto(slot, sn) {
     if (slot.feed) return; // opened while queued
     try {
-      const client = await ctx.sdk.streamClientFor(sn, ctx.getCamera?.(sn)?.stationSn);
+      const stationSn = ctx.getCamera?.(sn)?.stationSn;
+      // After repeated open failures the cached client's P2P session is likely wedged: the device still
+      // holds the dropped session and won't open a fresh responder port for the reused one, so every
+      // reconnect just times out. Drop the client so the next streamClientFor() builds a brand-new session
+      // (fresh cloud lookup → the device brokers a new port). Do it every Nth failure, not once, so a
+      // device that needs a moment to release the old session gets more than one fresh attempt.
+      if (slot.failures > 0 && slot.failures % cfg.stall.recreateClientAfter === 0) {
+        const dropped = await ctx.sdk.dropStreamClient?.(sn, stationSn);
+        if (dropped) console.log(`[bridge] ${sn}: ${slot.failures} consecutive failures — recreated stream client (fresh session)`);
+      }
+      const client = await ctx.sdk.streamClientFor(sn, stationSn);
       slot.client = client;
       ctx.attachLanGuard?.(client, sn);
       const feed = await ctx.sdk.openFeed(client, sn, { powered: ctx.getCamera?.(sn)?.powered });

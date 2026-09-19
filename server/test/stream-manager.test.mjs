@@ -213,3 +213,35 @@ test("blocked slot failing for longer than exitAfterMs does not exit the process
     await sm.stopAll();
   }
 });
+
+test("repeated open failures recreate the stream client (fresh session) every Nth failure", async () => {
+  const state = createState();
+  let opens = 0;
+  const dropped = [];
+  const ctx = {
+    state,
+    cfg: { stall: { stallMs: 12000, gapMs: 45000, exitAfterMs: 0, recreateClientAfter: 3, backoffMs: [5] } },
+    exit: () => {},
+    getCamera: () => ({ enabled: true, stationSn: "STN", powered: true }),
+    isBlocked: () => false,
+    applyPins: async () => {},
+    sdk: {
+      streamClientFor: async () => ({}),
+      dropStreamClient: async (sn, stationSn) => { dropped.push(stationSn); return true; },
+      openFeed: async () => { opens++; throw new Error("P2P connect timeout"); }, // always fails
+      extractParamSets: () => undefined,
+      codedGeometry: () => undefined,
+    },
+  };
+  const sm = createStreamManager(ctx);
+  await sm.ensureWarm("A"); // failure #1 → schedules reopen (5ms backoff), repeat
+  try {
+    await waitUntil(() => dropped.length >= 1 && opens >= 4, 800);
+    assert.ok(dropped.length >= 1, "client recreated after repeated failures");
+    assert.equal(dropped[0], "STN", "dropped by station key");
+    // Not dropped on the very first failure — only every Nth.
+    assert.ok(opens >= 3, "several attempts happened before/at the recreate");
+  } finally {
+    await sm.stopAll();
+  }
+});

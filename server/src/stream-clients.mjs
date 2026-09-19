@@ -66,11 +66,26 @@ export function createStreamClients({ cfg, EufyMega = SdkEufyMega, onClient, log
     return p;
   }
 
+  /**
+   * Drop the cached client for a station so the next streamClientFor() builds a completely fresh one.
+   * After a stream drops, the camera/HomeBase can hold the old P2P session and refuse to open a new
+   * responder port for a reused session — a reconnect then just times out. A brand-new client means a
+   * fresh session, fresh cloud lookup, and a fresh port request, which the device answers. Keyed by
+   * station (falls back to sn for standalone), matching streamClientFor.
+   */
+  async function dropClient(sn, stationSn = sn) {
+    const key = stationSn || sn;
+    const client = clients.get(key);
+    clients.delete(key);
+    if (client) await client.disconnect?.().catch(() => {});
+    return Boolean(client);
+  }
+
   /** Tear down every stream client (on shutdown). */
   async function closeStreamClients() {
     await Promise.all([...clients.values()].map((c) => c.disconnect?.().catch(() => {})));
     clients.clear();
   }
 
-  return { streamClientFor, closeStreamClients };
+  return { streamClientFor, dropClient, closeStreamClients };
 }
