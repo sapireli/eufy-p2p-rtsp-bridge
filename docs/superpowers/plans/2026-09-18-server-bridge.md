@@ -2041,3 +2041,144 @@ git commit -m "docs: record verified devices and e2e results"
 
 - Spec coverage: config (T1), vendoring + sync + contract test (T2), sdk-adapter (T3), camera set + battery exclusion (T4), pins incl. dual view 12 and quality with honest "unsupported" path (T5), always-on warm consumers + stall watchdog + exit-after-stall + codec sniff/warn (T6), force-LAN (T7), go2rtc + HTTP incl. first-run auth (T8), boot wiring + re-apply pins on reconnect (T9), spike A (T10), no-Docker deploy + runbook (T11), e2e (T12). Upstream PRs (`p2pLocalOnly`, dual-view capability) are follow-ups outside this plan.
 - Type consistency: `Camera.{sn,name,model,modelName,battery,enabled,quality,isDual,viewModeCmd,dualView}` used identically in T4/T5/T8/T9; `streamStatus()` shape identical in T4 test, T6, T8; `ctx.sdk` function names identical in T3/T5/T6/T7/T10.
+
+---
+
+### Task 13: GitHub wiring — CI, Dependabot, upstream-drift PRs
+
+Repo is `github.com/sapireli/eufy-p2p-rtsp-bridge` (public, default branch `main`). Goal: every push/PR runs both test suites; SDK bumps arrive as Dependabot PRs; drift between our vendored `ha-eufy-sdk-bridge` modules and upstream arrives as an automatic PR. No secrets required beyond the default `GITHUB_TOKEN`.
+
+**Files:**
+- Create: `.github/workflows/ci.yml`, `.github/workflows/upstream-sync.yml`, `.github/dependabot.yml`, `README.md`
+- Modify: `server/scripts/sync-upstream.sh` (add `--check`: exit 1 when drift exists; keep `--apply`)
+
+- [ ] **Step 1: Add `--check` to `server/scripts/sync-upstream.sh`**
+
+Replace the final lines (`echo "upstream HEAD…"`, `[[ $changed -eq 0 ]] && …`, `exit 0`) with:
+```bash
+echo "upstream HEAD: $(git -C "$TMP/up" rev-parse HEAD)  (recorded: $(grep -o 'Commit: .*' "$VEND/VENDOR.md"))"
+if [[ $changed -eq 0 ]]; then echo "vendored files are up to date"; exit 0; fi
+[[ "${1:-}" == "--check" ]] && exit 1
+exit 0
+```
+and accept the flag anywhere: at the top, `MODE=${1:-}` and use `$MODE` in place of `${1:-}` for both `--apply` and `--check`.
+Run: `bash -n server/scripts/sync-upstream.sh && server/scripts/sync-upstream.sh --check; echo "exit=$?"` → `exit=0` while up to date.
+
+- [ ] **Step 2: `.github/workflows/ci.yml`**
+
+```yaml
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: server } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24", cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+      - run: npm test
+      - run: bash -n scripts/sync-upstream.sh
+  client:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: client } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: client/go.mod, cache-dependency-path: client/go.sum }
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./... -race
+      - run: make all
+      - uses: actions/upload-artifact@v4
+        with: { name: eufy-wall-binaries, path: client/bin/, retention-days: 7 }
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n deploy/install-server.sh deploy/install-client.sh client/spikes/spike-b.sh
+```
+(If `deploy/install-server.sh` does not exist yet on this branch, drop it from the `scripts` job and note it — Task 11 adds it.)
+
+- [ ] **Step 3: `.github/dependabot.yml`**
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /server
+    schedule: { interval: weekly }
+    versioning-strategy: increase   # keeps the exact pin, bumps it in a PR
+    labels: [dependencies, server]
+  - package-ecosystem: gomod
+    directory: /client
+    schedule: { interval: weekly }
+    labels: [dependencies, client]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+```
+
+- [ ] **Step 4: `.github/workflows/upstream-sync.yml`**
+
+```yaml
+name: upstream-sync
+on:
+  schedule: [{ cron: "17 6 * * 1" }]   # Mondays 06:17 UTC
+  workflow_dispatch:
+permissions: { contents: write, pull-requests: write }
+jobs:
+  vendored-ha-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check drift
+        id: drift
+        run: |
+          if server/scripts/sync-upstream.sh --check > drift.txt; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+          cat drift.txt
+      - name: Apply upstream and record SHA
+        if: steps.drift.outputs.changed == 'true'
+        run: |
+          server/scripts/sync-upstream.sh --apply
+          SHA=$(git ls-remote https://github.com/mega-yfue/ha-eufy-sdk-bridge HEAD | cut -f1)
+          sed -i "s/^- Commit: .*/- Commit: $SHA/" server/src/vendor/ha-bridge/VENDOR.md
+      - uses: peter-evans/create-pull-request@v7
+        if: steps.drift.outputs.changed == 'true'
+        with:
+          branch: chore/upstream-ha-bridge
+          title: "chore(server): sync vendored ha-eufy-sdk-bridge modules"
+          commit-message: "chore(server): sync vendored ha-eufy-sdk-bridge modules"
+          body-path: drift.txt
+          labels: upstream, server
+```
+
+- [ ] **Step 5: `README.md`** (repo root)
+
+```markdown
+# eufy-p2p-rtsp-bridge
+
+Wired eufy cameras → RTSP (server) → grid on a Raspberry Pi's HDMI (client). No Docker.
+
+- `server/` — Node 24 bridge on [`@mega-yfue/eufy-sdk`](https://github.com/mega-yfue/eufy-sdk) with go2rtc for RTSP. Runbook: `docs/runbook-server.md`.
+- `client/` — Go `eufy-wall`: layout → one GStreamer pipeline → KMS. Runbook: `docs/runbook-client.md`.
+- Design: `docs/superpowers/specs/2026-09-18-eufy-wall-design.md`.
+
+## Upstream
+- `@mega-yfue/eufy-sdk` is a pinned npm dependency; Dependabot opens bump PRs (the contract test in `server/test/sdk-contract.test.mjs` fails loudly on API changes).
+- Modules vendored from [`ha-eufy-sdk-bridge`](https://github.com/mega-yfue/ha-eufy-sdk-bridge) live in `server/src/vendor/ha-bridge/` (see `VENDOR.md`); the weekly `upstream-sync` workflow opens a PR when they drift. Locally: `server/scripts/sync-upstream.sh [--check|--apply]`.
+
+## CI
+`ci.yml` runs `npm test` (server), `gofmt`/`go vet`/`go test -race`/cross-builds (client), and `bash -n` on the deploy scripts.
+```
+
+- [ ] **Step 6: Validate and commit**
+
+Run: `bash -n server/scripts/sync-upstream.sh` (or the Task 1 test if any); `python3 -c "import yaml,sys;[yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/*.yml .github/dependabot.yml` (or `ruby -ryaml`) to check YAML parses; `cd server && npm test`.
+```bash
+git add .github README.md server/scripts/sync-upstream.sh
+git commit -m "ci: GitHub Actions for server+client, Dependabot, upstream-drift PRs"
+```
