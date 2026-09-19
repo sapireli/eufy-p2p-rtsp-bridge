@@ -1,0 +1,33 @@
+# eufy-wall-bridge configuration. Copy to config.yaml (or set BRIDGE_CONFIG). Secrets may instead come
+# from the environment: EUFY_EMAIL, EUFY_PASSWORD, EUFY_COUNTRY (env wins over this file).
+eufy:
+  email: wall@example.com        # use a DEDICATED eufy account (eufy allows one login per account;
+  password: change-me            # the phone app on the same account evicts the bridge)
+  country: US
+
+host: 0.0.0.0                    # HTTP bind (go2rtc + display clients + curl)
+port: 3000
+# self_host: 127.0.0.1           # address go2rtc uses to pull /stream from this process
+# data_dir: ./data               # session token + generated go2rtc.yaml
+# go2rtc_bin: go2rtc             # path to the go2rtc binary
+# poll_ms: 600000                # cloud state poll interval (SDK default 10 min)
+
+lan:
+  cidr: 192.168.1.0/24           # your LAN
+  force: true                    # refuse P2P sessions whose peer is outside cidr (LAN-only streaming)
+  station_addresses: {}          # optional LAN IP hints keyed by HomeBase/station serial, e.g. T8010XXXX: 192.168.1.50
+
+defaults:
+  quality: "Full HD (1080P)"     # desired live-view tier (H.264). Values: "HD (720P)" | "Full HD (1080P)" | "Max"
+  dual_view: split               # dual-lens cameras: split | pip-tl | pip-tr | pip-bl | pip-br | single
+
+cameras:                         # keyed by camera serial; unlisted WIRED cameras are included, BATTERY excluded
+  T8410XXXXXXXXXXX: { name: Garage }
+  T8214XXXXXXXXXXX: { name: Front door, dual_view: split }
+  T8113XXXXXXXXXXX: { enabled: false }
+
+# stall:                         # media watchdog (defaults shown)
+#   stall_ms: 12000              # no bytes for this long → restart the feed
+#   gap_ms: 45000                # consumers are disconnected after this long without bytes
+#   exit_after_ms: 300000        # continuous failure this long → exit(1) so systemd restarts us
+#   backoff_ms: [2000, 4000, 8000, 15000, 30000, 60000]
