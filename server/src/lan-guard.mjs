@@ -54,11 +54,16 @@ export function createLanGuard(ctx) {
     }
   }
 
-  /** Subscribe once per EufyMega client (the control client and each per-camera stream client). */
+  /**
+   * Subscribe once per EufyMega client (the control client and each per-camera stream client), and
+   * judge any session that connected before we were listening (pins can open it before the stream).
+   */
   function attachLanGuard(client, label) {
     if (!cfg.lan.cidr || attached.has(client)) return;
     attached.add(client);
     client.on("p2pConnect", (stationSn) => void checkSession(client, stationSn, label));
+    const existing = typeof client.getP2pSessions === "function" ? client.getP2pSessions() : undefined;
+    for (const stationSn of existing?.keys?.() ?? []) void checkSession(client, stationSn, label);
   }
 
   const isBlocked = (sn) => state.blocked.has(sn);

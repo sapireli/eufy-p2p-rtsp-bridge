@@ -101,3 +101,26 @@ test("sessionPeerHost throwing → checkSession returns unknown, no rejection", 
     console.error = origError;
   }
 });
+
+test("attachLanGuard judges sessions that connected before it was listening (pins open the session first)", async () => {
+  const logs = [];
+  const origError = console.error;
+  console.error = (...args) => logs.push(args.join(" "));
+  try {
+    const ctx = ctxWith({ peer: "203.0.113.9" });
+    const g = createLanGuard(ctx);
+    const client = new EventEmitter();
+    client.getP2pSessions = () => new Map([["STATION1", {}]]);
+    g.attachLanGuard(client, "CAM1");
+    await new Promise((r) => setImmediate(r));
+    assert.equal(g.isBlocked("CAM1"), true, "pre-existing WAN session blocked on attach");
+    assert.deepEqual(ctx.closed, ["STATION1"]);
+    // Attaching is idempotent and a client without getP2pSessions (or with none) is fine.
+    g.attachLanGuard(client, "CAM1");
+    g.attachLanGuard(new EventEmitter(), "CAM2");
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(ctx.closed, ["STATION1"]);
+  } finally {
+    console.error = origError;
+  }
+});

@@ -19,13 +19,17 @@ const { cfg, DEBUG } = loadConfig();
 fs.mkdirSync(cfg.dataDir, { recursive: true });
 
 const state = createState();
-const { eufy, sdk } = createSdk({ cfg, DEBUG });
+const hooks = {};
+const { eufy, sdk } = createSdk({ cfg, DEBUG, hooks });
 const ctx = { cfg, DEBUG, eufy, sdk, state, SCHEMA_VERSION: 1, PUSH_STALL_MS: 15 * 60_000 };
 
 // Vendored auth/watchdog broadcast auth changes to "clients"; we have none in phase 1 → log.
 ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);
 
 Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), createStreamManager(ctx), createGo2rtc(ctx), createAuth(ctx), createWatchdog(ctx));
+// Guard every per-camera client from the moment it exists: pins.mjs opens its P2P session (and fires
+// p2pConnect) before the stream manager ever sees it.
+hooks.onStreamClient = (client, sn) => ctx.attachLanGuard(client, sn);
 
 /** Runs once after the first successful login (re-auth calls it again and it returns immediately). */
 ctx.completeBoot = async function completeBoot() {

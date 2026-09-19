@@ -1,9 +1,14 @@
 // The ONLY non-vendored file that imports @mega-yfue/eufy-sdk. Everything the bridge needs from the SDK
 // is re-exposed here with stable names, so an SDK API change is a one-file edit (+ the contract test).
 import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry } from "@mega-yfue/eufy-sdk";
-import { streamClientFor as vendoredStreamClientFor, closeStreamClients } from "./vendor/ha-bridge/streams.mjs";
+import { createStreamClients } from "./stream-clients.mjs";
 
-export function createSdk({ cfg, DEBUG }) {
+/**
+ * @param {object} o
+ * @param {object} [o.hooks] late-bound callbacks read at call time: `onStreamClient(client, sn)` is
+ *   invoked for every per-camera client as soon as it is constructed (server.mjs points it at the LAN guard).
+ */
+export function createSdk({ cfg, DEBUG, hooks = {} }) {
   const eufy = new EufyMega({
     email: cfg.email,
     password: cfg.password,
@@ -15,14 +20,16 @@ export function createSdk({ cfg, DEBUG }) {
     logger: DEBUG ? new ConsoleLogger("info") : undefined,
   });
 
+  const streamClients = createStreamClients({ cfg, onClient: (client, sn) => hooks.onStreamClient?.(client, sn) });
+
   const sdk = {
     LoginStatus,
     extractParamSets,
     codedGeometry,
 
-    /** Dedicated per-camera EufyMega (vendored workaround: one P2P session per streaming camera). */
-    streamClientFor: (sn) => vendoredStreamClientFor(sn, cfg),
-    closeStreamClients,
+    /** Dedicated per-camera EufyMega (adapted upstream workaround: one P2P session per streaming camera). */
+    streamClientFor: streamClients.streamClientFor,
+    closeStreamClients: streamClients.closeStreamClients,
 
     /** Open the raw Annex-B Readable for a camera on the given client. */
     async openFeed(client, sn) {

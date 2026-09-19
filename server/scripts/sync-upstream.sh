@@ -11,8 +11,9 @@ VEND="$HERE/src/vendor/ha-bridge"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 git clone -q --depth 1 https://github.com/mega-yfue/ha-eufy-sdk-bridge "$TMP/up"
-OURS=(streams.mjs go2rtc-config.mjs auth.mjs watchdog.mjs)
-THEIRS=(streams.mjs go2rtc-config.mjs src/auth.mjs src/watchdog.mjs)
+# streams.mjs is NOT here: it lives adapted in src/stream-clients.mjs (see VENDOR.md) and is re-diffed by hand.
+OURS=(go2rtc-config.mjs auth.mjs watchdog.mjs)
+THEIRS=(go2rtc-config.mjs src/auth.mjs src/watchdog.mjs)
 changed=0
 for i in "${!OURS[@]}"; do
   ours="${OURS[$i]}"
