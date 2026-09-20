@@ -95,8 +95,14 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
       },
     },
     defaults: {
+      // Both default to UNSET, and unset means "do not write this to the camera".
+      //
+      // Dual view and streaming quality belong to the eufy app, and only the owner account can change
+      // them there. Writing them from the bridge is a SET_PAYLOAD to a camera that may be mid-stream, for
+      // a setting the operator has usually already chosen — so it is opt-in, for the case where someone
+      // genuinely wants the bridge to force it.
       quality: raw.defaults?.quality ?? null,
-      dualView: raw.defaults?.dual_view ?? "split",
+      dualView: raw.defaults?.dual_view ?? null,
       // How long motion keeps a camera streaming. A bound, not a starting point: a battery camera held
       // open indefinitely is the failure this whole mode exists to avoid. Further motion extends it.
       holdSeconds: Number(raw.defaults?.hold_seconds ?? 60),
@@ -139,7 +145,8 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
   if (!cfg.email || !cfg.password) throw new Error("eufy email/password are required (config.yaml eufy.* or EUFY_EMAIL/EUFY_PASSWORD)");
   if (cfg.lan.cidr != null && !isValidCidr(cfg.lan.cidr)) throw new Error(`lan.cidr must be an IPv4 CIDR like 192.168.1.0/24 — octets 0–255, prefix 0–32 (got ${cfg.lan.cidr})`);
   if (cfg.lan.force && !cfg.lan.cidr) throw new Error("lan.force=true requires lan.cidr");
-  if (!DUAL_VIEWS.has(cfg.defaults.dualView)) throw new Error(`defaults.dual_view must be one of ${[...DUAL_VIEWS].join(", ")}`);
+  if (cfg.defaults.dualView != null && !DUAL_VIEWS.has(cfg.defaults.dualView))
+    throw new Error(`defaults.dual_view must be one of ${[...DUAL_VIEWS].join(", ")}`);
   const DEBUG = /^(1|true|yes)$/i.test(env.BRIDGE_DEBUG ?? "");
   return { cfg, DEBUG };
 }

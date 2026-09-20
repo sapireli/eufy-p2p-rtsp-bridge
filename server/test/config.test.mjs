@@ -33,7 +33,9 @@ cameras:
   assert.equal(cfg.lan.force, true);
   assert.deepEqual(cfg.lan.stationAddresses, { T8010X: "10.0.0.5" });
   assert.equal(cfg.defaults.quality, "Full HD (1080P)");
-  assert.equal(cfg.defaults.dualView, "split");
+  // Unset by default: dual view belongs to the eufy app (owner account only), and writing it from the
+  // bridge is a SET_PAYLOAD to a possibly-live camera for a setting nobody asked us to change.
+  assert.equal(cfg.defaults.dualView, null);
   assert.deepEqual(cfg.cameras.T8410X, { name: "Garage" });
   assert.deepEqual(cfg.cameras.T8214X, { dualView: "split" });
   assert.deepEqual(cfg.cameras.T8113X, { enabled: false });
@@ -66,4 +68,21 @@ test("missing config file → env-only config", () => {
   assert.equal(cfg.country, "DE");
   assert.deepEqual(cfg.cameras, {});
   assert.equal(cfg.lan.force, false);
+});
+
+test("dual view is only written when the operator asks for it", () => {
+  const off = loadConfig({ env: {}, configPath: tmpYaml(`eufy: { email: a@b.c, password: p, country: US }\n`) }).cfg;
+  assert.equal(off.defaults.dualView, null, "nothing set → the bridge writes nothing to the camera");
+
+  const on = loadConfig({
+    env: {},
+    configPath: tmpYaml(`eufy: { email: a@b.c, password: p, country: US }\ndefaults: { dual_view: pip-tl }\n`),
+  }).cfg;
+  assert.equal(on.defaults.dualView, "pip-tl", "asked for explicitly → honoured");
+
+  assert.throws(
+    () => loadConfig({ env: {}, configPath: tmpYaml(`eufy: { email: a@b.c, password: p, country: US }\ndefaults: { dual_view: sideways }\n`) }),
+    /dual_view must be one of/,
+    "a typo is still rejected rather than silently ignored",
+  );
 });
