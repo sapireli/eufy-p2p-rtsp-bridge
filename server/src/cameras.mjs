@@ -1,6 +1,8 @@
 // Camera registry: SDK device list ∩ config → the set of cameras this bridge serves, plus the /api shape.
 // Phase 1 rule: wired cameras are in unless `enabled: false`; battery cameras are out unless `enabled: true`.
 
+import { streamKeys } from "./go2rtc.mjs";
+
 /** Dual-lens models → the SET_PAYLOAD sub-command that sets their composed view (from bropat's client). */
 export const DUAL_MODELS = {
   T8214: 6243, // Battery Doorbell E340
@@ -90,6 +92,11 @@ export function createCameras(ctx) {
   const getCamera = (sn) => cache.find((c) => c.sn === sn);
 
   /** What GET /api/cameras returns per camera. `host` is the address clients should dial for RTSP. */
+  /** This camera's go2rtc stream key, resolved against the whole enabled list so collisions are stable. */
+  function streamKeyFor(sn) {
+    return streamKeys(listCameras().filter((c) => c.enabled)).get(sn) ?? sn;
+  }
+
   function apiShape(cam, host) {
     const st = ctx.streamStatus?.(cam.sn) ?? {};
     return {
@@ -113,10 +120,13 @@ export function createCameras(ctx) {
       streaming: Boolean(st.streaming),
       stalls: st.stalls ?? 0,
       blocked: ctx.state.blocked.get(cam.sn) ?? null,
-      rtsp: `rtsp://${host}:8554/${cam.sn}`,
+      // The go2rtc stream is keyed by the camera's name, not its serial — see streamKeys(). Reported
+      // here so a client uses the bridge's key rather than deriving its own and getting it subtly wrong.
+      streamKey: streamKeyFor(cam.sn),
+      rtsp: `rtsp://${host}:8554/${streamKeyFor(cam.sn)}`,
       stream: `/stream/${cam.sn}`,
     };
   }
 
-  return { refreshCameras, listCameras, getCamera, apiShape };
+  return { refreshCameras, listCameras, getCamera, apiShape, streamKeyFor };
 }

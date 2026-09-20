@@ -23,13 +23,7 @@ func storeAt(t *testing.T, offset *time.Duration) *Store {
 func hello(cams ...[4]string) Message {
 	m := Message{Type: "hello"}
 	for _, c := range cams {
-		m.Cameras = append(m.Cameras, struct {
-			SN    string `json:"sn"`
-			Name  string `json:"name"`
-			Mode  string `json:"mode"`
-			State string `json:"state"`
-			Still bool   `json:"still"`
-		}{SN: c[0], Name: c[1], Mode: c[2], State: c[3], Still: true})
+		m.Cameras = append(m.Cameras, HelloCamera{SN: c[0], Name: c[1], Mode: c[2], State: c[3], Still: true})
 	}
 	return m
 }
@@ -259,13 +253,7 @@ func TestApplyReportsWhetherAnythingChanged(t *testing.T) {
 func TestNoRetainedStillMeansADarkTileNotABrokenOne(t *testing.T) {
 	var off time.Duration
 	s := storeAt(t, &off)
-	s.Apply(Message{Type: "hello", Cameras: []struct {
-		SN    string `json:"sn"`
-		Name  string `json:"name"`
-		Mode  string `json:"mode"`
-		State string `json:"state"`
-		Still bool   `json:"still"`
-	}{{SN: "YARD", Mode: "on_motion", State: "idle", Still: false}}})
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "YARD", Mode: "on_motion", State: "idle", Still: false}}})
 	tile := []config.Tile{motionTile([]string{"YARD"}, 120, 0)}
 
 	s.Apply(Message{Type: "motion", SN: "YARD"})
@@ -281,5 +269,25 @@ func TestNoRetainedStillMeansADarkTileNotABrokenOne(t *testing.T) {
 	s.Apply(Message{Type: "motion", SN: "YARD", Still: true})
 	if got := s.Resolve(tile, map[int]string{0: "YARD"}, nil)[0]; got.Content != ContentSnapshot {
 		t.Errorf("once a thumbnail exists the tile should show it, got %q", got.Content)
+	}
+}
+
+// go2rtc keys its streams by camera name. The wall must use the key the bridge reports rather than
+// deriving its own, or a rename silently points a tile at a stream that does not exist.
+func TestStreamKeyComesFromTheBridge(t *testing.T) {
+	var off time.Duration
+	s := storeAt(t, &off)
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{
+		{SN: "T8214A", Name: "Front Door", Mode: "always", State: "live", StreamKey: "front_door"},
+		{SN: "T8425B", Name: "Garage", Mode: "always", State: "live"}, // bridge kept the serial
+	}})
+	if got := s.StreamKeyFor("T8214A"); got != "front_door" {
+		t.Errorf("should use the bridge's key, got %q", got)
+	}
+	if got := s.StreamKeyFor("T8425B"); got != "T8425B" {
+		t.Errorf("no key reported means the bridge fell back to the serial too, got %q", got)
+	}
+	if got := s.StreamKeyFor("UNKNOWN"); got != "UNKNOWN" {
+		t.Errorf("a camera we know nothing about falls back to its serial, got %q", got)
 	}
 }

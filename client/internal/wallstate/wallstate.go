@@ -21,6 +21,7 @@ type Camera struct {
 	Live       bool   // the server says there is video to show right now
 	Starting   bool   // waking: a stream is being established but no frames yet
 	HasStill   bool   // the bridge holds a thumbnail for this camera at /snapshot/<sn>
+	StreamKey  string // the bridge's go2rtc stream key (its name, slugged) — what the RTSP URL uses
 	LastMotion time.Time
 }
 
@@ -45,20 +46,24 @@ func (s *Store) get(sn string) *Camera {
 	return c
 }
 
+// HelloCamera is one camera in the server's hello snapshot.
+type HelloCamera struct {
+	SN        string `json:"sn"`
+	Name      string `json:"name"`
+	Mode      string `json:"mode"`
+	State     string `json:"state"`
+	Still     bool   `json:"still"`
+	StreamKey string `json:"streamKey"`
+}
+
 // Message is one /ws frame. Only the fields the wall acts on are decoded.
 type Message struct {
-	Type    string `json:"type"`
-	SN      string `json:"sn"`
-	State   string `json:"state"`
-	Event   string `json:"event"`
-	Still   bool   `json:"still"`
-	Cameras []struct {
-		SN    string `json:"sn"`
-		Name  string `json:"name"`
-		Mode  string `json:"mode"`
-		State string `json:"state"`
-		Still bool   `json:"still"`
-	} `json:"cameras"`
+	Type    string        `json:"type"`
+	SN      string        `json:"sn"`
+	State   string        `json:"state"`
+	Event   string        `json:"event"`
+	Still   bool          `json:"still"`
+	Cameras []HelloCamera `json:"cameras"`
 }
 
 // Apply folds one message in. Returns whether anything a tile could notice changed.
@@ -69,7 +74,7 @@ func (s *Store) Apply(m Message) bool {
 		// happening rather than waiting for the next event.
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
-			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still}
+			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey}
 		}
 		return true
 	case "motion":
@@ -239,4 +244,13 @@ func (s *Store) holdFor(sn string) bool {
 	}
 	c, ok := s.cams[sn]
 	return !ok || c.Mode != "always"
+}
+
+// StreamKeyFor is the RTSP path segment for a camera: the bridge's key when it has told us one, and the
+// serial otherwise — which is also what the bridge falls back to for a camera whose name it cannot use.
+func (s *Store) StreamKeyFor(sn string) string {
+	if c, ok := s.cams[sn]; ok && c.StreamKey != "" {
+		return c.StreamKey
+	}
+	return sn
 }

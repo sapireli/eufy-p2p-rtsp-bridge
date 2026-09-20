@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "yaml";
-import { createGo2rtc, hardenGo2rtcYaml, withNamedAliases, streamSlug } from "../src/go2rtc.mjs";
+import { createGo2rtc, hardenGo2rtcYaml, withNamedStreams, streamKeys, streamSlug } from "../src/go2rtc.mjs";
 import { createState } from "../src/state.mjs";
 
 const originals = {};
@@ -38,33 +38,32 @@ test("hardenGo2rtcYaml is idempotent and tolerates a file without webrtc", () =>
   assert.equal(hardenGo2rtcYaml(once), once);
 });
 
-// The go2rtc web UI lists stream keys, and a wall of serial numbers tells an operator nothing about
-// which camera they are looking at.
-test("named aliases appear alongside the serial streams, not instead of them", () => {
+// go2rtc lists stream keys, and a wall of serial numbers tells an operator nothing about which camera
+// they are looking at. The key IS the name — no serial stream is kept alongside it.
+test("streams are keyed by the camera's name, not its serial", () => {
   const yaml = "streams:\n  T8214A: ffmpeg:http://127.0.0.1:3000/stream/T8214A#video=copy\n";
-  const out = withNamedAliases(yaml, [{ sn: "T8214A", name: "Front Door" }]);
-  assert.match(out, /T8214A: ffmpeg:/, "the serial stream must survive — RTSP URLs and the wall config use it");
-  assert.match(out, /front_door: rtsp:\/\/127\.0\.0\.1:8554\/T8214A/);
+  const out = withNamedStreams(yaml, [{ sn: "T8214A", name: "Front Door" }]);
+  assert.match(out, /front_door: ffmpeg:http:\/\/127\.0\.0\.1:3000\/stream\/T8214A#video=copy/);
+  assert.doesNotMatch(out, /T8214A:/, "the serial key is replaced, not duplicated");
+  assert.equal((out.match(/ffmpeg:/g) ?? []).length, 1, "exactly one producer per camera");
 });
 
-// A second `ffmpeg:` source would open a second producer and therefore a second P2P session to the
-// camera. Proxying the serial stream keeps one upstream producer and costs nothing until viewed.
-test("an alias proxies the serial stream rather than opening its own source", () => {
-  const yaml = "streams:\n  T8214A: ffmpeg:http://127.0.0.1:3000/stream/T8214A#video=copy\n";
-  const out = withNamedAliases(yaml, [{ sn: "T8214A", name: "Front Door" }]);
-  assert.equal((out.match(/ffmpeg:/g) ?? []).length, 1, "exactly one upstream producer");
-});
-
-test("a name that would collide or slug to nothing is skipped", () => {
-  const yaml = "streams:\n  T8214A: ffmpeg:x\n  T8425B: ffmpeg:y\n";
-  const out = withNamedAliases(yaml, [
+// A camera must stay reachable even when its name cannot be used, and must never answer for another.
+test("a name that slugs to nothing or collides falls back to the serial", () => {
+  const keys = streamKeys([
     { sn: "T8214A", name: "Front Door" },
     { sn: "T8425B", name: "front door" }, // same slug as the first
     { sn: "T8030C", name: "!!!" }, // slugs to nothing
-    { sn: "T8030D", name: "T8214A" }, // collides with a serial
   ]);
-  assert.equal((out.match(/front_door:/g) ?? []).length, 1, "the second camera must not steal the name");
-  assert.equal((out.match(/^  T8214A:/gm) ?? []).length, 1, "a name must never overwrite a serial stream");
+  assert.equal(keys.get("T8214A"), "front_door");
+  assert.equal(keys.get("T8425B"), "T8425B", "the second camera keeps its serial rather than stealing the name");
+  assert.equal(keys.get("T8030C"), "T8030C");
+});
+
+test("the source is carried across unchanged, including its transcode suffix", () => {
+  const yaml = "streams:\n  T8425B: ffmpeg:http://127.0.0.1:3000/stream/T8425B#video=h264#hardware\n";
+  const out = withNamedStreams(yaml, [{ sn: "T8425B", name: "Garage Cam" }]);
+  assert.match(out, /garage_cam: ffmpeg:http:\/\/127\.0\.0\.1:3000\/stream\/T8425B#video=h264#hardware/);
 });
 
 test("streamSlug makes URL-safe keys", () => {

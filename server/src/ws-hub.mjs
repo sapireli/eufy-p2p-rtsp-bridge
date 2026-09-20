@@ -33,6 +33,9 @@ export function createWsHub(ctx) {
           sn: c.sn,
           name: c.name,
           mode: c.mode ?? "always",
+          // The go2rtc stream key (the camera's name, slugged). The wall builds its RTSP URL from this
+          // rather than from the serial, so renaming a camera moves its stream without a client change.
+          streamKey: ctx.streamKeyFor?.(c.sn) ?? c.sn,
           state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
           // Whether GET /snapshot/<sn> has a thumbnail. A wall that renders a still for a camera with
           // none would be pointing a pipeline at a 404 and restarting it forever.

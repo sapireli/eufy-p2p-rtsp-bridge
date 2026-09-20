@@ -45,27 +45,41 @@ export function streamSlug(name) {
 }
 
 /**
- * Add a named stream per camera alongside the serial-keyed one, so go2rtc's web UI lists "front_door"
- * rather than only "T8214510242321E6".
+ * The go2rtc stream key for each camera: its name, slugged. Serial numbers tell an operator nothing about
+ * which camera they are looking at, in the web UI or in an RTSP URL.
  *
- * The alias is a PROXY of the serial stream (go2rtc pulling its own RTSP), not a second source. That
- * matters: a second `ffmpeg:` source would open a second producer and therefore a second P2P session to
- * the camera. Pulled this way the alias is lazy — it costs nothing until somebody views it — and when
- * they do it attaches to the one upstream producer the serial stream already has.
+ * The serial remains the fallback, and deliberately so: a camera whose name slugs to nothing, or whose
+ * name another camera already took, must still be reachable rather than disappear or — worse — answer for
+ * the wrong camera. Order is stable (the camera list order), so a key does not migrate between cameras
+ * across restarts unless the names themselves change.
  *
- * The serial keys stay exactly as they were, so existing RTSP URLs, the wall's config and the docs keep
- * working; the name is an addition, not a rename. A name that slugs to nothing, collides with a serial,
- * or collides with another camera's name is skipped rather than silently pointed at the wrong camera.
+ * Returns a Map of sn -> key. This is the single source of truth for the key: the bridge reports it on
+ * /api/cameras and over /ws so the wall uses the same one rather than deriving its own.
  */
-export function withNamedAliases(text, cameras, rtspPort = 8554) {
-  const doc = parseDocument(text);
-  const serials = new Set(cameras.map((c) => c.sn));
-  const taken = new Set(serials);
+export function streamKeys(cameras) {
+  const keys = new Map();
+  const taken = new Set();
   for (const cam of cameras) {
     const slug = streamSlug(cam.name);
-    if (!slug || taken.has(slug)) continue;
-    taken.add(slug);
-    doc.setIn(["streams", slug], `rtsp://127.0.0.1:${rtspPort}/${cam.sn}`);
+    const key = slug && !taken.has(slug) ? slug : cam.sn;
+    taken.add(key);
+    keys.set(cam.sn, key);
+  }
+  return keys;
+}
+
+/** Rewrite the generated config's serial-keyed streams to {@link streamKeys}, in place and one for one. */
+export function withNamedStreams(text, cameras) {
+  const doc = parseDocument(text);
+  const streams = doc.getIn(["streams"]);
+  if (!streams) return doc.toString();
+  const keys = streamKeys(cameras);
+  for (const [sn, key] of keys) {
+    if (key === sn) continue;
+    const source = doc.getIn(["streams", sn]);
+    if (source === undefined) continue;
+    doc.deleteIn(["streams", sn]);
+    doc.setIn(["streams", key], source);
   }
   return doc.toString();
 }
@@ -91,7 +105,7 @@ export function createGo2rtc(ctx) {
     const plan = egressPlan();
     let text = hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8"));
     for (const [sn, suffix] of Object.entries(plan)) text = text.replace(`/stream/${sn}#video=copy`, `/stream/${sn}${suffix}`);
-    text = withNamedAliases(text, ctx.listCameras().filter((c) => c.enabled));
+    text = withNamedStreams(text, ctx.listCameras().filter((c) => c.enabled));
     await writeFile(cfg.go2rtcConfig, text, "utf8");
     lastPlan = plan;
     const t = Object.entries(plan).filter(([, v]) => v.includes("h264#")).map(([k]) => k);

@@ -164,6 +164,14 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		for k, v := range content {
 			kinds[k] = v
 		}
+		// Snapshot the stream keys too: the plans are built after the lock is dropped, and the store is
+		// mutated by the event goroutine.
+		keys := make(map[string]string, len(snapshot))
+		for _, cam := range snapshot {
+			if cam != "" {
+				keys[cam] = store.StreamKeyFor(cam)
+			}
+		}
 		mu.Unlock()
 
 		for _, cam := range take {
@@ -176,7 +184,12 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			lastShown = line
 			log.Printf("[wall] showing %s", line)
 		}
-		mgr.Update(ctx, plansFor(c, caps, tiles, snapshot, kinds))
+		mgr.Update(ctx, plansFor(c, caps, tiles, snapshot, kinds, func(sn string) string {
+			if k, ok := keys[sn]; ok && k != "" {
+				return k
+			}
+			return sn
+		}))
 	}
 
 	apply()
@@ -227,7 +240,7 @@ const holdRefreshInterval = 20 * time.Second
 
 // plansFor builds the pipelines for what each tile is currently showing. A tile showing nothing simply
 // has no plan, so a blank tile costs no process at all.
-func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showing, content map[int]string) []pipeline.Plan {
+func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showing, content map[int]string, streamKey func(string) string) []pipeline.Plan {
 	live := make([]layout.Placed, 0, len(tiles))
 	for _, t := range tiles {
 		if showing == nil {
@@ -239,7 +252,14 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 			continue
 		}
 		t.Camera = cam
-		t.URL = c.TileURL(config.Tile{Camera: cam})
+		// go2rtc keys its streams by camera NAME, so the URL is built from the key the bridge reports
+		// rather than from the serial. Before the bridge has told us one, the serial is what it falls
+		// back to as well, so the two agree either way.
+		key := cam
+		if streamKey != nil {
+			key = streamKey(cam)
+		}
+		t.URL = c.TileURL(config.Tile{Camera: key})
 		if tc := c.TileFor(cam); tc != nil {
 			t.Codec = tc.Codec
 		}

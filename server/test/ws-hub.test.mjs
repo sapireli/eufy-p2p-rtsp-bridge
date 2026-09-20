@@ -61,7 +61,7 @@ test("a joining client is told the current state, not just future events", async
   ctx.state.streaming.add("BATT");
   const [hello] = await collect(url, 1);
   assert.equal(hello.type, "hello");
-  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", state: "live", still: false }]);
+  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", streamKey: "BATT", state: "live", still: false }]);
   assert.ok(hello.at > 0, "every message is timestamped so a replay is distinguishable from a live event");
 });
 
