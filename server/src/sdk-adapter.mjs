@@ -63,11 +63,17 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
      * stream down mid-flight — an always-on wired camera then flaps every budget cycle. Telling it "wired"
      * disables that budget; a real battery camera keeps the SDK default so its budget still applies.
      */
-    async openFeed(client, sn, { powered } = {}) {
+    async openFeed(client, sn, { powered, standalone } = {}) {
       const cam = (await client.getDevice(sn)).camera?.();
       if (!cam?.openReadable) throw new Error(`${sn}: no live video (not a camera or openReadable unavailable)`);
       // warmTimeoutMs: see cfg.stall.warmTimeoutMs — the app waits out long dead spots rather than rebuilding.
-      const opts = { warmTimeoutMs: cfg.stall.warmTimeoutMs };
+      // warmRetryMs is deliberately slower for a standalone camera: it has far fewer session slots than a
+      // HomeBase, and re-issuing the start every 2s for the whole deadline exhausts it rather than waking
+      // it — one here stayed frozen until every client stopped asking.
+      const opts = {
+        warmTimeoutMs: cfg.stall.warmTimeoutMs,
+        warmRetryMs: standalone ? cfg.stall.standaloneWarmRetryMs : cfg.stall.warmRetryMs,
+      };
       return cam.openReadable(powered ? { powered: "wired", ...opts } : opts);
     },
 

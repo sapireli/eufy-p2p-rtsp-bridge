@@ -128,6 +128,12 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
       // tearing our feed down mid-recovery, and each rebuild can bring the camera back at a different
       // resolution, which breaks an already-negotiated RTSP session. Be patient like the app instead.
       warmTimeoutMs: Number(raw.stall?.warm_timeout_ms ?? 45_000),
+      // How often an unanswered start is re-issued while warming. The SDK's 2s is fine for a HomeBase,
+      // which has sessions to spare. A STANDALONE camera does not: re-asking 21 times inside the warm
+      // deadline exhausts it, and one observed here froze until every client backed off. A camera that
+      // has not answered in two seconds will not answer sooner because we asked again.
+      warmRetryMs: Number(raw.stall?.warm_retry_ms ?? 2000),
+      standaloneWarmRetryMs: Number(raw.stall?.standalone_warm_retry_ms ?? 8000),
     },
   };
   if (!cfg.email || !cfg.password) throw new Error("eufy email/password are required (config.yaml eufy.* or EUFY_EMAIL/EUFY_PASSWORD)");

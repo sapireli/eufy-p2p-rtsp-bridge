@@ -57,3 +57,4 @@ test("P2PSession exposes connectAddress and close (used by lan-guard)", () => {
   assert.match(src, /this\.connectAddress = /, "connectAddress field assigned on connect");
   assert.match(src, /async close\(\)/, "close() method");
 });
+
