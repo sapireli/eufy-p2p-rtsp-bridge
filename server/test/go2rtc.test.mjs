@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "yaml";
-import { createGo2rtc, hardenGo2rtcYaml } from "../src/go2rtc.mjs";
+import { createGo2rtc, hardenGo2rtcYaml, withNamedAliases, streamSlug } from "../src/go2rtc.mjs";
 import { createState } from "../src/state.mjs";
 
 const originals = {};
@@ -36,4 +36,39 @@ test("hardenGo2rtcYaml is idempotent and tolerates a file without webrtc", () =>
   assert.equal(parse(once).api.listen, "127.0.0.1:1984");
   assert.equal(parse(once).webrtc.listen, "");
   assert.equal(hardenGo2rtcYaml(once), once);
+});
+
+// The go2rtc web UI lists stream keys, and a wall of serial numbers tells an operator nothing about
+// which camera they are looking at.
+test("named aliases appear alongside the serial streams, not instead of them", () => {
+  const yaml = "streams:\n  T8214A: ffmpeg:http://127.0.0.1:3000/stream/T8214A#video=copy\n";
+  const out = withNamedAliases(yaml, [{ sn: "T8214A", name: "Front Door" }]);
+  assert.match(out, /T8214A: ffmpeg:/, "the serial stream must survive — RTSP URLs and the wall config use it");
+  assert.match(out, /front_door: rtsp:\/\/127\.0\.0\.1:8554\/T8214A/);
+});
+
+// A second `ffmpeg:` source would open a second producer and therefore a second P2P session to the
+// camera. Proxying the serial stream keeps one upstream producer and costs nothing until viewed.
+test("an alias proxies the serial stream rather than opening its own source", () => {
+  const yaml = "streams:\n  T8214A: ffmpeg:http://127.0.0.1:3000/stream/T8214A#video=copy\n";
+  const out = withNamedAliases(yaml, [{ sn: "T8214A", name: "Front Door" }]);
+  assert.equal((out.match(/ffmpeg:/g) ?? []).length, 1, "exactly one upstream producer");
+});
+
+test("a name that would collide or slug to nothing is skipped", () => {
+  const yaml = "streams:\n  T8214A: ffmpeg:x\n  T8425B: ffmpeg:y\n";
+  const out = withNamedAliases(yaml, [
+    { sn: "T8214A", name: "Front Door" },
+    { sn: "T8425B", name: "front door" }, // same slug as the first
+    { sn: "T8030C", name: "!!!" }, // slugs to nothing
+    { sn: "T8030D", name: "T8214A" }, // collides with a serial
+  ]);
+  assert.equal((out.match(/front_door:/g) ?? []).length, 1, "the second camera must not steal the name");
+  assert.equal((out.match(/^  T8214A:/gm) ?? []).length, 1, "a name must never overwrite a serial stream");
+});
+
+test("streamSlug makes URL-safe keys", () => {
+  assert.equal(streamSlug("Solar Wall Light Cam"), "solar_wall_light_cam");
+  assert.equal(streamSlug("  Garage – Interior/Door  "), "garage_interior_door");
+  assert.equal(streamSlug(""), "");
 });
