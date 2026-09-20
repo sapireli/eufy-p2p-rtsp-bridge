@@ -117,6 +117,17 @@ export function createHttpHandler(ctx) {
         const dropped = await ctx.sdk.dropStreamClient?.(sn, sn);
         return json(res, 200, { sn, dropped });
       }
+      if (arg === "motion") {
+        // Inject a motion event, so a motion wall can be exercised without waiting for something to walk
+        // past a camera. Takes the same path as a real event: broadcast to every client, and a hold for
+        // an on_motion camera.
+        const sn = url.searchParams.get("sn");
+        const cam = ctx.getCamera?.(sn);
+        if (!cam?.enabled) return json(res, 404, { error: "unknown or disabled camera" });
+        ctx.broadcastEvent?.({ type: "motion", sn, event: "motion", simulated: true });
+        const until = cam.mode === "on_motion" ? ctx.holds.hold(sn, "motion", cam.holdSeconds) : 0;
+        return json(res, 200, { sn, mode: cam.mode, heldForMs: until ? until - Date.now() : 0 });
+      }
       if (arg === "lan") {
         return json(res, 200, { force: ctx.cfg.lan.force, stations: ctx.lanUpgrade?.status?.() ?? {} });
       }

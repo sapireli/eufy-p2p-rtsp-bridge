@@ -6,16 +6,21 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/detect"
 	"eufy-wall/internal/layout"
 	"eufy-wall/internal/pipeline"
 	"eufy-wall/internal/supervisor"
+	"eufy-wall/internal/wallstate"
+	"eufy-wall/internal/wsclient"
 )
 
 func main() {
@@ -84,8 +89,180 @@ func main() {
 	defer stop()
 	mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) { log.Printf("[gst %s] %s", name, line) })
 	log.Printf("[wall] %d pipeline(s): %s", len(plans), planNames(plans))
-	_ = mgr.Run(ctx, plans)
+
+	runDynamic(ctx, c, caps, tiles, mgr, plans)
 	log.Printf("[wall] stopped")
+}
+
+// runDynamic follows /ws and keeps the running pipelines matching what each tile should be showing.
+func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles []layout.Placed, mgr *supervisor.Manager, static []pipeline.Plan) {
+	endpoint := wsclient.EventURL(c.RTSPBase)
+	if endpoint == "" {
+		log.Printf("[wall] cannot derive the event channel from rtsp_base %q — running a static wall", c.RTSPBase)
+		_ = mgr.Run(ctx, static)
+		return
+	}
+	log.Printf("[wall] following events at %s", endpoint)
+
+	store := wallstate.New()
+	var mu sync.Mutex
+	showing := map[int]string{}
+	switchedAt := map[int]time.Time{}
+	// Cameras this wall is keeping awake. A hold is bounded on the server, so showing one means
+	// refreshing it; no longer showing one means releasing it, or a battery camera would be held awake
+	// by a tile that stopped looking at it.
+	holding := map[string]bool{}
+
+	apply := func() {
+		mu.Lock()
+		// Until the server has told us what exists, render the wall exactly as configured. Resolving
+		// against an empty store would blank every tile, so a display whose bridge is briefly
+		// unreachable would go dark rather than keep showing the always-on cameras it can still pull.
+		if len(store.Known()) == 0 {
+			mu.Unlock()
+			mgr.Update(ctx, static)
+			return
+		}
+		sels := store.Resolve(c.Tiles, showing, switchedAt)
+		now := time.Now()
+		for _, sel := range sels {
+			if showing[sel.TileIndex] != sel.Camera {
+				showing[sel.TileIndex] = sel.Camera
+				switchedAt[sel.TileIndex] = now
+			}
+		}
+
+		// Hold every camera on screen that is not always-on, and release the ones that left. Driven by
+		// what is SHOWING rather than by NeedsHold: once a camera is live NeedsHold goes false, and a
+		// wall that stopped asking there would let the hold lapse and the picture die mid-view.
+		wanted := map[string]bool{}
+		for _, cam := range showing {
+			if cam == "" {
+				continue
+			}
+			if c, ok := store.Camera(cam); ok && c.Mode == "always" {
+				continue // already streaming for everyone; holding it would mean nothing
+			}
+			wanted[cam] = true
+		}
+		var take, drop []string
+		for cam := range wanted {
+			take = append(take, cam)
+			holding[cam] = true
+		}
+		for cam := range holding {
+			if !wanted[cam] {
+				drop = append(drop, cam)
+				delete(holding, cam)
+			}
+		}
+
+		snapshot := make(map[int]string, len(showing))
+		for k, v := range showing {
+			snapshot[k] = v
+		}
+		mu.Unlock()
+
+		for _, cam := range take {
+			go holdRequest(ctx, c.RTSPBase, http.MethodPost, cam)
+		}
+		for _, cam := range drop {
+			go holdRequest(ctx, c.RTSPBase, http.MethodDelete, cam)
+		}
+		mgr.Update(ctx, plansFor(c, caps, tiles, snapshot))
+	}
+
+	apply()
+	go wsclient.Run(ctx, endpoint, store, apply, func(line string) { log.Printf("[wall] %s", line) })
+
+	// A hold is deliberately short-lived on the server, so a wall that is still showing a camera has to
+	// say so. Refreshing well inside that window keeps the picture up without ever pinning a battery
+	// camera awake: stop refreshing and it sleeps on its own.
+	refresh := time.NewTicker(holdRefreshInterval)
+	defer refresh.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			mu.Lock()
+			held := make([]string, 0, len(holding))
+			for cam := range holding {
+				held = append(held, cam)
+			}
+			mu.Unlock()
+			// Let the cameras sleep rather than waiting out the hold we took.
+			release, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			var wg sync.WaitGroup
+			for _, cam := range held {
+				wg.Add(1)
+				go func(c2 string) { defer wg.Done(); holdRequest(release, c.RTSPBase, http.MethodDelete, c2) }(cam)
+			}
+			wg.Wait()
+			cancel()
+			mgr.Update(ctx, nil)
+			return
+		case <-refresh.C:
+			mu.Lock()
+			held := make([]string, 0, len(holding))
+			for cam := range holding {
+				held = append(held, cam)
+			}
+			mu.Unlock()
+			for _, cam := range held {
+				go holdRequest(ctx, c.RTSPBase, http.MethodPost, cam)
+			}
+		}
+	}
+}
+
+// holdRefreshInterval is well inside the server's default hold so a refresh cannot arrive late, and a
+// wall that dies simply stops refreshing and the camera sleeps.
+const holdRefreshInterval = 20 * time.Second
+
+// plansFor builds the pipelines for what each tile is currently showing. A tile showing nothing simply
+// has no plan, so a blank tile costs no process at all.
+func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showing map[int]string) []pipeline.Plan {
+	live := make([]layout.Placed, 0, len(tiles))
+	for _, t := range tiles {
+		if showing == nil {
+			live = append(live, t)
+			continue
+		}
+		cam, ok := showing[t.Index]
+		if !ok || cam == "" {
+			continue
+		}
+		t.Camera = cam
+		t.URL = c.TileURL(config.Tile{Camera: cam})
+		if tc := c.TileFor(cam); tc != nil {
+			t.Codec = tc.Codec
+		}
+		live = append(live, t)
+	}
+	plans, err := pipeline.Plans(c, live, caps)
+	if err != nil {
+		log.Printf("[wall] cannot build pipelines: %v", err)
+		return nil
+	}
+	return plans
+}
+
+// holdRequest takes (POST) or releases (DELETE) this wall's hold on a camera.
+func holdRequest(ctx context.Context, rtspBase, method, sn string) {
+	u := wsclient.EventURL(rtspBase)
+	if u == "" {
+		return
+	}
+	endpoint := strings.Replace(strings.Replace(u, "ws://", "http://", 1), "/ws", "/hold/"+sn, 1)
+	req, err := http.NewRequestWithContext(ctx, method, endpoint+"?owner=wall", nil)
+	if err != nil {
+		return
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		log.Printf("[wall] %s hold %s failed: %v", strings.ToLower(method), sn, err)
+		return
+	}
+	resp.Body.Close()
 }
 
 // planNames lists what the wall is running, so the log says whether tiles are independent processes or

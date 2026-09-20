@@ -195,3 +195,14 @@ func (c *Config) GridDims() (cols, rows int) {
 	cols, rows, _ = gridFor(c.Layout)
 	return cols, rows
 }
+
+// TileFor finds the configured tile for a camera, so a dynamic tile that lands on it can inherit what
+// the operator said about that camera — its codec above all, since decoding H.265 as H.264 fails.
+func (c *Config) TileFor(camera string) *Tile {
+	for i := range c.Tiles {
+		if c.Tiles[i].Camera == camera {
+			return &c.Tiles[i]
+		}
+	}
+	return nil
+}
