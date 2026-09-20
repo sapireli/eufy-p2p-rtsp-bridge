@@ -29,16 +29,26 @@ func main() {
 		log.Fatalf("[wall] %v", err)
 	}
 	if c.Screen.Width == 0 || c.Screen.Height == 0 {
-		if s, ok := detect.Screen("/"); ok {
+		if s, ok := detect.ScreenFor("/", c.Output); ok {
 			c.Screen = s
 		} else {
 			c.Screen = config.Screen{Width: 1920, Height: 1080}
-			log.Printf("[wall] no HDMI mode found in sysfs — assuming 1920x1080 (set screen: in config)")
+			where := "no HDMI mode found in sysfs"
+			if c.Output != "" {
+				where = "no mode found for output " + c.Output
+			}
+			log.Printf("[wall] %s — assuming 1920x1080 (set screen: in config)", where)
 		}
 	}
 	caps, err := detect.Resolve(c, detect.HasElement, detect.FileExists)
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
+	}
+	if id, ok := detect.ConnectorID("/", c.Output); ok {
+		caps.ConnectorID = id
+		log.Printf("[wall] rendering on output %s (connector %d)", c.Output, id)
+	} else if c.Output != "" {
+		log.Printf("[wall] output %s: no connector id in sysfs — kmssink will pick the first connected output", c.Output)
 	}
 	tiles, err := layout.Place(c, c.Screen)
 	if err != nil {

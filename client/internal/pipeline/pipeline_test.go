@@ -108,3 +108,33 @@ func TestTileCodecDefaultsToH264(t *testing.T) {
 		t.Errorf("want h264 decode, got: %s", got)
 	}
 }
+
+// A wall spread over two monitors runs one instance per monitor, each driving its own output. Without a
+// connector id every instance renders on whichever output kmssink picks first, so both land on the same
+// screen; with it, each instance keeps its own CRTC and its own hardware planes — which is what avoids
+// compositing a single framebuffer spanned across both displays.
+func TestConnectorIDTargetsOneOutput(t *testing.T) {
+	tiles := []layout.Placed{{Index: 0, Camera: "A", URL: "rtsp://s/A", W: 1024, H: 768}}
+	for _, sink := range []string{"compositor", "planes"} {
+		c := &config.Config{Latency: 200, Planes: []int{31}}
+		args, err := Build(c, tiles, Caps{Decoder: "software", Sink: sink, Screen: config.Screen{Width: 1024, Height: 768}, ConnectorID: 42})
+		if err != nil {
+			t.Fatalf("%s: %v", sink, err)
+		}
+		if got := String(args); !strings.Contains(got, "connector-id=42") {
+			t.Errorf("%s: pipeline should target connector 42: %s", sink, got)
+		}
+	}
+}
+
+// Unset means "first connected output" — the single-screen case, and what every existing config does.
+func TestNoConnectorIDLeavesOutputToKmssink(t *testing.T) {
+	tiles := []layout.Placed{{Index: 0, Camera: "A", URL: "rtsp://s/A", W: 1920, H: 1080}}
+	args, err := Build(&config.Config{Latency: 200}, tiles, Caps{Decoder: "software", Sink: "compositor", Screen: config.Screen{Width: 1920, Height: 1080}})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if got := String(args); strings.Contains(got, "connector-id") {
+		t.Errorf("no output configured, so none should be pinned: %s", got)
+	}
+}

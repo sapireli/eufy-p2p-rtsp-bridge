@@ -39,8 +39,13 @@ type Restart struct {
 }
 
 type Config struct {
-	RTSPBase        string  `yaml:"rtsp_base"`
-	Layout          string  `yaml:"layout"`
+	RTSPBase string `yaml:"rtsp_base"`
+	Layout   string `yaml:"layout"`
+	// Output names the display this instance drives, as a DRM connector: "HDMI-A-1", "HDMI-A-2", "DP-1".
+	// Empty means the first connected output, which is the single-screen case. Naming it is what lets one
+	// instance per monitor each show its own cameras: each drives its own CRTC, so each keeps the cheap
+	// hardware-plane path instead of compositing one framebuffer spanned across both.
+	Output          string  `yaml:"output"`
 	PrimaryPosition string  `yaml:"primary_position"`
 	Screen          Screen  `yaml:"screen"`
 	Decoder         string  `yaml:"decoder"`

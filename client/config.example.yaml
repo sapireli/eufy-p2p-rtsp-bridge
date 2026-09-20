@@ -1,5 +1,11 @@
 # eufy-wall display client configuration (/etc/eufy-wall.yaml)
 rtsp_base: rtsp://192.168.1.10:8554   # the eufy-wall-bridge server (go2rtc RTSP)
+# output: HDMI-A-1                     # DRM connector this instance drives; omit = first connected.
+# TWO MONITORS: run one instance per monitor, each with its own config file, its own `output:` and its
+# own `tiles:`. Each drives its own CRTC and keeps the cheap hardware-plane path. Do NOT span one
+# framebuffer across both — DRM overlay planes belong to a single CRTC, so spanning forces the
+# compositor path and roughly doubles the composite work. List connectors with:
+#   ls /sys/class/drm/            (card0-HDMI-A-1, card0-HDMI-A-2, card0-DP-1, ...)
 layout: 2x1                            # 1 | 1+5 | any <cols>x<rows> (sides 1-6)
 # Common shapes on a 16:9 screen:
 #   2x1  two side by side, full height. The fit for two dual-lens cameras: they compose a PORTRAIT

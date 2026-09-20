@@ -14,9 +14,20 @@ import (
 	"eufy-wall/internal/pipeline"
 )
 
-// Screen reads the preferred mode of the first HDMI connector (first line of .../modes).
+// Screen reads the preferred mode of the first connected HDMI output.
 func Screen(fsRoot string) (config.Screen, bool) {
-	matches, _ := filepath.Glob(filepath.Join(fsRoot, "sys/class/drm/card*-HDMI-A-*/modes"))
+	return ScreenFor(fsRoot, "")
+}
+
+// ScreenFor reads the preferred mode of a named DRM connector ("HDMI-A-2", "DP-1"); an empty name means
+// the first HDMI output, as before. Driving two monitors means one instance per connector, so the mode
+// has to come from the connector this instance actually drives rather than whichever one sorts first.
+func ScreenFor(fsRoot, output string) (config.Screen, bool) {
+	pattern := "sys/class/drm/card*-HDMI-A-*/modes"
+	if output != "" {
+		pattern = "sys/class/drm/card*-" + output + "/modes"
+	}
+	matches, _ := filepath.Glob(filepath.Join(fsRoot, pattern))
 	for _, m := range matches {
 		f, err := os.Open(m)
 		if err != nil {
@@ -71,4 +82,25 @@ func Resolve(c *config.Config, has func(string) bool, fileExists func(string) bo
 		}
 	}
 	return caps, nil
+}
+
+// ConnectorID reads a connector's DRM id, which kmssink needs to target a specific output. The id lives
+// in the sysfs directory name on some drivers and in `connector_id` on others; a missing id is not fatal
+// (kmssink falls back to the first connected output), so this reports whether one was found.
+func ConnectorID(fsRoot, output string) (int, bool) {
+	if output == "" {
+		return 0, false
+	}
+	matches, _ := filepath.Glob(filepath.Join(fsRoot, "sys/class/drm/card*-"+output, "connector_id"))
+	for _, m := range matches {
+		b, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		var id int
+		if _, err := fmt.Sscanf(strings.TrimSpace(string(b)), "%d", &id); err == nil && id > 0 {
+			return id, true
+		}
+	}
+	return 0, false
 }

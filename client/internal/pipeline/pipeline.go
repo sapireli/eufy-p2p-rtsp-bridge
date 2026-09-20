@@ -16,6 +16,19 @@ type Caps struct {
 	Decoder string // v4l2 | va | software
 	Sink    string // planes | compositor | window
 	Screen  config.Screen
+	// ConnectorID is the DRM connector this instance renders on (0 = let kmssink pick the first connected
+	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
+	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.
+	ConnectorID int
+}
+
+// kmssinkArgs is the sink plus the output it renders on, shared by every sink strategy.
+func (c Caps) kmssinkArgs(extra ...string) []string {
+	args := append([]string{"kmssink"}, extra...)
+	if c.ConnectorID > 0 {
+		args = append(args, fmt.Sprintf("connector-id=%d", c.ConnectorID))
+	}
+	return args
 }
 
 // Decoder element per hardware family and codec. A wall can mix the two: an eufy HomeBase composes some
@@ -67,8 +80,9 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 	case "planes":
 		for i, t := range tiles {
 			args = append(args, src(i, t)...)
-			args = append(args, "!", "kmssink", fmt.Sprintf("name=sink%d", i), fmt.Sprintf("plane-id=%d", c.Planes[i]),
-				fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H), "force-aspect-ratio=true", "sync=false")
+			args = append(args, "!")
+			args = append(args, caps.kmssinkArgs(fmt.Sprintf("name=sink%d", i), fmt.Sprintf("plane-id=%d", c.Planes[i]),
+				fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H), "force-aspect-ratio=true", "sync=false")...)
 		}
 	case "compositor", "window":
 		for i, t := range tiles {
@@ -86,7 +100,8 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		if caps.Sink == "window" {
 			args = append(args, "!", "autovideosink", "sync=false")
 		} else {
-			args = append(args, "!", "kmssink", "sync=false")
+			args = append(args, "!")
+			args = append(args, caps.kmssinkArgs("sync=false")...)
 		}
 	default:
 		return nil, fmt.Errorf("pipeline: unknown sink %q", caps.Sink)
