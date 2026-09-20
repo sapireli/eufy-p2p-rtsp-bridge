@@ -24,7 +24,7 @@ jobs:
       - run: go vet ./...
       - run: go test ./... -race
       - run: make all
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: eufy-wall-binaries, path: client/bin/, retention-days: 7 }
   scripts:
     runs-on: ubuntu-latest
