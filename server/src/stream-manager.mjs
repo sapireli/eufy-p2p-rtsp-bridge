@@ -31,8 +31,25 @@ export function createStreamManager(ctx) {
       // An RTSP consumer negotiated its SDP from the first keyframe, so once the size moves under -c:v copy
       // its decoder is set up for the old one and the picture freezes. Dropping the consumers makes go2rtc
       // re-run its source and hand out an SDP that matches what the camera is actually sending now.
-      const moved = slot.codec !== undefined && (slot.codec !== sets.codec || slot.width !== g?.width || slot.height !== g?.height);
-      if (slot.codec !== sets.codec || slot.width !== g?.width || slot.height !== g?.height) {
+      const differs = slot.codec !== sets.codec || slot.width !== g?.width || slot.height !== g?.height;
+      // CONFIRM a change before acting on it. Parameter sets are read from a chunk, and a keyframe whose
+      // SPS straddles a chunk boundary parses into a plausible-looking but wrong size. Measured on the
+      // Balcony camera: 13 "changes" between 1080p and 720p in one session while a capture of the very
+      // same stream was 1280x720 from end to end. Acting on those tore consumers off and re-synced go2rtc
+      // repeatedly, which is what a viewer saw as a frozen picture.
+      //
+      // A real change persists into the next keyframe; a misparse does not. So a differing reading is
+      // remembered and only believed when the following one agrees with it.
+      // The FIRST reading is taken as-is: there is nothing established to contradict and no consumer
+      // negotiated against it yet. Only a change away from a known geometry has to be confirmed.
+      const unconfirmed =
+        differs &&
+        slot.codec !== undefined &&
+        (slot.pendingGeom?.codec !== sets.codec || slot.pendingGeom?.width !== g?.width || slot.pendingGeom?.height !== g?.height);
+      if (unconfirmed) slot.pendingGeom = { codec: sets.codec, width: g?.width, height: g?.height };
+      else slot.pendingGeom = undefined;
+      const moved = slot.codec !== undefined && differs && !unconfirmed;
+      if (differs && !unconfirmed) {
         const from = slot.codec ? `${slot.codec} ${slot.width ?? "?"}x${slot.height ?? "?"} → ` : "";
         slot.codec = sets.codec;
         slot.width = g?.width;

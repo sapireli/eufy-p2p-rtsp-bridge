@@ -29,8 +29,13 @@ import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
 export function execSourceFor(url, codec, suffix) {
   const fmt = codec === "h265" ? "hevc" : codec === "h264" ? "h264" : undefined;
   if (!fmt || suffix !== "#video=copy") return "";
+  // -use_wallclock_as_timestamps: a raw elementary stream carries NO timestamps, so ffmpeg invents them
+  // from an assumed 25 fps. Measured through go2rtc without this: a 15 fps camera republished at 0.4x
+  // real time (falling behind forever), and a 25 fps one crammed 48 frames into 40 ms of presentation
+  // time — which is precisely what a player shows as a frozen frame. Stamping by ARRIVAL is correct for
+  // a live feed and needs no per-camera frame rate.
   return (
-    `exec:ffmpeg -hide_banner -v error -f ${fmt} -fflags nobuffer -flags low_delay ` +
+    `exec:ffmpeg -hide_banner -v error -f ${fmt} -use_wallclock_as_timestamps 1 -fflags nobuffer -flags low_delay ` +
     `-i ${url} -c:v copy -an -user_agent ffmpeg/go2rtc -rtsp_transport tcp -f rtsp {output}`
   );
 }

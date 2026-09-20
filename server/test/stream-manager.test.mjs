@@ -284,3 +284,49 @@ test("solo per-camera recovery: a failing camera tears down its own session and 
     await sm.stopAll();
   }
 });
+
+// Parameter sets are read from a chunk, and a keyframe whose SPS straddles a chunk boundary parses into a
+// plausible-looking but WRONG size. Measured on the Balcony camera: 13 "changes" between 1080p and 720p in
+// one session, while a capture of that very stream was 1280x720 from end to end. Acting on those tore
+// consumers off and re-synced go2rtc over and over, which is what a viewer saw as a frozen picture.
+test("a one-off geometry misparse is ignored; a real change is acted on once confirmed", async () => {
+  const feed = new PassThrough();
+  let geom = { width: 640, height: 480 };
+  const ctx = ctxWith({ feeds: [() => feed] });
+  ctx.sdk.codedGeometry = () => geom;
+  let syncs = 0;
+  ctx.syncGo2rtc = async () => { syncs += 1; };
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(sm.streamStatus("A").width, 640, "the first reading is taken as-is");
+    const syncsAfterFirst = syncs;
+
+    // A single disagreeing keyframe — a misparse. It must not move the reported geometry.
+    geom = { width: 1920, height: 1080 };
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(sm.streamStatus("A").width, 640, "one odd reading is not a resolution change");
+    assert.equal(syncs, syncsAfterFirst, "and must not re-sync go2rtc");
+
+    // Back to the real size: the pending reading is refuted and dropped.
+    geom = { width: 640, height: 480 };
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(sm.streamStatus("A").width, 640);
+
+    // A genuine change persists across keyframes, so the second agreeing reading is believed.
+    geom = { width: 1280, height: 720 };
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(sm.streamStatus("A").width, 640, "not yet — one reading proves nothing");
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(sm.streamStatus("A").width, 1280, "confirmed by the next keyframe");
+    assert.ok(syncs > syncsAfterFirst, "a real change does re-sync go2rtc");
+  } finally {
+    await sm.stopAll();
+  }
+});
