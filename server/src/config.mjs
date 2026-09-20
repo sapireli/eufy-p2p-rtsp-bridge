@@ -60,12 +60,12 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     go2rtcConfig: resolve(dataDir, "go2rtc.yaml"),
     go2rtcBin: env.GO2RTC_BIN || raw.go2rtc_bin || "go2rtc",
     // How go2rtc should egress each camera. "never" (default) passes the device bitstream through with
-    // -c:v copy. "auto" transcodes H.265 to H.264 (playable without an HEVC decoder, and a constant output
-    // format across source reconnects), "always" transcodes everything.
-    //
-    // Transcoding is ALWAYS hardware-accelerated (see egressFor) — a CPU transcode cannot hold real time
-    // for these sources and takes the stream down when ffmpeg falls behind, so it is never emitted.
-    go2rtcTranscode: String(raw.go2rtc?.transcode ?? "auto"),
+    // -c:v copy: the wall decodes H.265 in hardware, so there is nothing to gain from re-encoding on the
+    // bridge and a great deal to lose — even hardware encoders could not hold real time for the 2160p
+    // HEVC cameras (VideoToolbox measured 0.9x), and go2rtc kills a producer that falls behind, taking
+    // the stream down mid-view. "auto" transcodes H.265 to H.264 for players without an HEVC decoder;
+    // "always" transcodes everything. Both are opt-in and hardware-only (see egressFor).
+    go2rtcTranscode: String(raw.go2rtc?.transcode ?? "never"),
     pollMs: raw.poll_ms != null ? Number(raw.poll_ms) : undefined,
     lan: {
       cidr: lanRaw.cidr ?? null,

@@ -32,15 +32,16 @@ cameras:                         # keyed by camera serial; unlisted WIRED camera
 #   exit_after_ms: 300000        # continuous failure this long → exit(1) so systemd restarts us
 #   backoff_ms: [2000, 4000, 8000, 15000, 30000, 60000]
 
-# go2rtc egress. "auto" (default) transcodes H.265 to H.264 and passes H.264 through; "never" passes
-# every camera's own bitstream through with -c:v copy; "always" transcodes everything. Transcoding is
-# ALWAYS hardware-accelerated (a CPU transcode cannot hold real time for these sources and takes the
-# stream down when ffmpeg falls behind), so where no accelerator exists the stream is passed through.
+# go2rtc egress. "never" (default) passes every camera's own bitstream through with -c:v copy — the wall
+# decodes H.265 in hardware, so re-encoding on the bridge gains nothing and even hardware encoders could
+# not hold real time for the 2160p HEVC cameras (VideoToolbox measured 0.9x; go2rtc kills a producer that
+# falls behind, taking the stream down mid-view). "auto" transcodes H.265 to H.264 for players with no
+# HEVC decoder; "always" transcodes everything. Both are hardware-only: a CPU transcode is never emitted.
 #
 # Several eufy models encode H.265 at every quality tier, so a passthrough wall must decode HEVC itself
-# (client tile `codec: h265`). Transcode instead when the display cannot, e.g. a Pi.
+# (client tile `codec: h265`). VLC plays these with --rtsp-tcp.
 go2rtc:
-  transcode: auto                      # auto (default) | never | always
+  transcode: never                     # never (default) | auto | always
 
 # PHASE 2 — when each camera streams. Defaults follow the power source: wired → always, battery →
 # on_motion. A battery camera on `always` is legal but will flatten it, and the bridge says so.
