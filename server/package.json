@@ -14,6 +14,6 @@
   },
   "dependencies": {
     "@mega-yfue/eufy-sdk": "github:sapireli/eufy-sdk#eufy-wall",
-    "yaml": "2.8.1"
+    "yaml": "2.9.1"
   }
 }
