@@ -98,6 +98,11 @@ export function createCameras(ctx) {
       model: cam.model,
       modelName: cam.modelName,
       enabled: cam.enabled,
+      // Phase 2: a camera is not simply on or off any more. `mode` says whether it streams continuously,
+      // only while something holds it, or only when asked; `holdSeconds` is how long one hold lasts.
+      mode: cam.mode,
+      holdSeconds: cam.holdSeconds,
+      held: ctx.holds?.isHeld?.(cam.sn) ?? false,
       powered: cam.powered,
       dual: cam.isDual,
       dualView: cam.dualView,

@@ -14,7 +14,11 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     countryCode: cfg.country,
     store: new FileSessionStore(cfg.session),
     pollMs: cfg.pollMs,
-    prewarmEvents: [], // no speculative P2P warm-ups on push events (Phase 1 streams are always warm anyway)
+    // No speculative P2P warm-ups on push events. The same push that would trigger one is the push our
+    // own motion handler takes a hold on, and a hold opens the session immediately — so for an on_motion
+    // camera pre-warm races our own open and wins nothing. For any other mode it would spend a battery
+    // camera's radio opening a session nothing is going to stream.
+    prewarmEvents: [],
     localAddresses: Object.keys(cfg.lan.stationAddresses).length ? cfg.lan.stationAddresses : undefined,
     // P2P-only enforcement, per station, asked fresh for every session (see lan-upgrade.mjs). Returning a
     // CIDR makes the SDK refuse any peer outside it — END'ing the session the station opened — and keep

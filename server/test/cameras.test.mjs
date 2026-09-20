@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createCameras, DUAL_MODELS, isPowered } from "../src/cameras.mjs";
 import { createState } from "../src/state.mjs";
 
-function ctxWith(devices, cfgCams = {}, defaults = { quality: "Full HD (1080P)", dualView: "split" }) {
+function ctxWith(devices, cfgCams = {}, defaults = { quality: "Full HD (1080P)", dualView: "split", holdSeconds: 60 }) {
   const byName = Object.fromEntries(devices.map((d) => [d.sn, d]));
   return {
     cfg: { cameras: cfgCams, defaults, port: 3000 },
@@ -56,10 +56,23 @@ test("apiShape merges stream status and rtsp url", async () => {
   const s = c.apiShape(c.getCamera("T8410A"), "192.168.1.10");
   assert.deepEqual(s, {
     sn: "T8410A", name: "Garage", model: "T8410", modelName: "Indoor Cam", enabled: true, powered: true,
+    mode: "always", holdSeconds: 60, held: false,
     dual: false, dualView: null, quality: "Full HD (1080P)", codec: "h264", width: 1920, height: 1080,
     streaming: true, stalls: 2, blocked: "wan-path 203.0.113.9", rtsp: "rtsp://192.168.1.10:8554/T8410A",
     stream: "/stream/T8410A",
   });
+});
+
+// A battery camera's whole behaviour is its mode and whether something is holding it right now; an API
+// that reports neither cannot explain why a camera is or is not streaming.
+test("apiShape reports the mode and live hold state", async () => {
+  const ctx = ctxWith([batt]);
+  ctx.holds = { isHeld: (sn) => sn === "T8113B" };
+  const c = createCameras(ctx);
+  await c.refreshCameras();
+  const s = c.apiShape(c.getCamera("T8113B"), "192.168.1.10");
+  assert.equal(s.mode, "on_motion", "a battery camera defaults to on_motion");
+  assert.equal(s.held, true);
 });
 
 test("DUAL_MODELS map", () => {
