@@ -76,3 +76,35 @@ func TestArgsAreNotShellJoined(t *testing.T) {
 		}
 	}
 }
+
+// A wall can mix codecs. An eufy HomeBase composes some cameras as H.264 and others as HEVC, and where
+// the bridge passes a camera through untranscoded the tile has to decode what the camera actually sends —
+// depayloader, parser and decoder all differ, so picking one per tile is the whole point.
+func TestMixedCodecTilesGetTheirOwnDecoder(t *testing.T) {
+	tiles := []layout.Placed{
+		{Index: 0, Camera: "FRONTDOOR", Codec: "h264", URL: "rtsp://s/FD", W: 960, H: 1080},
+		{Index: 1, Camera: "GARAGE", Codec: "h265", URL: "rtsp://s/GA", X: 960, W: 960, H: 1080},
+	}
+	args, err := Build(&config.Config{Latency: 200}, tiles, Caps{Decoder: "va", Sink: "compositor", Screen: config.Screen{Width: 1920, Height: 1080}})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	got := String(args)
+	for _, want := range []string{"rtph264depay", "h264parse", "vah264dec", "rtph265depay", "h265parse", "vah265dec"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("pipeline missing %q\n%s", want, got)
+		}
+	}
+}
+
+// An unset codec means H.264: that is what a transcoding bridge serves, and it keeps existing configs working.
+func TestTileCodecDefaultsToH264(t *testing.T) {
+	tiles := []layout.Placed{{Index: 0, Camera: "A", URL: "rtsp://s/A", W: 1920, H: 1080}}
+	args, err := Build(&config.Config{Latency: 200}, tiles, Caps{Decoder: "software", Sink: "window", Screen: config.Screen{Width: 1920, Height: 1080}})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if got := String(args); !strings.Contains(got, "avdec_h264") || strings.Contains(got, "h265") {
+		t.Errorf("want h264 decode, got: %s", got)
+	}
+}

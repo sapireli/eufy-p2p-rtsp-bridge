@@ -18,21 +18,49 @@ type Caps struct {
 	Screen  config.Screen
 }
 
-var decoders = map[string]string{"v4l2": "v4l2h264dec", "va": "vah264dec", "software": "avdec_h264"}
+// Decoder element per hardware family and codec. A wall can mix the two: an eufy HomeBase composes some
+// cameras as H.264 and others as HEVC, and where the bridge passes a camera through untranscoded the tile
+// has to decode what the camera actually sends.
+var decoders = map[string]map[string]string{
+	"v4l2":     {"h264": "v4l2h264dec", "h265": "v4l2h265dec"},
+	"va":       {"h264": "vah264dec", "h265": "vah265dec"},
+	"software": {"h264": "avdec_h264", "h265": "avdec_h265"},
+}
+
+// RTP depayloader + parser per codec; they are codec-specific in the same way the decoder is.
+var depayParse = map[string][2]string{
+	"h264": {"rtph264depay", "h264parse"},
+	"h265": {"rtph265depay", "h265parse"},
+}
+
+// codecOf defaults a tile with no codec set to H.264, which is what a transcoding bridge serves.
+func codecOf(t layout.Placed) string {
+	if t.Codec == "" {
+		return "h264"
+	}
+	return t.Codec
+}
 
 func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error) {
-	dec, ok := decoders[caps.Decoder]
+	family, ok := decoders[caps.Decoder]
 	if !ok {
 		return nil, fmt.Errorf("pipeline: unknown decoder %q", caps.Decoder)
+	}
+	for _, t := range tiles {
+		if _, ok := family[codecOf(t)]; !ok {
+			return nil, fmt.Errorf("pipeline: decoder %q cannot decode %s (tile %s)", caps.Decoder, codecOf(t), t.Camera)
+		}
 	}
 	if caps.Sink == "planes" && len(c.Planes) < len(tiles) {
 		return nil, fmt.Errorf("pipeline: sink=planes needs %d plane ids in `planes:` (have %d) — list overlay planes with `modetest -M vc4 -p`", len(tiles), len(c.Planes))
 	}
 	args := []string{"-e"}
 	src := func(i int, t layout.Placed) []string {
+		codec := codecOf(t)
+		dp := depayParse[codec]
 		return []string{
 			"rtspsrc", "location=" + t.URL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp", fmt.Sprintf("name=src%d", i),
-			"!", "rtph264depay", "!", "h264parse", "!", dec,
+			"!", dp[0], "!", dp[1], "!", family[codec],
 		}
 	}
 	switch caps.Sink {

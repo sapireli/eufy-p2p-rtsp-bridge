@@ -10,6 +10,7 @@ import (
 type Placed struct {
 	Index      int
 	Camera     string
+	Codec      string // h264 | h265 — which decoder this tile needs
 	URL        string
 	Col, Row   int
 	Cols, Rows int
@@ -88,7 +89,7 @@ func Place(c *config.Config, screen config.Screen) ([]Placed, error) {
 		if c.PrimaryPosition == "right" {
 			col = 1
 		}
-		p := Placed{Index: pi, Camera: c.Tiles[pi].Camera, URL: c.TileURL(c.Tiles[pi]), Col: col, Row: 0, Cols: 2, Rows: 2}
+		p := Placed{Index: pi, Camera: c.Tiles[pi].Camera, Codec: c.Tiles[pi].Codec, URL: c.TileURL(c.Tiles[pi]), Col: col, Row: 0, Cols: 2, Rows: 2}
 		g.take(col, 0, 2, 2)
 		toPixels(&p)
 		out[pi] = p
@@ -106,7 +107,7 @@ func Place(c *config.Config, screen config.Screen) ([]Placed, error) {
 		if t.Span != nil {
 			want = *t.Span
 		}
-		p := Placed{Index: i, Camera: t.Camera, URL: c.TileURL(t)}
+		p := Placed{Index: i, Camera: t.Camera, Codec: t.Codec, URL: c.TileURL(t)}
 		col, row, ok := g.firstFit(want.Cols, want.Rows)
 		if !ok && t.Aspect == "tall" && t.Span == nil {
 			want = config.Span{Cols: 1, Rows: 1}

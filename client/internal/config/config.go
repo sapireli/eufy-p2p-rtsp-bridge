@@ -19,8 +19,12 @@ type Tile struct {
 	Camera string `yaml:"camera"`
 	Role   string `yaml:"role"`   // "" | "primary"
 	Aspect string `yaml:"aspect"` // "" | "wide" | "tall"
-	Span   *Span  `yaml:"span"`
-	URL    string `yaml:"url"`
+	// Codec the camera actually sends, so the pipeline picks a matching decoder: "" (=h264) | h264 | h265.
+	// Set h265 where the bridge passes the camera through untranscoded — several eufy models encode HEVC
+	// at every quality tier, and decoding it here avoids paying for a transcode on the server.
+	Codec string `yaml:"codec"`
+	Span  *Span  `yaml:"span"`
+	URL   string `yaml:"url"`
 }
 
 type Screen struct {
@@ -134,6 +138,11 @@ func Parse(data []byte) (*Config, error) {
 		case "", "wide", "tall":
 		default:
 			return nil, fmt.Errorf("config: tiles[%d].aspect must be wide or tall", i)
+		}
+		switch t.Codec {
+		case "", "h264", "h265":
+		default:
+			return nil, fmt.Errorf("config: tiles[%d].codec must be h264 or h265 (got %q)", i, t.Codec)
 		}
 		if t.Role != "" && t.Role != "primary" {
 			return nil, fmt.Errorf("config: tiles[%d].role must be primary or empty", i)

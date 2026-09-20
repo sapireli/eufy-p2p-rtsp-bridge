@@ -15,9 +15,14 @@ decoder: auto                          # auto | v4l2 (Pi) | va (x86 VAAPI) | sof
 sink: auto                             # auto | planes (Pi, one kmssink per tile) | compositor | window (dev)
 # planes: [31, 32, 33, 34, 35, 36]     # DRM overlay plane ids for sink=planes → `modetest -M vc4 -p`
 latency_ms: 200
+# codec: what the camera actually sends, so the tile decodes it directly.
+#   Omit (or h264) when the bridge transcodes for you — the default.
+#   Set h265 when the bridge passes that camera through with `go2rtc.transcode: never`: several eufy
+#   models encode HEVC at EVERY quality tier, so this is the only way to avoid a server-side transcode.
+#   The decoder must support it — check `vainfo | grep -i hevc` (VAAPI) or `gst-inspect-1.0 v4l2h265dec`.
 tiles:                                 # order = placement order (row-major after the primary)
-  - { camera: T8425XXXXXXXXXXX }       # Garage    (dual-lens → portrait ~1920x2160)
-  - { camera: T8214XXXXXXXXXXX }       # Front Door (dual-lens → portrait ~1600x2200)
+  - { camera: T8425XXXXXXXXXXX, codec: h265 }   # Garage     (dual-lens → portrait ~1920x2160, HEVC)
+  - { camera: T8214XXXXXXXXXXX }                # Front Door (dual-lens → portrait ~1600x2200, H.264)
   # A third camera does not fit beside those two on 16:9. Options: give it its own screen, use 3x1
   # (all three narrower), or 2x2 with the pair marked `aspect: tall` and the third in a spare cell.
 restart: { min_seconds: 1, max_seconds: 30, stable_seconds: 60 }
