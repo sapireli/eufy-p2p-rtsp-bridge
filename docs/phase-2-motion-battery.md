@@ -90,7 +90,7 @@ command channel.
 - **Tile modes** in config:
   - `motion: latest` — a dynamic tile that follows the most recent motion across a named set.
   - `mode: on_motion` — a fixed tile for one camera, placeholder until that camera is live.
-- **Placeholder** — last snapshot (`/snapshot/<sn>`) with a timestamp, so an idle tile is not a black box.
+- **Placeholder** — last snapshot (`/snapshot/<sn>`), so an idle tile is not a black box.
 
 ### The "magic screen"
 
@@ -127,20 +127,44 @@ Mechanics:
 2. ✅ **WS `/ws`** plus `POST`/`DELETE /hold/<sn>`.
 3. ✅ **Client per-tile pipelines** (planes split per tile; a compositor stays one process).
 4. ✅ **Client WS + motion tiles**, including the magic screen.
+5. ✅ **Snapshot placeholders and `streamState: starting`.**
 
 Verified end to end against the cameras: motion on a sleeping battery camera woke it, the wall showed
 it, the hold was refreshed while it stayed on screen, and at `blank_after_seconds` the tile blanked,
 the wall released, and the camera went back to sleep with no pipeline left running for it.
 
 `POST /debug/motion?sn=…` injects an event down the same path as a real one, so a motion wall can be
-exercised without waiting for something to walk past a camera.
+exercised without waiting for something to walk past a camera. Add `&still=1` to claim a thumbnail
+exists, which exercises the snapshot path before any camera has actually pushed one.
 
-### Not done
+### Snapshot placeholders
 
-- **Snapshot placeholders.** A blank tile is currently blank, not a last-known still. `/snapshot/<sn>`
-  does not exist on the bridge yet; the SDK's `snapshotStored()` would supply it without waking a
-  camera.
-- **`streamState: starting`.** The server reports only `idle` and `live`, so a tile shows nothing
-  during the second or two a battery camera takes to wake rather than saying it is coming.
+A tile with nothing to play used to be a black rectangle, which looks exactly like a broken camera.
+
+`GET /snapshot/<sn>` serves the camera's last retained thumbnail, read from memory via the SDK's
+`snapshotStored()` — no network, no P2P, and it cannot wake a camera. The thumbnail arrives on the same
+push that carries the motion event, which is why this works at the one moment it matters.
+
+So the sequence a viewer sees is: motion fires, the still goes up at once, and the live stream replaces
+it a second or two later. `streamState: starting` marks that gap explicitly, between `idle` and `live`.
+Nothing in it is black.
+
+The wall renders a still with `souphttpsrc ! jpegdec ! imagefreeze`, which needs no video decoder — a
+tile can therefore show an H.265 camera's thumbnail on hardware that cannot decode H.265. It renders one
+only where the bridge says a thumbnail exists (`still` on `hello` and on each `motion` event); a camera
+that has never pushed leaves its tile dark rather than aiming a pipeline at a 404 that the supervisor
+would restart forever.
+
+A magic screen past its `blank_after_seconds` window still goes properly dark, not to a still. That one
+is meant to be off.
+
+Two rules fall out of a tile having a camera selected while it shows a still:
+
+- **Holds are requested, not inferred.** A selection says outright whether the tile is asking for a
+  stream. Motion tiles ask and keep asking while they watch, because the server's hold is bounded. A
+  fixed tile pointed at a battery camera does not: it waits for the server to wake the camera on motion,
+  since asking would pin that camera awake for as long as the wall has power.
+- **An always-on camera never falls back to a still.** A brief idle there is a reconnect, and swapping
+  to a still and back would be a visible flap for something the supervisor already handles.
 
 Phase 1 config, layout, RTSP naming and `/api/cameras` do not change shape, as the design spec intended.

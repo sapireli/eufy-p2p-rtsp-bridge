@@ -34,9 +34,13 @@ latency_ms: 200
 #     blank_after_seconds: 90                       # nothing recent → show nothing (0 = never blank)
 #     dwell_seconds: 5                              # minimum time on a camera, so it cannot strobe
 #
-# A FIXED tile for a battery camera needs no extra config: it shows nothing while that camera sleeps and
-# lights up on its own when motion wakes it. The wall holds a camera while it is on screen and releases
-# it when it leaves, so nothing keeps a battery camera awake.
+# A FIXED tile for a battery camera needs no extra config: it shows that camera's last snapshot while it
+# sleeps and swaps to live on its own when motion wakes it. It does not hold the camera awake — the
+# server wakes it on motion, and a tile that asked would pin it awake for as long as the wall has power.
+#
+# A MOTION tile does hold, for as long as it is watching. On motion it puts the snapshot up immediately
+# and the live stream replaces it a second or two later, so neither step shows a black tile. Nothing
+# retained yet (a camera that has never reported motion) means a dark tile until there is.
 #
 # codec: what the camera actually sends, so the tile decodes it directly.
 #   Omit (or h264) when the bridge transcodes for you — the default.
