@@ -132,7 +132,13 @@ export function createHttpHandler(ctx) {
         return json(res, 200, { sn, mode: cam.mode, heldForMs: until ? until - Date.now() : 0 });
       }
       if (arg === "lan") {
-        return json(res, 200, { force: ctx.cfg.lan.force, stations: ctx.lanUpgrade?.status?.() ?? {} });
+        return json(res, 200, {
+          force: ctx.cfg.lan.force,
+          stations: ctx.lanUpgrade?.status?.() ?? {},
+          // Whether this host can send UDP to each station at all — the first thing to check when every
+          // camera times out at once. See src/lan-preflight.mjs.
+          preflight: ctx.lanPreflight ?? [],
+        });
       }
       return json(res, 404, { error: "debug: unknown probe" });
     }

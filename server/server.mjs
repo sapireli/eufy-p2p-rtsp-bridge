@@ -12,6 +12,7 @@ import { loadConfig } from "./src/config.mjs";
 import { createState } from "./src/state.mjs";
 import { createSdk } from "./src/sdk-adapter.mjs";
 import { createCameras } from "./src/cameras.mjs";
+import { reportLanPreflight } from "./src/lan-preflight.mjs";
 import { createPins } from "./src/pins.mjs";
 import { createStreamManager } from "./src/stream-manager.mjs";
 import { createLanGuard } from "./src/lan-guard.mjs";
@@ -47,6 +48,10 @@ ctx.broadcastEvent = (event) => ctx.ws.broadcast(event);
  * Motion takes a hold rather than starting a stream directly: see src/holds.mjs. Events arrive over push
  * independently of P2P, which is what lets a battery camera report motion while it is asleep.
  */
+// Before blaming a camera, check we can even reach its station. This host refusing to send UDP looks
+// exactly like a camera fault from the logs, and nothing downstream can recover from it.
+ctx.lanPreflight = await reportLanPreflight(cfg.lan.stationAddresses);
+
 for (const event of cfg.defaults.motionEvents) {
   eufy.on(event, (payload) => {
     const sn = payload?.sn ?? payload?.deviceSn ?? payload?.device?.sn;
