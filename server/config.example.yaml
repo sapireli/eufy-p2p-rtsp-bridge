@@ -25,11 +25,21 @@ cameras:                         # keyed by camera serial; unlisted WIRED camera
   T8410XXXXXXXXXXX: { name: Garage }
   T8214XXXXXXXXXXX: { name: Front door, dual_view: split }
   T8113XXXXXXXXXXX: { enabled: false }
+  # `codec:` (h264 | h265) declares what a camera sends, so ffmpeg is told the format instead of probing
+  # for it — probing consumes DATA rather than time, so a low-bitrate camera can outlast go2rtc's timeout
+  # and never publish at all. Learned from the live feed otherwise; declaring it only removes the
+  # cold-start probe, and a feed that disagrees still wins.
+  T8423XXXXXXXXXXX: { name: Balcony, codec: h265 }
 
 # stall:                         # media watchdog (defaults shown)
 #   stall_ms: 12000              # no bytes for this long → restart the feed
 #   gap_ms: 45000                # consumers are disconnected after this long without bytes
 #   exit_after_ms: 300000        # continuous failure this long → exit(1) so systemd restarts us
+#   warm_retry_ms: 2000          # how often an unanswered start is re-issued while a stream warms
+#   standalone_warm_retry_ms: 8000  # ...for a STANDALONE camera, which has far fewer P2P session slots
+#                                than a HomeBase: re-asking 21 times inside the warm deadline exhausts one
+#                                rather than waking it (measured: a Floodlight Cam froze until every
+#                                client backed off).
 #   backoff_ms: [2000, 4000, 8000, 15000, 30000, 60000]
 
 # go2rtc egress. "never" (default) passes every camera's own bitstream through with -c:v copy — the wall
