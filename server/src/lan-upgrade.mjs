@@ -47,6 +47,8 @@ export function createLanUpgrade(ctx) {
     return m;
   };
   const anyStreaming = (cams) => cams.some((sn) => state.streaming.has(sn));
+  /** A camera whose stream is being established but has not produced a frame yet. */
+  const anyStarting = (cams) => cams.some((sn) => state.starting?.has?.(sn));
 
   function setForce(station, on) {
     if (on) forced.add(station);
@@ -108,6 +110,7 @@ export function createLanUpgrade(ctx) {
     for (const [station, cams] of stations) {
       const m = machine(station);
       const streaming = anyStreaming(cams);
+      const starting = anyStarting(cams);
       const path = state.peerPath.get(station);
 
       if (m.mode === "trying") {
@@ -118,7 +121,13 @@ export function createLanUpgrade(ctx) {
       if (m.mode === "lan") {
         // Locked direct. If the LAN path is gone (streaming stopped or peer went WAN) for a grace window,
         // drop back to relay and re-enter the climb.
-        if (!streaming || path === "wan") {
+        //
+        // A camera still WARMING is not a lost path: it has a live session that simply has not produced its
+        // first frame yet. Some cameras take longer than this grace window to do that (a Floodlight Cam
+        // T8423 measured well past it), and falling back would tear down the very session about to deliver
+        // — then the replacement warms from cold and loses the race again, forever. The stream's own warm
+        // deadline is what bounds a camera that never starts; this only judges the PATH.
+        if ((!streaming && !starting) || path === "wan") {
           if (!m.deadline) m.deadline = now() + U.windowMs; // start grace
           else if (now() >= m.deadline) fallback(station, cams, "direct LAN lost");
         } else {
