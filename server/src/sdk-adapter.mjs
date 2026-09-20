@@ -31,6 +31,10 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     pollMs: cfg.pollMs,
     prewarmEvents: [], // no speculative P2P warm-ups on push events (Phase 1 streams are always warm anyway)
     localAddresses: Object.keys(cfg.lan.stationAddresses).length ? cfg.lan.stationAddresses : undefined,
+    // P2P-only enforcement, per station, asked fresh for every session (see lan-upgrade.mjs). Returning a
+    // CIDR makes the SDK refuse any peer outside it — END'ing the session the station opened — and keep
+    // looking for a local one; returning undefined accepts whichever peer answers first.
+    lanOnlyForStation: (stationSn) => hooks.lanOnlyForStation?.(stationSn),
     logger: DEBUG ? new ConsoleLogger("debug") : undefined,
   });
 

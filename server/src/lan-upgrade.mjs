@@ -15,8 +15,8 @@
 //
 // Levers (both scoped per station, so one HomeBase attempting LAN never disturbs another):
 //   - guard force: lan-guard.mjs calls isForced(stationSn); forced ⇒ WAN peers are closed.
-//   - force-LAN: the SDK dist reads globalThis.__ewForceLanStations (Set of station SNs) + __ewLanCidr and,
-//     for a pinned station, skips the TURN rendezvous AND ignores any non-LAN CAM_ID (control + media).
+//   - force-LAN: the SDK's `lanOnlyForStation` option, asked per session, names the CIDR a pinned
+//     station's peer must be inside; the SDK refuses (and END's) anything outside it and keeps looking.
 //
 // Only meaningful when lan.force is false and a lan.cidr is set (lan.force=true is already LAN-only).
 
@@ -32,11 +32,9 @@ export function createLanUpgrade(ctx) {
   const st = new Map(); // stationSn -> { mode, attempts, deadline, nextTryAt, sawLan }
   const forced = new Set(); // stations currently forced LAN-only
   state.peerPath = new Map(); // stationSn -> "lan" | "wan" (last observed), for /healthz + decisions
-  // Force-LAN is enforced INSIDE the SDK (onConnected ignores a non-LAN peer for a pinned station), so it
-  // covers the media #live sessions too — they lookup independently and the control-only guard can't pin
-  // them. __ewLanCidr tells the SDK what "LAN" means; __ewForceLanStations is the set of pinned stations.
-  globalThis.__ewForceLanStations ??= new Set();
-  if (cfg.lan.cidr) globalThis.__ewLanCidr = cfg.lan.cidr;
+  // Force-LAN is enforced INSIDE the SDK, via the `lanOnlyForStation` option it asks for every session, so
+  // it covers the media #live sessions too — those look up independently, and a guard that only sees the
+  // control session's p2pConnect cannot pin them.
   // Multi-socket punch applies to EVERY station. Measured: with it, both the HomeBase and the standalone
   // camera land a direct-LAN peer and decode 300/300 frames; restricting it to HomeBases dropped the
   // standalone to relay (or no connect at all, which is what a frozen single-frame stream looks like).
@@ -51,8 +49,13 @@ export function createLanUpgrade(ctx) {
   const anyStreaming = (cams) => cams.some((sn) => state.streaming.has(sn));
 
   function setForce(station, on) {
-    if (on) { forced.add(station); globalThis.__ewForceLanStations.add(station); }
-    else { forced.delete(station); globalThis.__ewForceLanStations.delete(station); }
+    if (on) forced.add(station);
+    else forced.delete(station);
+  }
+
+  /** SDK hook: the CIDR this station's peer must be inside right now, or undefined to accept any peer. */
+  function cidrFor(station) {
+    return isForced(station) ? (cfg.lan.cidr ?? undefined) : undefined;
   }
 
   /** Guard hook: is this station currently pinned to LAN-only? (cfg.lan.force is the global override.) */
@@ -143,5 +146,5 @@ export function createLanUpgrade(ctx) {
     return out;
   }
 
-  return { isForced, onPeer, start, tick, status };
+  return { isForced, cidrFor, onPeer, start, tick, status };
 }

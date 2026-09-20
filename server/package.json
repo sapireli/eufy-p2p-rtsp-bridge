@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "eufy P2P → RTSP bridge for the camera wall (wired, always-on)",
+  "description": "eufy P2P \u2192 RTSP bridge for the camera wall (wired, always-on)",
   "main": "server.mjs",
-  "engines": { "node": ">=24.5.0" },
+  "engines": {
+    "node": ">=24.5.0"
+  },
   "scripts": {
     "start": "node server.mjs",
     "postinstall": "node scripts/patch-sdk.mjs",
@@ -13,7 +15,7 @@
     "spike:a": "node spikes/spike-a.mjs"
   },
   "dependencies": {
-    "@mega-yfue/eufy-sdk": "0.2.0-beta.22",
+    "@mega-yfue/eufy-sdk": "github:sapireli/eufy-sdk#eufy-wall",
     "yaml": "2.8.1"
   }
 }

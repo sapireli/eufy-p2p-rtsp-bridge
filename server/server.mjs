@@ -41,6 +41,8 @@ Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), cre
 // Guard every per-camera client from the moment it exists: pins.mjs opens its P2P session (and fires
 // p2pConnect) before the stream manager ever sees it.
 hooks.onStreamClient = (client, sn) => ctx.attachLanGuard(client, sn);
+// P2P-only enforcement lives in the SDK; it asks per session which stations are pinned right now.
+hooks.lanOnlyForStation = (stationSn) => ctx.lanUpgrade?.cidrFor?.(stationSn);
 installRecoveryRepin(ctx); // pins re-applied after watchdog / kicked-session re-logins
 
 /** Runs once after the first successful login (re-auth calls it again and it returns immediately). */

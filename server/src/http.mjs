@@ -105,13 +105,6 @@ export function createHttpHandler(ctx) {
         globalThis.__ewStallMs = v === null || v === "" ? undefined : Number(v);
         return json(res, 200, { stallMs: globalThis.__ewStallMs ?? "default" });
       }
-      if (arg === "multichannel") {
-        // Toggle the SDK's "one camera per session" bypass, to test if an HB3 serves two channels on one
-        // session. When turned on, the blocked co-located camera's next reopen (backoff) will attempt it.
-        const on = /^(1|true|on|yes)$/i.test(url.searchParams.get("on") ?? "1");
-        globalThis.__ewMultiChannel = on;
-        return json(res, 200, { multiChannel: on });
-      }
       if (arg === "station-params") {
         const sn = url.searchParams.get("sn");
         if (!sn) return json(res, 400, { error: "?sn=" });
@@ -143,12 +136,6 @@ export function createHttpHandler(ctx) {
         if (!sn) return json(res, 400, { error: "?sn=" });
         const dropped = await ctx.sdk.dropStreamClient?.(sn, sn);
         return json(res, 200, { sn, dropped });
-      }
-      if (arg === "aux") {
-        // Multi-socket punch probe count (0 disables), for A/B testing stream integrity.
-        const v = url.searchParams.get("n");
-        if (v !== null) globalThis.__ewAuxSockets = Number(v);
-        return json(res, 200, { auxSockets: globalThis.__ewAuxSockets ?? 7 });
       }
       if (arg === "props") {
         // Dump a device's resolved properties (to inspect live-view quality tier 1020 etc).
@@ -185,12 +172,6 @@ export function createHttpHandler(ctx) {
       }
       if (arg === "lan") {
         return json(res, 200, { force: ctx.cfg.lan.force, stations: ctx.lanUpgrade?.status?.() ?? {} });
-      }
-      if (arg === "turn") {
-        // Toggle the SDK fork's TURN rendezvous (relay) handshake for new connects.
-        const on = /^(1|true|on|yes)$/i.test(url.searchParams.get("on") ?? "1");
-        globalThis.__ewTurn = on;
-        return json(res, 200, { turn: on });
       }
       if (arg === "udp") {
         // Raw UDP probe FROM the LAN-permitted bridge process: send `hex` to host:port (default: a P2P
