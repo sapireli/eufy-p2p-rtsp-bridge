@@ -8,9 +8,9 @@
   - auth.mjs           ← upstream src/auth.mjs        (login / 2FA / captcha / re-auth state machine)
   - watchdog.mjs       ← upstream src/watchdog.mjs    (poll + push liveness watchdog)
 
-- Adapted (not verbatim, not synced by the script):
-  - upstream streams.mjs → `src/stream-clients.mjs` (adds `localAddresses`, an `onClient` hook for the
-    LAN guard, and in-flight de-duplication). When bumping the SHA, diff upstream `streams.mjs` by hand
-    against it and port behavioural changes.
+- Not vendored: upstream's `streams.mjs` (a client per camera). This bridge uses ONE logged-in client
+  for control and every stream — the SDK opens a media session per camera on demand, and multiple
+  logins on one account/identity displace each other's cloud session, which breaks the DSK/cipher
+  lookups a P2P connect needs. See `src/sdk-adapter.mjs`.
 
 Update with: `server/scripts/sync-upstream.sh` (prints a diff per file; review, copy, bump the SHA here).

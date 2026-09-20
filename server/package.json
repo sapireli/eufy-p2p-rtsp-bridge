@@ -10,9 +10,7 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "postinstall": "node scripts/patch-sdk.mjs",
-    "test": "node --test test/*.test.mjs",
-    "spike:a": "node spikes/spike-a.mjs"
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@mega-yfue/eufy-sdk": "github:sapireli/eufy-sdk#eufy-wall",
