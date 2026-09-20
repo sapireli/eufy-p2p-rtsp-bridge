@@ -16,6 +16,7 @@ import { createPins } from "./src/pins.mjs";
 import { createStreamManager } from "./src/stream-manager.mjs";
 import { createLanGuard } from "./src/lan-guard.mjs";
 import { createLanUpgrade } from "./src/lan-upgrade.mjs";
+import { createHolds } from "./src/holds.mjs";
 import { createGo2rtc } from "./src/go2rtc.mjs";
 import { createHttpHandler } from "./src/http.mjs";
 import { installRecoveryRepin } from "./src/recovery.mjs";
@@ -35,6 +36,22 @@ ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);
 
 ctx.lanUpgrade = createLanUpgrade(ctx);
 Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), createStreamManager(ctx), createGo2rtc(ctx), createAuth(ctx), createWatchdog(ctx));
+ctx.holds = createHolds(ctx);
+
+/**
+ * Motion takes a hold rather than starting a stream directly: see src/holds.mjs. Events arrive over push
+ * independently of P2P, which is what lets a battery camera report motion while it is asleep.
+ */
+for (const event of cfg.defaults.motionEvents) {
+  eufy.on(event, (payload) => {
+    const sn = payload?.sn ?? payload?.deviceSn ?? payload?.device?.sn;
+    if (!sn) return;
+    const cam = ctx.getCamera?.(sn);
+    if (!cam?.enabled) return;
+    ctx.broadcastEvent?.({ type: "motion", sn, event, at: Date.now() });
+    if (cam.mode === "on_motion") ctx.holds.hold(sn, "motion", cam.holdSeconds);
+  });
+}
 // Guard every per-camera client from the moment it exists: pins.mjs opens its P2P session (and fires
 // p2pConnect) before the stream manager ever sees it.
 hooks.onStreamClient = (client, sn) => ctx.attachLanGuard(client, sn);
@@ -59,7 +76,10 @@ ctx.completeBoot = async function completeBoot() {
     ctx.startGo2rtc();
     flags.ready = true;
     flags.lastActivity = Date.now();
-    for (const c of enabled) void ctx.ensureWarm(c.sn);
+    for (const c of enabled) if ((c.mode ?? "always") === "always") void ctx.ensureWarm(c.sn);
+    ctx.holds.start();
+    const onMotion = enabled.filter((c) => c.mode === "on_motion").map((c) => c.sn);
+    if (onMotion.length) console.log(`[bridge] on-motion cameras (idle until an event): ${onMotion.join(", ")}`);
     timers.stream ??= setInterval(() => ctx.streamTick(), 2000);
     timers.watchdog ??= setInterval(() => void ctx.watchdogTick(), 2 * 60_000);
     console.log(`[bridge] ready — ${enabled.length} always-on camera(s); RTSP at rtsp://<this-host>:8554/<sn>`);

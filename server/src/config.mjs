@@ -14,11 +14,28 @@ export function isValidCidr(v) {
   return net.split(".").every((o) => Number(o) <= 255) && Number(bits) <= 32;
 }
 const DUAL_VIEWS = new Set(["split", "pip-tl", "pip-tr", "pip-bl", "pip-br", "single"]);
+/**
+ * When a camera streams.
+ *  always    — continuously (a wired camera; Phase 1 behaviour, and the default for one)
+ *  on_motion — idle until an event takes a hold on it (the default for a battery camera, which a
+ *              continuous stream would keep awake and flatten)
+ *  on_demand — only while something is actually watching it
+ */
+const CAMERA_MODES = new Set(["always", "on_motion", "on_demand"]);
 
 function cameraEntry(sn, raw) {
   const out = {};
   if (raw.name != null) out.name = String(raw.name);
   if (raw.enabled != null) out.enabled = Boolean(raw.enabled);
+  if (raw.mode != null) {
+    if (!CAMERA_MODES.has(raw.mode)) throw new Error(`cameras.${sn}.mode must be one of ${[...CAMERA_MODES].join(", ")}`);
+    out.mode = raw.mode;
+  }
+  if (raw.hold_seconds != null) {
+    const n = Number(raw.hold_seconds);
+    if (!Number.isFinite(n) || n <= 0) throw new Error(`cameras.${sn}.hold_seconds must be a positive number of seconds`);
+    out.holdSeconds = n;
+  }
   if (raw.quality != null) out.quality = String(raw.quality);
   if (raw.dual_view != null) {
     if (!DUAL_VIEWS.has(raw.dual_view)) throw new Error(`cameras.${sn}.dual_view must be one of ${[...DUAL_VIEWS].join(", ")}`);
@@ -69,6 +86,12 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     defaults: {
       quality: raw.defaults?.quality ?? null,
       dualView: raw.defaults?.dual_view ?? "split",
+      // How long motion keeps a camera streaming. A bound, not a starting point: a battery camera held
+      // open indefinitely is the failure this whole mode exists to avoid. Further motion extends it.
+      holdSeconds: Number(raw.defaults?.hold_seconds ?? 60),
+      // Events that take a hold. Named by the SDK's semantic vocabulary; a device only fires the ones
+      // dev.describe() says it emits, so listing an event a camera cannot send is inert, not an error.
+      motionEvents: raw.defaults?.motion_events ?? ["motion", "personDetected", "doorbellPress"],
     },
     cameras: Object.fromEntries(Object.entries(raw.cameras ?? {}).map(([sn, c]) => [sn, cameraEntry(sn, c ?? {})])),
     stall: {

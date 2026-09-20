@@ -19,17 +19,16 @@ const batt = { sn: "T8113B", name: "Yard", model: "T8113", modelName: "eufyCam 2
 const door = { sn: "T8214C", name: "Door", model: "T8214", modelName: "Doorbell E340", isCamera: true, battery: false };
 const hub = { sn: "T8010D", name: "HomeBase", model: "T8010", modelName: "HomeBase 2", isCamera: false, battery: false };
 
-test("wired cameras enabled by default, battery excluded, non-cameras dropped", async () => {
-  const origLog = console.log;
-  console.log = () => {}; // battery-skip notice is asserted in its own test below
-  try {
-    const c = createCameras(ctxWith([wired, batt, door, hub]));
-    const cams = await c.refreshCameras();
-    assert.deepEqual(cams.map((x) => [x.sn, x.enabled]), [["T8410A", true], ["T8113B", false], ["T8214C", true]]);
-    assert.equal(c.getCamera("T8010D"), undefined);
-  } finally {
-    console.log = origLog;
-  }
+// Every camera is enabled; the power source decides HOW it streams, not WHETHER it appears. Non-cameras
+// (a HomeBase) are still dropped.
+test("all cameras enabled, mode follows the power source, non-cameras dropped", async () => {
+  const c = createCameras(ctxWith([wired, batt, door, hub]));
+  const cams = await c.refreshCameras();
+  assert.deepEqual(
+    cams.map((x) => [x.sn, x.enabled, x.mode]),
+    [["T8410A", true, "always"], ["T8113B", true, "on_motion"], ["T8214C", true, "always"]],
+  );
+  assert.equal(c.getCamera("T8010D"), undefined);
 });
 
 test("config overrides name/enabled/quality/dual view; dual models flagged with command id", async () => {
@@ -68,18 +67,35 @@ test("DUAL_MODELS map", () => {
   assert.equal(DUAL_MODELS.T8213, 2700);
 });
 
-test("battery camera with name override (no enabled key) logs exclusion", async () => {
-  const logs = [];
-  const origLog = console.log;
-  console.log = (...args) => logs.push(args.join(" "));
+// Phase 2: a battery camera is enabled, but on_motion — it streams when something happens rather than
+// continuously, which is the only way to show one without flattening it. Phase 1 excluded them outright.
+test("battery camera is enabled on_motion by default", async () => {
+  const c = createCameras(ctxWith([batt], { T8113B: { name: "Custom Yard" } }));
+  await c.refreshCameras();
+  const cam = c.getCamera("T8113B");
+  assert.equal(cam.enabled, true);
+  assert.equal(cam.mode, "on_motion");
+  assert.equal(cam.name, "Custom Yard");
+});
+
+test("a wired camera defaults to always-on, and mode can be overridden per camera", async () => {
+  const c = createCameras(ctxWith([batt], { T8113B: { mode: "on_demand", holdSeconds: 15 } }));
+  await c.refreshCameras();
+  assert.equal(c.getCamera("T8113B").mode, "on_demand");
+  assert.equal(c.getCamera("T8113B").holdSeconds, 15);
+});
+
+// Asking for always-on on a battery camera is legal but self-defeating, so it is called out.
+test("battery camera forced to always warns that it will flatten", async () => {
+  const warns = [];
+  const origWarn = console.warn;
+  console.warn = (...args) => warns.push(args.join(" "));
   try {
-    const c = createCameras(ctxWith([batt], { T8113B: { name: "Custom Yard" } }));
+    const c = createCameras(ctxWith([batt], { T8113B: { mode: "always" } }));
     await c.refreshCameras();
-    assert.equal(c.getCamera("T8113B").enabled, false);
-    assert.equal(c.getCamera("T8113B").name, "Custom Yard");
-    assert.equal(logs.some((l) => l.includes("[bridge] T8113B") && l.includes("battery-powered")), true);
+    assert.equal(warns.some((l) => l.includes("T8113B") && l.includes("flatten")), true);
   } finally {
-    console.log = origLog;
+    console.warn = origWarn;
   }
 });
 

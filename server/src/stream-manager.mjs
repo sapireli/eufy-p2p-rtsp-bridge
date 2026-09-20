@@ -55,11 +55,25 @@ export function createStreamManager(ctx) {
     }
   }
 
+  /**
+   * Whether this camera should be streaming right now.
+   *
+   * An always-on camera always should — that is Phase 1. Anything else streams only while held, so a
+   * battery camera does not get dragged back up by the stall watchdog or a reopen after its hold expired.
+   */
+  function wanted(sn) {
+    const cam = ctx.getCamera?.(sn);
+    if (!cam?.enabled) return false;
+    if ((cam.mode ?? "always") === "always") return true;
+    return ctx.holds?.isHeld?.(sn) === true;
+  }
+
   function scheduleReopen(slot, why) {
     // Solo per-camera recovery. The SDK opens an independent per-camera media session, so one camera's
     // failure never needs to disturb a sibling. openFeedInto tears the station's session down before
     // retrying (see there), so each attempt re-runs the lookup and picks up a fresh, live port.
     if (slot.restartTimer) return;
+    if (!wanted(slot.sn)) return; // nothing wants it any more: let it stay down
     const delay = cfg.stall.backoffMs[Math.min(slot.backoffIdx, cfg.stall.backoffMs.length - 1)];
     slot.backoffIdx++;
     console.log(`[bridge] ${slot.sn}: ${why} — reopening in ${delay} ms`);
@@ -84,6 +98,7 @@ export function createStreamManager(ctx) {
   async function ensureWarm(sn) {
     const cam = ctx.getCamera?.(sn);
     if (cam && !cam.enabled) return;
+    if (!wanted(sn)) return;
     const slot = slotFor(sn);
     if (slot.feed || slot.opening) return;
     slot.opening = true;
@@ -176,6 +191,10 @@ export function createStreamManager(ctx) {
       const since = Math.max(slot.lastBytesAt, slot.startedAt);
       const silent = since ? now - since : 0;
       const stallMs = globalThis.__ewStallMs ?? cfg.stall.stallMs; // runtime-tunable for multi-channel tests
+      if (slot.feed && silent >= stallMs && !wanted(slot.sn)) {
+        closeFeed(slot); // its hold went away mid-stream; stopping is not a stall
+        continue;
+      }
       if (slot.feed && silent >= stallMs) {
         slot.stalls++;
         console.warn(`[bridge] ${slot.sn}: no bytes for ${Math.round(silent / 1000)} s — restarting feed (stall #${slot.stalls})`);
@@ -224,5 +243,22 @@ export function createStreamManager(ctx) {
     void ensureWarm(sn);
   }
 
-  return { ensureWarm, restartCamera, attachConsumer, streamStatus, streamTick, stopAll };
+  /**
+   * Stop one camera and leave it down. Used when its last hold expires: unlike a stall or a feed error
+   * this is not a failure, so it must not schedule a reopen.
+   */
+  function stopCamera(sn) {
+    const slot = state.slots.get(sn);
+    if (!slot) return;
+    if (slot.restartTimer) {
+      clearTimeout(slot.restartTimer);
+      slot.restartTimer = null;
+    }
+    slot.failures = 0;
+    slot.firstFailureAt = 0;
+    slot.backoffIdx = 0;
+    closeFeed(slot);
+  }
+
+  return { ensureWarm, restartCamera, stopCamera, attachConsumer, streamStatus, streamTick, stopAll };
 }

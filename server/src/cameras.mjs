@@ -52,10 +52,14 @@ export function createCameras(ctx) {
       if (!m.isCamera) continue;
       const c = ctx.cfg.cameras[m.sn] ?? {};
       const powered = isPowered(m);
-      const enabled = c.enabled ?? powered;
+      // A battery camera is enabled now, but it does not stream continuously: its mode decides when.
+      // Phase 1 skipped them outright because always-on is the only thing it could do with one.
+      const enabled = c.enabled ?? true;
+      const mode = c.mode ?? (powered ? "always" : "on_motion");
       const modelKey = String(m.model ?? "").slice(0, 5).toUpperCase();
       const isDual = modelKey in DUAL_MODELS;
-      if (!powered && c.enabled == null) console.log(`[bridge] ${m.sn} (${m.name}) is battery-powered — skipped in phase 1 (set cameras.${m.sn}.enabled: true to force)`);
+      if (!powered && mode === "always")
+        console.warn(`[bridge] ${m.sn} (${m.name}) is battery-powered but mode=always — a continuous stream keeps it awake and will flatten it; use on_motion or on_demand`);
       // Parent station (HomeBase) serial; equals the camera's own sn for a standalone camera. Used to
       // serialise per-HomeBase P2P session opens (so their level-2 E2E keys don't race) and to decide
       // which cameras need the local-port sweep (HomeBase-attached only).
@@ -70,6 +74,8 @@ export function createCameras(ctx) {
         battery: m.battery,
         powered,
         enabled,
+        mode,
+        holdSeconds: c.holdSeconds ?? ctx.cfg.defaults.holdSeconds,
         quality: c.quality ?? ctx.cfg.defaults.quality ?? null,
         isDual,
         viewModeCmd: isDual ? DUAL_MODELS[modelKey] : null,
