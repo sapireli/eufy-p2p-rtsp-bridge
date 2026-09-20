@@ -72,7 +72,10 @@ func TestGridDims(t *testing.T) {
 func TestValidation(t *testing.T) {
 	cases := map[string]string{
 		"no tiles":        "rtsp_base: rtsp://x\nlayout: 1\n",
-		"bad layout":      "rtsp_base: rtsp://x\nlayout: 4x4\ntiles: [{camera: A}]\n",
+		"bad layout":      "rtsp_base: rtsp://x\nlayout: banana\ntiles: [{camera: A}]\n",
+		"grid too big":    "rtsp_base: rtsp://x\nlayout: 7x7\ntiles: [{camera: A}]\n",
+		"grid zero side":  "rtsp_base: rtsp://x\nlayout: 0x2\ntiles: [{camera: A}]\n",
+		"grid no rows":    "rtsp_base: rtsp://x\nlayout: 2x\ntiles: [{camera: A}]\n",
 		"center":          "rtsp_base: rtsp://x\nlayout: 1+5\nprimary_position: center\ntiles: [{camera: A}]\n",
 		"no base no url":  "layout: 1\ntiles: [{camera: A}]\n",
 		"bad aspect":      "rtsp_base: rtsp://x\nlayout: 1\ntiles: [{camera: A, aspect: square}]\n",
@@ -87,6 +90,28 @@ func TestValidation(t *testing.T) {
 			t.Errorf("%s: expected error", name)
 		} else if name == "center" && !strings.Contains(err.Error(), "3-column") {
 			t.Errorf("center error should explain: %v", err)
+		}
+	}
+}
+
+// A wall is not limited to the grid shapes that happen to have a name: any <cols>x<rows> is a layout.
+// 2x1 is the one this wall is built around — two portrait dual-lens cameras side by side at full height.
+func TestGridLayouts(t *testing.T) {
+	for _, tc := range []struct {
+		layout     string
+		cols, rows int
+	}{
+		{"2x1", 2, 1}, {"1x2", 1, 2}, {"3x1", 3, 1}, {"2x2", 2, 2}, {"3x3", 3, 3}, {"6x6", 6, 6},
+		{"1", 1, 1}, {"1+5", 3, 3},
+	} {
+		y := "rtsp_base: rtsp://x\nlayout: " + tc.layout + "\ntiles: [{camera: A}]\n"
+		c, err := Parse([]byte(y))
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.layout, err)
+			continue
+		}
+		if cols, rows := c.GridDims(); cols != tc.cols || rows != tc.rows {
+			t.Errorf("%s: got %dx%d, want %dx%d", tc.layout, cols, rows, tc.cols, tc.rows)
 		}
 	}
 }

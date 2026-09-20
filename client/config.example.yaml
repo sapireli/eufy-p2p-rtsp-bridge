@@ -1,6 +1,14 @@
 # eufy-wall display client configuration (/etc/eufy-wall.yaml)
 rtsp_base: rtsp://192.168.1.10:8554   # the eufy-wall-bridge server (go2rtc RTSP)
-layout: 1+5                            # 1 | 2x2 | 3x3 | 1+5
+layout: 2x1                            # 1 | 1+5 | any <cols>x<rows> (sides 1-6)
+# Common shapes on a 16:9 screen:
+#   2x1  two side by side, full height. The fit for two dual-lens cameras: they compose a PORTRAIT
+#        stream (e.g. 1600x2200, 1920x2160), and two of those fill ~91% of the width — a third will
+#        not fit beside them without shrinking the pair.
+#   3x1  three across, full height (portrait tiles letterbox to fit the narrower column)
+#   2x2  four tiles; a tile with `aspect: tall` takes a full-height column
+#   1x2  stacked pair, for a rotated panel
+#   1+5  one 2x2 primary plus five 1x1 tiles in a 3x3 grid (see primary_position)
 primary_position: left                 # 1+5 only: left | right
 # screen: { width: 1920, height: 1080 }  # omit → auto-detect from /sys/class/drm
 decoder: auto                          # auto | v4l2 (Pi) | va (x86 VAAPI) | software
@@ -8,9 +16,8 @@ sink: auto                             # auto | planes (Pi, one kmssink per tile
 # planes: [31, 32, 33, 34, 35, 36]     # DRM overlay plane ids for sink=planes → `modetest -M vc4 -p`
 latency_ms: 200
 tiles:                                 # order = placement order (row-major after the primary)
-  - { camera: T8410XXXXXXXXXXX, role: primary }
-  - { camera: T8214XXXXXXXXXXX, aspect: tall }     # E340 split-view → 1x2 tall tile
-  - { camera: T8420XXXXXXXXXXX }
-  - { camera: T8411XXXXXXXXXXX }
-  - { camera: T8412XXXXXXXXXXX }
+  - { camera: T8425XXXXXXXXXXX }       # Garage    (dual-lens → portrait ~1920x2160)
+  - { camera: T8214XXXXXXXXXXX }       # Front Door (dual-lens → portrait ~1600x2200)
+  # A third camera does not fit beside those two on 16:9. Options: give it its own screen, use 3x1
+  # (all three narrower), or 2x2 with the pair marked `aspect: tall` and the third in a spare cell.
 restart: { min_seconds: 1, max_seconds: 30, stable_seconds: 60 }

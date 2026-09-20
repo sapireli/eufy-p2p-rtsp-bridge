@@ -99,3 +99,30 @@ func TestExplicitSpanWinsAndOverflowErrors(t *testing.T) {
 		t.Fatal("expected overflow error")
 	}
 }
+
+// Two-up: the shape this wall is built around. Both HomeBase cameras are dual-lens and compose a
+// PORTRAIT stream (Front Door 1600x2200, Garage 1920x2160), and two of those side by side at full
+// height fill a 16:9 screen almost exactly — 91% of the width, which is why a third tile does not fit
+// beside them. Each tile takes a full-height half of the screen; neither is letterboxed into a cell.
+func TestTwoUpFillsTheScreen(t *testing.T) {
+	c := cfg("2x1", "", config.Tile{Camera: "GARAGE"}, config.Tile{Camera: "FRONTDOOR"})
+	got, err := Place(c, config.Screen{Width: 1920, Height: 1080})
+	if err != nil {
+		t.Fatalf("place: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d tiles, want 2", len(got))
+	}
+	left, right := got[0], got[1]
+	if left.X != 0 || left.Y != 0 || left.W != 960 || left.H != 1080 {
+		t.Errorf("left tile = %dx%d at %d,%d; want 960x1080 at 0,0", left.W, left.H, left.X, left.Y)
+	}
+	if right.X != 960 || right.Y != 0 || right.W != 960 || right.H != 1080 {
+		t.Errorf("right tile = %dx%d at %d,%d; want 960x1080 at 960,0", right.W, right.H, right.X, right.Y)
+	}
+	for _, p := range got {
+		if p.Letterbox {
+			t.Errorf("%s: tile should own a full-height half, not be letterboxed into a cell", p.Camera)
+		}
+	}
+}

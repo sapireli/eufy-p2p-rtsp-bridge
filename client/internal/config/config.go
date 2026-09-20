@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -46,7 +47,27 @@ type Config struct {
 	Restart         Restart `yaml:"restart"`
 }
 
-var layouts = map[string][2]int{"1": {1, 1}, "2x2": {2, 2}, "3x3": {3, 3}, "1+5": {3, 3}}
+// Named layouts. Everything else is a plain "<cols>x<rows>" grid parsed by gridFor, so a wall is not
+// limited to the shapes someone thought to name: "2x1" is two tiles side by side at full height (the
+// natural fit for two portrait dual-lens cameras on a 16:9 screen), "3x1" is three across, "1x2" stacks
+// a pair for a rotated panel.
+var layouts = map[string][2]int{"1": {1, 1}, "1+5": {3, 3}}
+
+const maxGridSide = 6
+
+// gridFor resolves a layout name to its cell grid: a named layout, else "<cols>x<rows>".
+func gridFor(layout string) (cols, rows int, ok bool) {
+	if d, named := layouts[layout]; named {
+		return d[0], d[1], true
+	}
+	c, r, found := strings.Cut(layout, "x")
+	cols, errC := strconv.Atoi(c)
+	rows, errR := strconv.Atoi(r)
+	if !found || errC != nil || errR != nil || cols < 1 || rows < 1 || cols > maxGridSide || rows > maxGridSide {
+		return 0, 0, false
+	}
+	return cols, rows, true
+}
 
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
@@ -67,8 +88,8 @@ func Parse(data []byte) (*Config, error) {
 	if c.PrimaryPosition == "" {
 		c.PrimaryPosition = "left"
 	}
-	if _, ok := layouts[c.Layout]; !ok {
-		return nil, fmt.Errorf("config: layout must be one of 1, 2x2, 3x3, 1+5 (got %q)", c.Layout)
+	if _, _, ok := gridFor(c.Layout); !ok {
+		return nil, fmt.Errorf("config: layout must be 1, 1+5, or <cols>x<rows> with each side 1-%d, e.g. 2x1 (two side by side), 2x2, 3x1 (got %q)", maxGridSide, c.Layout)
 	}
 	if c.Layout == "1+5" {
 		switch c.PrimaryPosition {
@@ -134,6 +155,6 @@ func (c *Config) TileURL(t Tile) string {
 
 // GridDims is the cell grid behind a layout.
 func (c *Config) GridDims() (cols, rows int) {
-	d := layouts[c.Layout]
-	return d[0], d[1]
+	cols, rows, _ = gridFor(c.Layout)
+	return cols, rows
 }
