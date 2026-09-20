@@ -1,0 +1,137 @@
+diff --git a/src/transport/p2p/codec.ts b/src/transport/p2p/codec.ts
+index cfd3b09..9f6a1a5 100644
+--- a/src/transport/p2p/codec.ts
++++ b/src/transport/p2p/codec.ts
+@@ -26,6 +26,13 @@ export const RequestMessageType = {
+   LOOKUP_WITH_KEY2: Buffer.from([0xf1, 0x6a]),
+   CHECK_CAM: Buffer.from([0xf1, 0x41]),
+   CHECK_CAM2: Buffer.from([0xf1, 0x42]),
++  // TURN rendezvous (cloud-brokered hole-punch): a LOOKUP_ADDR2 candidate is a relay/rendezvous the
++  // station also talks to; INIT registers us there so the station is told to punch back to us, CLIENT_OK
++  // confirms, and CHECK_CAM_TOKEN (0xf183) carries the token the rendezvous returns. Media stays P2P.
++  TURN_SERVER_INIT: Buffer.from([0xf1, 0x70]),
++  TURN_CLIENT_OK: Buffer.from([0xf1, 0x72]),
++  CHECK_CAM_TOKEN: Buffer.from([0xf1, 0x83]),
++  TURN_LOOKUP_WITH_KEY: Buffer.from([0xf1, 0x80]),
+   PING: Buffer.from([0xf1, 0xe0]),
+   PONG: Buffer.from([0xf1, 0xe1]),
+   DATA: Buffer.from([0xf1, 0xd0]),
+@@ -39,6 +46,9 @@ export const ResponseMessageType = {
+   LOOKUP_ADDR2: Buffer.from([0xf1, 0x82]),
+   CAM_ID: Buffer.from([0xf1, 0x42]),
+   TURN_SERVER_CAM_ID: Buffer.from([0xf1, 0x84]),
++  TURN_SERVER_OK: Buffer.from([0xf1, 0x71]),
++  TURN_SERVER_TOKEN: Buffer.from([0xf1, 0x73]),
++  TURN_SERVER_LOOKUP_OK: Buffer.from([0xf1, 0x81]),
+   PING: Buffer.from([0xf1, 0xe0]),
+   PONG: Buffer.from([0xf1, 0xe1]),
+   DATA: Buffer.from([0xf1, 0xd0]),
+@@ -288,6 +298,22 @@ export function buildCheckCamPayload(p2pDid: string): Buffer {
+   return Buffer.concat([p2pDidToBuffer(p2pDid), Buffer.from([0, 0, 0])]);
+ }
+ 
++/** CHECK_CAM_TOKEN (0xf183) payload for the TURN rendezvous: `[token:4][p2pDid:20][0x00000000]`, where
++ *  `token` is the 4-byte value carried by the LOOKUP_ADDR2 / TURN_SERVER_TOKEN response. */
++export function buildCheckCamTokenPayload(p2pDid: string, token: Buffer): Buffer {
++  return Buffer.concat([token, p2pDidToBuffer(p2pDid), Buffer.from([0, 0, 0, 0])]);
++}
++
++/** TURN_LOOKUP_WITH_KEY (0xf180) payload: asks the cloud to broker via the rendezvous by naming the
++ *  station's address seen there plus the rendezvous token —
++ *  `[p2pDid:20][0x0002][port:2 LE][ip:4 reversed][0x00 x8][token]`. */
++export function buildTurnLookupPayload(p2pDid: string, addr: Address, token: Buffer): Buffer {
++  const port = Buffer.allocUnsafe(2);
++  port.writeUInt16LE(addr.port, 0);
++  const ip = Buffer.from(addr.host.split(".").reverse().map((o) => Number.parseInt(o, 10)));
++  return Buffer.concat([p2pDidToBuffer(p2pDid), Buffer.from([0x00, 0x02]), port, ip, Buffer.alloc(8), token]);
++}
++
+ /** 10-byte command header: `[dataTypeHeader:2][seq:2 BE]["XZYH"][cmd:2 LE]`. */
+ export function buildCommandHeader(
+   seqNumber: number,
+diff --git a/src/transport/p2p/p2p-session.ts b/src/transport/p2p/p2p-session.ts
+index 732ce78..c3e58fb 100644
+--- a/src/transport/p2p/p2p-session.ts
++++ b/src/transport/p2p/p2p-session.ts
+@@ -35,6 +35,8 @@ import {
+   ResponseMessageType,
+   buildAckPayload,
+   buildCheckCamPayload,
++  buildCheckCamTokenPayload,
++  buildTurnLookupPayload,
+   buildCommandHeader,
+   buildLocalLookupPayload,
+   buildLookupWithKeyPayload,
+@@ -327,6 +329,8 @@ export class P2PSession extends EventEmitter {
+   private connecting = false;
+   private closed = false;
+   private connectAddress?: Address;
++  /** Hosts we've already sent a TURN_SERVER_INIT to this connect, so the rendezvous isn't re-initiated. */
++  private turnInitiated = new Set<string>();
+   private seqNumber = 0;
+   /**
+    * Sequence counter for frames sent on the **video** data-type channel, which the device tracks
+@@ -817,8 +821,35 @@ export class P2PSession extends EventEmitter {
+       if (!this.connected) {
+         const addr = parseLookupAddr(msg);
+         this.logger.debug(`[p2p] ${this.cfg.stationSn} LOOKUP_ADDR -> ${addr.host}:${addr.port}`);
+-        if (addr.host !== "0.0.0.0") this.beginCheckCam(addr);
++        if (addr.host !== "0.0.0.0") {
++          this.beginCheckCam(addr);
++          // LOOKUP_ADDR2 (0xf182) additionally names a cloud rendezvous the station also talks to. Register
++          // with it (TURN_SERVER_INIT) so the station is told to punch back to us, and CHECK_CAM the 4-byte
++          // token it embeds (bytes 20-24). This is the device-initiated half of the hole-punch the plain
++          // client->station CHECK_CAM cannot achieve on its own; media still settles P2P/LAN.
++          if (hasHeader(msg, ResponseMessageType.LOOKUP_ADDR2)) this.beginTurnRendezvous(addr, msg.subarray(20, 24));
++        }
++      }
++    } else if (hasHeader(msg, ResponseMessageType.TURN_SERVER_OK)) {
++      // Rendezvous accepted our INIT — confirm so it brokers the station's punch-back.
++      if (!this.connected) this.send({ host: rinfo.address, port: rinfo.port }, RequestMessageType.TURN_CLIENT_OK);
++    } else if (hasHeader(msg, ResponseMessageType.TURN_SERVER_TOKEN)) {
++      // Rendezvous handed us a token + the station's port; CHECK_CAM it to complete the punch.
++      if (!this.connected) {
++        const port = msg.subarray(8, 10).readUInt16BE();
++        const token = msg.subarray(4, 8);
++        const addr = { host: rinfo.address, port };
++        this.logger.debug(`[p2p] ${this.cfg.stationSn} TURN_SERVER_TOKEN -> ${addr.host}:${addr.port}`);
++        const payload = buildCheckCamTokenPayload(this.cfg.p2pDid, token);
++        for (let i = 0; i < 4; i++) this.send(addr, RequestMessageType.CHECK_CAM_TOKEN, payload);
++        // Ask the cloud to broker via this rendezvous (names the station's rendezvous address + token) so the
++        // station is told to punch back to us — the device-initiated half that completes the connection.
++        const turnPayload = buildTurnLookupPayload(this.cfg.p2pDid, addr, token);
++        for (const cloud of this.cfg.cloudAddresses ?? [])
++          this.send(cloud, RequestMessageType.TURN_LOOKUP_WITH_KEY, turnPayload);
+       }
++    } else if (hasHeader(msg, ResponseMessageType.TURN_SERVER_LOOKUP_OK)) {
++      // Acknowledgement only — nothing to do.
+     } else if (hasHeader(msg, ResponseMessageType.CAM_ID) || hasHeader(msg, ResponseMessageType.TURN_SERVER_CAM_ID)) {
+       this.onConnected({ host: rinfo.address, port: rinfo.port });
+     } else if (hasHeader(msg, ResponseMessageType.PONG)) {
+@@ -845,6 +876,18 @@ export class P2PSession extends EventEmitter {
+       if (p !== addr.port && p > 0) this.send({ host: addr.host, port: p }, RequestMessageType.CHECK_CAM, payload);
+   }
+ 
++  /** Kick off the cloud-brokered rendezvous a LOOKUP_ADDR2 candidate advertises: CHECK_CAM the embedded
++   *  token, then register once with TURN_SERVER_INIT so the station is instructed to punch back to us. */
++  private beginTurnRendezvous(addr: Address, token: Buffer): void {
++    const payload = buildCheckCamTokenPayload(this.cfg.p2pDid, token);
++    for (let i = 0; i < 4; i++) this.send(addr, RequestMessageType.CHECK_CAM_TOKEN, payload);
++    if (!this.turnInitiated.has(addr.host)) {
++      this.turnInitiated.add(addr.host);
++      this.logger.debug(`[p2p] ${this.cfg.stationSn} TURN_SERVER_INIT -> ${addr.host}:${addr.port}`);
++      this.send(addr, RequestMessageType.TURN_SERVER_INIT);
++    }
++  }
++
+   private onConnected(addr: Address): void {
+     if (this.connected) return;
+     this.connected = true;
+@@ -1859,6 +1902,7 @@ export class P2PSession extends EventEmitter {
+   async close(): Promise<void> {
+     if (this.closed) return;
+     this.closed = true;
++    this.turnInitiated.clear();
+     this.connectionGeneration += 1;
+     this.level2Key = undefined;
+     this.level2Seq = 0;

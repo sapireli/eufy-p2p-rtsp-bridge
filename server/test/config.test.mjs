@@ -37,7 +37,7 @@ cameras:
   assert.deepEqual(cfg.cameras.T8410X, { name: "Garage" });
   assert.deepEqual(cfg.cameras.T8214X, { dualView: "split" });
   assert.deepEqual(cfg.cameras.T8113X, { enabled: false });
-  assert.deepEqual(cfg.stall, { stallMs: 30000, gapMs: 45000, exitAfterMs: 300000, recreateClientAfter: 1, backoffMs: [1000, 2000, 4000, 8000] });
+  assert.deepEqual(cfg.stall, { stallMs: 30000, gapMs: 45000, exitAfterMs: 300000, recreateClientAfter: 8, backoffMs: [1000, 2000, 4000, 8000], warmTimeoutMs: 45000 });
   assert.equal(cfg.go2rtcBin, "go2rtc");
 });
 

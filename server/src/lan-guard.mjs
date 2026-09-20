@@ -36,10 +36,13 @@ export function createLanGuard(ctx) {
         if (state.blocked.delete(label)) console.log(`[bridge] ${label}: LAN path restored via ${host} — unblocked`);
         else if (!seen.has(`${label}:${stationSn}:${host}`)) console.log(`[bridge] ${label}: P2P peer ${host} for ${stationSn} (LAN)`);
         seen.add(`${label}:${stationSn}:${host}`);
+        ctx.lanUpgrade?.onPeer?.(stationSn, "lan", host);
         return "ok";
       }
-      if (!cfg.lan.force) {
-        console.warn(`[bridge] ${label}: P2P peer ${host} is outside ${cfg.lan.cidr} (lan.force=false, allowing)`);
+      if (!(ctx.lanUpgrade?.isForced?.(stationSn) ?? cfg.lan.force)) {
+        console.warn(`[bridge] ${label}: P2P peer ${host} is outside ${cfg.lan.cidr} (relay/WAN path allowed)`);
+        state.blocked.delete(label);
+        ctx.lanUpgrade?.onPeer?.(stationSn, "wan", host);
         return "ok";
       }
       const reason = `wan-path ${host}`;

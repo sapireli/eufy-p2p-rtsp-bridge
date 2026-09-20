@@ -42,11 +42,28 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     session: resolve(dataDir, ".eufy-session.json"),
     go2rtcConfig: resolve(dataDir, "go2rtc.yaml"),
     go2rtcBin: env.GO2RTC_BIN || raw.go2rtc_bin || "go2rtc",
+    // How go2rtc should egress each camera. "copy" passes the device bitstream through untouched (lowest
+    // CPU) but pins the RTSP SDP to whatever the first keyframe said — so when a flapping camera reopens at
+    // a different resolution, already-connected players freeze on "input format change". "auto" keeps copy
+    // for H.264 (stable, and what a Pi can decode) and transcodes H.265 to H.264, which both stabilises the
+    // output format across reconnects and makes those cameras playable on clients with no HEVC decoder.
+    go2rtcTranscode: String(raw.go2rtc?.transcode ?? "auto"),
     pollMs: raw.poll_ms != null ? Number(raw.poll_ms) : undefined,
     lan: {
       cidr: lanRaw.cidr ?? null,
       force: Boolean(lanRaw.force ?? false),
       stationAddresses: { ...(lanRaw.station_addresses ?? {}) },
+      // Opportunistic LAN upgrade: start on whatever connects first (usually relay for a HomeBase), then
+      // periodically try to migrate a station to a DIRECT-LAN peer and lock it there. Only meaningful when
+      // force=false (force=true is already LAN-only). See lan-upgrade.mjs.
+      upgrade: {
+        enabled: Boolean(lanRaw.upgrade?.enabled ?? true),
+        intervalMs: Number(lanRaw.upgrade?.interval_ms ?? 120_000), // base gap between attempts per station
+        windowMs: Number(lanRaw.upgrade?.window_ms ?? 6_000),      // wait this long for LAN bytes before giving up
+        stableMs: Number(lanRaw.upgrade?.stable_ms ?? 15_000),      // relay must stream this long before first try
+        initialWindowMs: Number(lanRaw.upgrade?.initial_window_ms ?? 14_000), // LAN-first budget at boot before relay fallback
+        maxBackoffMs: Number(lanRaw.upgrade?.max_backoff_ms ?? 900_000), // cap the exponential retry backoff
+      },
     },
     defaults: {
       quality: raw.defaults?.quality ?? null,
@@ -61,13 +78,21 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
       stallMs: Number(raw.stall?.stall_ms ?? 30_000),
       gapMs: Number(raw.stall?.gap_ms ?? 45_000),
       exitAfterMs: Number(raw.stall?.exit_after_ms ?? 300_000),
-      // Tear the station's P2P session down before EVERY reopen (1 = each failure): a reused session keeps
-      // targeting the same stale looked-up port, so a full teardown forces a fresh lookup that picks up the
-      // station's current live port. Raise it to teardown less often. See stream-manager openFeedInto.
-      recreateClientAfter: Number(raw.stall?.recreate_client_after ?? 1),
+      // Tear the whole STATION session down only after this many consecutive failures (0 = never). A
+      // per-camera media open failing self-closes just that media session in the SDK, so a retry re-lookups
+      // its port without disturbing the shared control session or sibling cameras — tearing the station down
+      // on every camera flap would keep killing the connection all cameras share. Reserve teardown for a
+      // control session that looks truly dead (many failures in a row).
+      recreateClientAfter: Number(raw.stall?.recreate_client_after ?? 8),
       // The socket-sweep connect is reliable (it retries dropped probes continuously), so a reopen means
       // a real session drop, not a flaky connect — recover fast rather than backing off to a full minute.
       backoffMs: raw.stall?.backoff_ms ?? [1000, 2000, 4000, 8000],
+      // How long the SDK waits for a stream to produce its first frame/keyframe before failing the open.
+      // The eufy app rides out multi-second dead spots on the SAME session (packet capture: an 11s gap with
+      // nothing but ACKs, then video resumed — no reconnect, no restart command). The SDK's 20s default was
+      // tearing our feed down mid-recovery, and each rebuild can bring the camera back at a different
+      // resolution, which breaks an already-negotiated RTSP session. Be patient like the app instead.
+      warmTimeoutMs: Number(raw.stall?.warm_timeout_ms ?? 45_000),
     },
   };
   if (!cfg.email || !cfg.password) throw new Error("eufy email/password are required (config.yaml eufy.* or EUFY_EMAIL/EUFY_PASSWORD)");

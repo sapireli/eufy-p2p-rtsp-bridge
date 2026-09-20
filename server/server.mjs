@@ -18,6 +18,7 @@ import { createCameras } from "./src/cameras.mjs";
 import { createPins } from "./src/pins.mjs";
 import { createStreamManager } from "./src/stream-manager.mjs";
 import { createLanGuard } from "./src/lan-guard.mjs";
+import { createLanUpgrade } from "./src/lan-upgrade.mjs";
 import { createGo2rtc } from "./src/go2rtc.mjs";
 import { createHttpHandler } from "./src/http.mjs";
 import { installRecoveryRepin } from "./src/recovery.mjs";
@@ -35,6 +36,7 @@ const ctx = { cfg, DEBUG, eufy, sdk, state, SCHEMA_VERSION: 1, PUSH_STALL_MS: 15
 // Vendored auth/watchdog broadcast auth changes to "clients"; we have none in phase 1 → log.
 ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);
 
+ctx.lanUpgrade = createLanUpgrade(ctx);
 Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), createStreamManager(ctx), createGo2rtc(ctx), createAuth(ctx), createWatchdog(ctx));
 // Guard every per-camera client from the moment it exists: pins.mjs opens its P2P session (and fires
 // p2pConnect) before the stream manager ever sees it.
@@ -52,6 +54,7 @@ ctx.completeBoot = async function completeBoot() {
     const enabled = cams.filter((c) => c.enabled);
     console.log(`[bridge] cameras: ${cams.map((c) => `${c.sn}(${c.name}${c.enabled ? "" : ", off"}${c.isDual ? ", dual" : ""})`).join(", ")}`);
     ctx.attachLanGuard(eufy, "control");
+    ctx.lanUpgrade.start(); // pin stations LAN-first before the initial opens
     await ctx.applyAllPins();
     await ctx.writeGo2rtc();
     ctx.startGo2rtc();

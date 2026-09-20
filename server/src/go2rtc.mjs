@@ -5,6 +5,13 @@ import { readFile, writeFile } from "node:fs/promises";
 import { parseDocument } from "yaml";
 import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
 
+/** go2rtc source suffix for a camera: transcode to H.264 when the device speaks H.265 (see cfg comment). */
+export function egressFor(codec, mode) {
+  if (mode === "never") return "#video=copy";
+  if (mode === "always") return "#video=h264#hardware";
+  return codec === "h265" ? "#video=h264#hardware" : "#video=copy"; // "auto"
+}
+
 /**
  * Harden the generated go2rtc.yaml: upstream (an HA add-on behind its own auth) opens the go2rtc API
  * and WebRTC on every interface, unauthenticated. The wall's clients only pull RTSP on :8554, so the
@@ -23,12 +30,42 @@ export function createGo2rtc(ctx) {
   const { cfg, state } = ctx;
   let stopping = false;
 
+  /** Codec we currently believe a camera speaks (learned from its live feed, else whatever /api reported). */
+  const codecOf = (sn) => state.slots.get(sn)?.codec ?? ctx.getCamera?.(sn)?.codec;
+  /** The egress suffix each enabled camera should get right now, keyed by sn. */
+  function egressPlan() {
+    const plan = {};
+    for (const c of ctx.listCameras().filter((x) => x.enabled)) plan[c.sn] = egressFor(codecOf(c.sn), cfg.go2rtcTranscode);
+    return plan;
+  }
+  let lastPlan = {};
+
   async function writeGo2rtc() {
     const devices = ctx.listCameras().filter((c) => c.enabled).map((c) => ({ sn: c.sn, stream: `/stream/${c.sn}` }));
     const sns = await writeGo2rtcConfig(cfg, devices);
-    await writeFile(cfg.go2rtcConfig, hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8")), "utf8");
-    console.log(`[bridge] go2rtc config written (${sns.length} stream(s)) → ${cfg.go2rtcConfig}`);
+    // The vendored generator always emits "#video=copy"; rewrite each source to this camera's egress mode.
+    const plan = egressPlan();
+    let text = hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8"));
+    for (const [sn, suffix] of Object.entries(plan)) text = text.replace(`/stream/${sn}#video=copy`, `/stream/${sn}${suffix}`);
+    await writeFile(cfg.go2rtcConfig, text, "utf8");
+    lastPlan = plan;
+    const t = Object.entries(plan).filter(([, v]) => v.includes("h264#")).map(([k]) => k);
+    console.log(`[bridge] go2rtc config written (${sns.length} stream(s)${t.length ? `, transcoding ${t.join(", ")}` : ""}) → ${cfg.go2rtcConfig}`);
     return sns;
+  }
+
+  /**
+   * A camera's codec is only known once its feed delivers a keyframe, which is after go2rtc was first
+   * configured. When that changes the egress mode (H.265 discovered → transcode), rewrite the config and
+   * restart go2rtc so the stream is actually served that way.
+   */
+  async function syncGo2rtc() {
+    if (!state.flags.ready) return;
+    const plan = egressPlan();
+    if (JSON.stringify(plan) === JSON.stringify(lastPlan)) return;
+    console.log("[bridge] go2rtc egress changed — rewriting config and restarting go2rtc");
+    await writeGo2rtc();
+    state.flags.go2rtcProc?.kill(); // exit handler restarts it
   }
 
   function startGo2rtc() {
@@ -53,5 +90,5 @@ export function createGo2rtc(ctx) {
     state.flags.go2rtcProc?.kill();
   }
 
-  return { writeGo2rtc, startGo2rtc, stopGo2rtc };
+  return { writeGo2rtc, syncGo2rtc, startGo2rtc, stopGo2rtc };
 }

@@ -30,7 +30,8 @@ export function createStreamManager(ctx) {
         slot.height = g?.height;
         console.log(`[bridge] ${slot.sn}: codec ${sets.codec} ${slot.width ?? "?"}x${slot.height ?? "?"}`);
         if (sets.codec !== "h264")
-          console.warn(`[bridge] ${slot.sn}: stream is ${sets.codec.toUpperCase()} — Raspberry Pi clients cannot decode it. Lower the camera's streaming quality to 1080p/720p in the eufy app.`);
+          console.warn(`[bridge] ${slot.sn}: stream is ${sets.codec.toUpperCase()} — transcoding to H.264 for RTSP so players without an HEVC decoder (and the Pi) can read it.`);
+        void ctx.syncGo2rtc?.().catch(() => {}); // codec just became known: go2rtc may need a different egress
       }
     }
     for (const c of slot.consumers) {
@@ -99,7 +100,7 @@ export function createStreamManager(ctx) {
       // Tear the station's P2P session down before retrying: a reused session keeps CHECK_CAM-ing the same
       // stale looked-up port and never picks up a newer address, so a full teardown makes the next open
       // re-run the lookup and target the station's current live port. Every Nth failure (default 1 = each).
-      if (slot.failures > 0 && slot.failures % cfg.stall.recreateClientAfter === 0) {
+      if (cfg.stall.recreateClientAfter > 0 && slot.failures > 0 && slot.failures % cfg.stall.recreateClientAfter === 0) {
         const dropped = await ctx.sdk.dropStreamClient?.(sn, stationSn);
         if (dropped) console.log(`[bridge] ${sn}: ${slot.failures} failure(s) — tore down station session; next open re-lookups a fresh port`);
       }
@@ -199,5 +200,17 @@ export function createStreamManager(ctx) {
     }
   }
 
-  return { ensureWarm, attachConsumer, streamStatus, streamTick, stopAll };
+  /** Force a camera to drop its current feed and reopen (used by the LAN-upgrade driver after it flips a
+   *  station's force/TURN flags, so the next connect re-evaluates the path). Safe if no feed is open. */
+  function restartCamera(sn) {
+    const slot = state.slots.get(sn);
+    if (slot) {
+      if (slot.restartTimer) { clearTimeout(slot.restartTimer); slot.restartTimer = null; }
+      slot.backoffIdx = 0;
+      closeFeed(slot);
+    }
+    void ensureWarm(sn);
+  }
+
+  return { ensureWarm, restartCamera, attachConsumer, streamStatus, streamTick, stopAll };
 }
