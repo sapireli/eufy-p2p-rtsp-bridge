@@ -42,11 +42,12 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     session: resolve(dataDir, ".eufy-session.json"),
     go2rtcConfig: resolve(dataDir, "go2rtc.yaml"),
     go2rtcBin: env.GO2RTC_BIN || raw.go2rtc_bin || "go2rtc",
-    // How go2rtc should egress each camera. "copy" passes the device bitstream through untouched (lowest
-    // CPU) but pins the RTSP SDP to whatever the first keyframe said — so when a flapping camera reopens at
-    // a different resolution, already-connected players freeze on "input format change". "auto" keeps copy
-    // for H.264 (stable, and what a Pi can decode) and transcodes H.265 to H.264, which both stabilises the
-    // output format across reconnects and makes those cameras playable on clients with no HEVC decoder.
+    // How go2rtc should egress each camera. "never" (default) passes the device bitstream through with
+    // -c:v copy. "auto" transcodes H.265 to H.264 (playable without an HEVC decoder, and a constant output
+    // format across source reconnects), "always" transcodes everything.
+    //
+    // Transcoding is ALWAYS hardware-accelerated (see egressFor) — a CPU transcode cannot hold real time
+    // for these sources and takes the stream down when ffmpeg falls behind, so it is never emitted.
     go2rtcTranscode: String(raw.go2rtc?.transcode ?? "auto"),
     pollMs: raw.poll_ms != null ? Number(raw.poll_ms) : undefined,
     lan: {

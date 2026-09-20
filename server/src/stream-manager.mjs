@@ -23,14 +23,26 @@ export function createStreamManager(ctx) {
     const sets = ctx.sdk.extractParamSets(chunk); // non-undefined ⇒ this chunk carries SPS/PPS (keyframe AU)
     if (sets) {
       slot.lastKeyChunk = chunk;
-      if (slot.codec !== sets.codec) {
+      const g = ctx.sdk.codedGeometry(sets);
+      // Compare GEOMETRY as well as codec. Live-view quality is "Auto" on these cameras (streamingQuality
+      // tier 0) and the station re-picks a resolution on its own, so a stream can change size mid-session.
+      // An RTSP consumer negotiated its SDP from the first keyframe, so once the size moves under -c:v copy
+      // its decoder is set up for the old one and the picture freezes. Dropping the consumers makes go2rtc
+      // re-run its source and hand out an SDP that matches what the camera is actually sending now.
+      const moved = slot.codec !== undefined && (slot.codec !== sets.codec || slot.width !== g?.width || slot.height !== g?.height);
+      if (slot.codec !== sets.codec || slot.width !== g?.width || slot.height !== g?.height) {
+        const from = slot.codec ? `${slot.codec} ${slot.width ?? "?"}x${slot.height ?? "?"} → ` : "";
         slot.codec = sets.codec;
-        const g = ctx.sdk.codedGeometry(sets);
         slot.width = g?.width;
         slot.height = g?.height;
-        console.log(`[bridge] ${slot.sn}: codec ${sets.codec} ${slot.width ?? "?"}x${slot.height ?? "?"}`);
+        console.log(`[bridge] ${slot.sn}: codec ${from}${sets.codec} ${slot.width ?? "?"}x${slot.height ?? "?"}`);
         if (sets.codec !== "h264")
-          console.warn(`[bridge] ${slot.sn}: stream is ${sets.codec.toUpperCase()} — transcoding to H.264 for RTSP so players without an HEVC decoder (and the Pi) can read it.`);
+          console.warn(`[bridge] ${slot.sn}: stream is ${sets.codec.toUpperCase()} — players without an HEVC decoder (Chrome, the Pi) cannot read it; set a lower streaming quality in the owner's eufy app, or enable go2rtc.transcode.`);
+        if (moved && slot.consumers.size) {
+          console.warn(`[bridge] ${slot.sn}: stream geometry changed mid-session — dropping ${slot.consumers.size} consumer(s) so RTSP re-negotiates`);
+          for (const c of slot.consumers) c.end();
+          slot.consumers.clear();
+        }
         void ctx.syncGo2rtc?.().catch(() => {}); // codec just became known: go2rtc may need a different egress
       }
     }

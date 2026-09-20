@@ -5,11 +5,17 @@ import { readFile, writeFile } from "node:fs/promises";
 import { parseDocument } from "yaml";
 import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
 
-/** go2rtc source suffix for a camera: transcode to H.264 when the device speaks H.265 (see cfg comment). */
+/**
+ * go2rtc source suffix for a camera: transcode H.265 to H.264 when asked, ALWAYS hardware-accelerated
+ * (`#hardware` — go2rtc selects videotoolbox / vaapi / v4l2m2m for the host). Never emit a CPU transcode:
+ * libx264 cannot hold real time for these sources (measured ~1.0-1.2x, degrading), ffmpeg falls behind and
+ * go2rtc kills the producer on its exec timeout, which takes the RTSP stream down mid-view. Where hardware
+ * accel is unavailable, pass the bitstream through with copy instead.
+ */
 export function egressFor(codec, mode) {
   if (mode === "never") return "#video=copy";
-  if (mode === "always") return "#video=h264";
-  return codec === "h265" ? "#video=h264" : "#video=copy"; // "auto"
+  if (mode === "always") return "#video=h264#hardware";
+  return codec === "h265" ? "#video=h264#hardware" : "#video=copy"; // "auto"
 }
 
 /**
