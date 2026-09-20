@@ -19,6 +19,7 @@ type Camera struct {
 	Name       string
 	Mode       string // always | on_motion | on_demand
 	Live       bool   // the server says there is video to show right now
+	Starting   bool   // waking: a stream is being established but no frames yet
 	LastMotion time.Time
 }
 
@@ -65,7 +66,7 @@ func (s *Store) Apply(m Message) bool {
 		// happening rather than waiting for the next event.
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
-			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live"}
+			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting"}
 		}
 		return true
 	case "motion":
@@ -79,11 +80,11 @@ func (s *Store) Apply(m Message) bool {
 			return false
 		}
 		c := s.get(m.SN)
-		live := m.State == "live"
-		if c.Live == live {
+		live, starting := m.State == "live", m.State == "starting"
+		if c.Live == live && c.Starting == starting {
 			return false
 		}
-		c.Live = live
+		c.Live, c.Starting = live, starting
 		return true
 	}
 	return false // `hold` is informational for a tile; the streamState that follows is what matters
@@ -112,10 +113,21 @@ func (s *Store) Known() []Camera {
 	return out
 }
 
+// Content is what a tile renders.
+const (
+	ContentNone     = ""         // nothing: a dark tile
+	ContentLive     = "live"     // the RTSP stream
+	ContentSnapshot = "snapshot" // the camera's last retained still
+)
+
 // Selection is what one tile should show. Camera empty means: show nothing.
 type Selection struct {
 	TileIndex int
 	Camera    string
+	// Content is live once the server says there are frames, and the retained still before that — which
+	// is what puts a picture on screen during the second or two a battery camera takes to wake, instead
+	// of a black rectangle that looks the same as a broken camera.
+	Content string
 	// NeedsHold is true when the tile wants this camera but the server is not streaming it — the caller
 	// should ask for a hold. A camera in on_motion mode is already held by the server's own motion
 	// handler; one in on_demand is not, and would otherwise never come up.
@@ -143,10 +155,13 @@ func (s *Store) Resolve(tiles []config.Tile, current map[int]string, switchedAt 
 			// A fixed tile shows its camera whenever the server says there is video. A battery camera
 			// therefore blanks while asleep instead of showing a dead RTSP URL, and lights up on its own
 			// when motion wakes it.
-			sel := Selection{TileIndex: i, Camera: t.Camera}
+			sel := Selection{TileIndex: i, Camera: t.Camera, Content: ContentLive}
 			if t.Camera != "" && !s.IsLive(t.Camera) {
 				if cam, ok := s.Camera(t.Camera); ok && cam.Mode != "always" {
-					sel.Camera = ""
+					// Its camera is asleep or waking: show the last still rather than nothing. An
+					// always-on camera is exempt — a brief idle there is a reconnect, and swapping to a
+					// still and back would be a visible flap.
+					sel.Content = ContentSnapshot
 				}
 			}
 			out = append(out, sel)
@@ -182,11 +197,23 @@ func (s *Store) resolveMotion(i int, t config.Tile, showing string, since time.T
 		return Selection{TileIndex: i, Camera: ""}
 	}
 	if best == "" {
-		return Selection{TileIndex: i, Camera: showing, NeedsHold: showing != "" && !s.IsLive(showing)}
+		return Selection{TileIndex: i, Camera: showing, Content: s.contentFor(showing), NeedsHold: showing != "" && !s.IsLive(showing)}
 	}
 	// Hold still if we switched recently and the tile is already showing something valid.
 	if showing != "" && best != showing && now.Before(dwellUntil(since, t)) {
 		best = showing
 	}
-	return Selection{TileIndex: i, Camera: best, NeedsHold: !s.IsLive(best)}
+	return Selection{TileIndex: i, Camera: best, Content: s.contentFor(best), NeedsHold: !s.IsLive(best)}
+}
+
+// contentFor is the whole "snapshot first, stream replaces it" rule: show the still the moment a camera
+// is chosen, and swap to video only once the server says frames are flowing.
+func (s *Store) contentFor(sn string) string {
+	if sn == "" {
+		return ContentNone
+	}
+	if s.IsLive(sn) {
+		return ContentLive
+	}
+	return ContentSnapshot
 }

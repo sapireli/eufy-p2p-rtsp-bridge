@@ -152,23 +152,63 @@ func TestAWiredCameraCanTakeTheMotionTileWithoutAHold(t *testing.T) {
 	}
 }
 
-func TestFixedTileBlanksWhileItsBatteryCameraSleeps(t *testing.T) {
+func TestFixedTileShowsAStillWhileItsBatteryCameraSleeps(t *testing.T) {
 	var off time.Duration
 	s := storeAt(t, &off)
 	s.Apply(hello([4]string{"YARD", "", "on_motion", "idle"}, [4]string{"GAR", "", "always", "live"}))
 	tiles := []config.Tile{{Camera: "YARD"}, {Camera: "GAR"}}
 
 	sel := s.Resolve(tiles, nil, nil)
-	if sel[0].Camera != "" {
-		t.Errorf("a sleeping battery camera should show nothing, not a dead stream: %q", sel[0].Camera)
+	// Never the live URL: pointing a decoder at a sleeping camera's stream is what used to freeze a tile
+	// on one frame. The retained still is served over HTTP and needs nothing woken up.
+	if sel[0].Camera != "YARD" || sel[0].Content != ContentSnapshot {
+		t.Errorf("a sleeping battery camera should show its last still, got %q/%q", sel[0].Camera, sel[0].Content)
 	}
-	if sel[1].Camera != "GAR" {
-		t.Errorf("an always-on camera always shows: %q", sel[1].Camera)
+	if sel[1].Camera != "GAR" || sel[1].Content != ContentLive {
+		t.Errorf("an always-on camera always shows live: %q/%q", sel[1].Camera, sel[1].Content)
 	}
 
 	s.Apply(Message{Type: "streamState", SN: "YARD", State: "live"})
-	if got := s.Resolve(tiles, nil, nil)[0].Camera; got != "YARD" {
-		t.Errorf("once the server says it is live the tile should show it, got %q", got)
+	sel = s.Resolve(tiles, nil, nil)
+	if sel[0].Camera != "YARD" || sel[0].Content != ContentLive {
+		t.Errorf("once the server says it is live the tile should swap to video, got %q/%q", sel[0].Camera, sel[0].Content)
+	}
+}
+
+// The point of the whole feature: motion puts a picture on screen immediately, and the stream replaces it
+// when it arrives a second or two later. Neither step leaves the tile black.
+func TestMotionShowsTheStillThenTheStreamReplacesIt(t *testing.T) {
+	var off time.Duration
+	s := storeAt(t, &off)
+	s.Apply(hello([4]string{"YARD", "", "on_motion", "idle"}))
+	tile := []config.Tile{motionTile([]string{"YARD"}, 120, 0)}
+
+	if got := s.Resolve(tile, nil, nil)[0]; got.Content != ContentNone {
+		t.Errorf("nothing has moved, the tile should be dark: %q", got.Content)
+	}
+
+	s.Apply(Message{Type: "motion", SN: "YARD"})
+	if got := s.Resolve(tile, nil, nil)[0]; got.Camera != "YARD" || got.Content != ContentSnapshot {
+		t.Fatalf("motion should put the still up at once, got %q/%q", got.Camera, got.Content)
+	}
+
+	// The server acknowledges it is waking the camera. Still a still — there are no frames yet.
+	s.Apply(Message{Type: "streamState", SN: "YARD", State: "starting"})
+	if got := s.Resolve(tile, map[int]string{0: "YARD"}, nil)[0]; got.Content != ContentSnapshot {
+		t.Errorf("while starting there is no video yet, got %q", got.Content)
+	}
+	if cam, _ := s.Camera("YARD"); !cam.Starting || cam.Live {
+		t.Errorf("starting should be tracked distinctly from live: %+v", cam)
+	}
+
+	s.Apply(Message{Type: "streamState", SN: "YARD", State: "live"})
+	if got := s.Resolve(tile, map[int]string{0: "YARD"}, nil)[0]; got.Content != ContentLive {
+		t.Errorf("frames are flowing, the stream should replace the still, got %q", got.Content)
+	}
+
+	off = 121 * time.Second
+	if got := s.Resolve(tile, map[int]string{0: "YARD"}, nil)[0]; got.Camera != "" || got.Content != ContentNone {
+		t.Errorf("past blank_after the magic screen goes properly dark, not to a still: %q/%q", got.Camera, got.Content)
 	}
 }
 
