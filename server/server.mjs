@@ -110,8 +110,16 @@ eufy.on("error", (e) => {
 });
 eufy.on("pushConnect", () => { state.flags.pushConnected = true; state.flags.pushSince = Date.now(); });
 eufy.on("pushDisconnect", () => { state.flags.pushConnected = false; state.flags.pushSince = Date.now(); });
-// After a re-login (kicked session / watchdog recovery) the cameras may need their pins again.
-eufy.on("p2pConnect", () => { if (state.flags.ready) void ctx.applyAllPins().catch(() => {}); });
+// After a re-login (kicked session / watchdog recovery) the cameras may need their pins again — a new
+// session can lose them. Scoped to the station that actually connected: re-pinning is a SET_PAYLOAD sent
+// to a camera MID-STREAM, so doing it for every camera on every station's connect means one camera's
+// media session opening pokes cameras that are quietly streaming somewhere else.
+eufy.on("p2pConnect", (stationSn) => {
+  if (!state.flags.ready) return;
+  for (const cam of ctx.listCameras?.() ?? []) {
+    if (cam.enabled && cam.stationSn === stationSn) void ctx.applyPins(cam.sn).catch(() => {});
+  }
+});
 
 const server = http.createServer(createHttpHandler(ctx));
 ctx.ws.attach(server);

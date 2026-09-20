@@ -55,3 +55,28 @@ test("no quality configured → skip; disabled camera → nothing", async () => 
   assert.deepEqual(r, { dualView: "skip", quality: "skip" });
   assert.deepEqual(ctx.props, []);
 });
+
+// Pinning sends a SET_PAYLOAD to a camera that may be MID-STREAM. A station opening several media
+// sessions fires a connect event for each, so without a gap one camera coming up re-pokes its siblings
+// repeatedly — measured as 4 re-pins of a streaming dual camera inside five minutes.
+test("a camera is not re-pinned again moments later", async () => {
+  const cam = { sn: "DUAL", isDual: true, viewModeCmd: 6243, dualView: "split", enabled: true };
+  const ctx = ctxWith({ cam });
+  const pins = createPins(ctx);
+
+  const first = await pins.applyPins("DUAL");
+  assert.equal(first.dualView, "set", "the first pass pins");
+  const second = await pins.applyPins("DUAL");
+  assert.equal(second.dualView, "recent", "a second pass moments later is skipped");
+  assert.equal(ctx.sent.length, 1, "exactly one SET_PAYLOAD reached the camera");
+});
+
+// A boot or post-re-login pass is deliberate, not incidental, so it must not be swallowed by the gap.
+test("applyAllPins pins even right after a scoped pass", async () => {
+  const cam = { sn: "DUAL", isDual: true, viewModeCmd: 6243, dualView: "split", enabled: true };
+  const ctx = ctxWith({ cam });
+  const pins = createPins(ctx);
+  await pins.applyPins("DUAL");
+  await pins.applyAllPins();
+  assert.equal(ctx.sent.length, 2, "the deliberate pass is forced through");
+});

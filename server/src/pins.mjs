@@ -4,13 +4,26 @@
 //    no verified setter for it; when setProperty throws we say so once and leave it to the eufy app.
 import { DUAL_VIEW_VALUES } from "./cameras.mjs";
 
+/**
+ * Shortest gap between two pin passes for the same camera.
+ *
+ * Pinning sends a SET_PAYLOAD to a camera that may be MID-STREAM, and a station opening several media
+ * sessions at once fires a connect event for each. Without this, one camera coming up re-pokes its
+ * siblings several times over. A genuinely new session still gets its pins — just once.
+ */
+const REPIN_MIN_GAP_MS = 30_000;
+
 export function createPins(ctx) {
   const warnedQuality = new Set();
+  const lastPinnedAt = new Map(); // sn -> ms
 
-  async function applyPins(sn) {
+  async function applyPins(sn, { force = false } = {}) {
     const cam = ctx.getCamera(sn);
     const result = { dualView: "skip", quality: "skip" };
     if (!cam || !cam.enabled) return result;
+    const last = lastPinnedAt.get(sn) ?? 0;
+    if (!force && Date.now() - last < REPIN_MIN_GAP_MS) return { dualView: "recent", quality: "recent" };
+    lastPinnedAt.set(sn, Date.now());
 
     if (cam.isDual && cam.viewModeCmd && cam.dualView) {
       try {
@@ -47,7 +60,8 @@ export function createPins(ctx) {
 
   async function applyAllPins() {
     const out = {};
-    for (const cam of ctx.listCameras()) if (cam.enabled) out[cam.sn] = await applyPins(cam.sn);
+    // Boot and post-re-login passes are deliberate, not incidental: they bypass the repin gap.
+    for (const cam of ctx.listCameras()) if (cam.enabled) out[cam.sn] = await applyPins(cam.sn, { force: true });
     return out;
   }
 
