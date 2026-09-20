@@ -124,7 +124,10 @@ export function createHttpHandler(ctx) {
         const sn = url.searchParams.get("sn");
         const cam = ctx.getCamera?.(sn);
         if (!cam?.enabled) return json(res, 404, { error: "unknown or disabled camera" });
-        ctx.broadcastEvent?.({ type: "motion", sn, event: "motion", simulated: true });
+        // ?still=1 claims a thumbnail exists, to exercise a wall's snapshot path before any camera has
+        // actually pushed one. Without it this reports the truth, like a real event.
+        const still = url.searchParams.get("still") === "1" || Boolean(await ctx.sdk.snapshotStored?.(sn).catch(() => undefined));
+        ctx.broadcastEvent?.({ type: "motion", sn, event: "motion", still, simulated: true });
         const until = cam.mode === "on_motion" ? ctx.holds.hold(sn, "motion", cam.holdSeconds) : 0;
         return json(res, 200, { sn, mode: cam.mode, heldForMs: until ? until - Date.now() : 0 });
       }

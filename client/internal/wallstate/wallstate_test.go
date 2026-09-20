@@ -18,6 +18,8 @@ func storeAt(t *testing.T, offset *time.Duration) *Store {
 	return NewAt(func() time.Time { return base.Add(*offset) })
 }
 
+// Cameras are declared as sn/name/mode/state; every camera in these tests has a retained thumbnail
+// unless a test says otherwise, since that is the normal case once a camera has ever reported motion.
 func hello(cams ...[4]string) Message {
 	m := Message{Type: "hello"}
 	for _, c := range cams {
@@ -26,7 +28,8 @@ func hello(cams ...[4]string) Message {
 			Name  string `json:"name"`
 			Mode  string `json:"mode"`
 			State string `json:"state"`
-		}{SN: c[0], Name: c[1], Mode: c[2], State: c[3]})
+			Still bool   `json:"still"`
+		}{SN: c[0], Name: c[1], Mode: c[2], State: c[3], Still: true})
 	}
 	return m
 }
@@ -248,5 +251,35 @@ func TestApplyReportsWhetherAnythingChanged(t *testing.T) {
 	}
 	if s.Apply(Message{Type: "motion"}) {
 		t.Error("a motion event with no camera is not actionable")
+	}
+}
+
+// A camera that has never pushed has no thumbnail. Rendering one anyway would aim a pipeline at a 404
+// and leave the supervisor restarting it forever, so the tile stays dark until there is something.
+func TestNoRetainedStillMeansADarkTileNotABrokenOne(t *testing.T) {
+	var off time.Duration
+	s := storeAt(t, &off)
+	s.Apply(Message{Type: "hello", Cameras: []struct {
+		SN    string `json:"sn"`
+		Name  string `json:"name"`
+		Mode  string `json:"mode"`
+		State string `json:"state"`
+		Still bool   `json:"still"`
+	}{{SN: "YARD", Mode: "on_motion", State: "idle", Still: false}}})
+	tile := []config.Tile{motionTile([]string{"YARD"}, 120, 0)}
+
+	s.Apply(Message{Type: "motion", SN: "YARD"})
+	got := s.Resolve(tile, nil, nil)[0]
+	if got.Content != ContentNone {
+		t.Errorf("no thumbnail exists, so there is nothing to render yet: %q", got.Content)
+	}
+	if !got.Hold {
+		t.Error("it should still be waking the camera — the stream is the whole point")
+	}
+
+	// The next push delivers one.
+	s.Apply(Message{Type: "motion", SN: "YARD", Still: true})
+	if got := s.Resolve(tile, map[int]string{0: "YARD"}, nil)[0]; got.Content != ContentSnapshot {
+		t.Errorf("once a thumbnail exists the tile should show it, got %q", got.Content)
 	}
 }

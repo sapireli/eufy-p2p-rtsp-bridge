@@ -20,6 +20,7 @@ type Camera struct {
 	Mode       string // always | on_motion | on_demand
 	Live       bool   // the server says there is video to show right now
 	Starting   bool   // waking: a stream is being established but no frames yet
+	HasStill   bool   // the bridge holds a thumbnail for this camera at /snapshot/<sn>
 	LastMotion time.Time
 }
 
@@ -50,11 +51,13 @@ type Message struct {
 	SN      string `json:"sn"`
 	State   string `json:"state"`
 	Event   string `json:"event"`
+	Still   bool   `json:"still"`
 	Cameras []struct {
 		SN    string `json:"sn"`
 		Name  string `json:"name"`
 		Mode  string `json:"mode"`
 		State string `json:"state"`
+		Still bool   `json:"still"`
 	} `json:"cameras"`
 }
 
@@ -66,14 +69,18 @@ func (s *Store) Apply(m Message) bool {
 		// happening rather than waiting for the next event.
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
-			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting"}
+			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still}
 		}
 		return true
 	case "motion":
 		if m.SN == "" {
 			return false
 		}
-		s.get(m.SN).LastMotion = s.now()
+		c := s.get(m.SN)
+		c.LastMotion = s.now()
+		// The push that carried this event also carried the thumbnail, so a camera with no still before
+		// the event usually has one now.
+		c.HasStill = c.HasStill || m.Still
 		return true
 	case "streamState":
 		if m.SN == "" {
@@ -218,7 +225,10 @@ func (s *Store) contentFor(sn string) string {
 	if s.IsLive(sn) {
 		return ContentLive
 	}
-	return ContentSnapshot
+	if c, ok := s.cams[sn]; ok && c.HasStill {
+		return ContentSnapshot
+	}
+	return ContentNone // nothing retained to show; a dark tile beats a pipeline restarting on a 404
 }
 
 // holdFor reports whether this wall has to keep `sn` streaming itself. An always-on camera is streaming

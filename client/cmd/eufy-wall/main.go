@@ -110,6 +110,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	switchedAt := map[int]time.Time{}
 	// What each tile is rendering: live video, or the camera's last still while it wakes.
 	content := map[int]string{}
+	lastShown := ""
 	// Cameras this wall is keeping awake. A hold is bounded on the server, so showing one means
 	// refreshing it; no longer showing one means releasing it, or a battery camera would be held awake
 	// by a tile that stopped looking at it.
@@ -170,6 +171,10 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		}
 		for _, cam := range drop {
 			go holdRequest(ctx, c.RTSPBase, http.MethodDelete, cam)
+		}
+		if line := describe(tiles, snapshot, kinds); line != lastShown {
+			lastShown = line
+			log.Printf("[wall] showing %s", line)
 		}
 		mgr.Update(ctx, plansFor(c, caps, tiles, snapshot, kinds))
 	}
@@ -254,6 +259,23 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 		return nil
 	}
 	return plans
+}
+
+// describe renders what the wall is showing as one line, so the log says why a tile changed rather than
+// only that some process restarted.
+func describe(tiles []layout.Placed, showing, content map[int]string) string {
+	parts := make([]string, 0, len(tiles))
+	for _, t := range tiles {
+		what := "blank"
+		if cam := showing[t.Index]; cam != "" {
+			what = cam
+			if content[t.Index] == wallstate.ContentSnapshot {
+				what += "(still)"
+			}
+		}
+		parts = append(parts, fmt.Sprintf("%d=%s", t.Index, what))
+	}
+	return strings.Join(parts, " ")
 }
 
 // holdRequest takes (POST) or releases (DELETE) this wall's hold on a camera.
