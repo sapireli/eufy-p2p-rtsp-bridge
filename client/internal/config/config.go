@@ -19,6 +19,20 @@ type Tile struct {
 	Camera string `yaml:"camera"`
 	Role   string `yaml:"role"`   // "" | "primary"
 	Aspect string `yaml:"aspect"` // "" | "wide" | "tall"
+	// Motion turns this into a dynamic tile: "latest" shows whichever watched camera moved most
+	// recently. Empty is a normal fixed tile.
+	Motion string `yaml:"motion"`
+	// Watch is the set of camera serials a motion tile follows; empty means every enabled camera. Not
+	// limited to battery cameras — a wired one costs nothing extra here, since it is already streaming
+	// and the tile only switches URL.
+	Watch []string `yaml:"watch"`
+	// BlankAfterSeconds blanks a motion tile when nothing it watches has moved for this long. This is
+	// what makes a screen that TURNS ON for motion, rather than one permanently showing the last thing
+	// that moved. 0 means never blank.
+	BlankAfterSeconds int `yaml:"blank_after_seconds"`
+	// DwellSeconds is the minimum time a motion tile stays on a camera before it may switch again, so
+	// two cameras firing together cannot make the tile strobe.
+	DwellSeconds int `yaml:"dwell_seconds"`
 	// Codec the camera actually sends, so the pipeline picks a matching decoder: "" (=h264) | h264 | h265.
 	// Set h265 where the bridge passes the camera through untranscoded — several eufy models encode HEVC
 	// at every quality tier, and decoding it here avoids paying for a transcode on the server.
@@ -133,16 +147,25 @@ func Parse(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("config: %d tiles do not fit layout %s (%d cells)", len(c.Tiles), c.Layout, cols*rows)
 	}
 	for i, t := range c.Tiles {
-		if t.Camera == "" && t.URL == "" {
-			return nil, fmt.Errorf("config: tiles[%d] needs camera or url", i)
+		if t.Camera == "" && t.URL == "" && t.Motion == "" {
+			return nil, fmt.Errorf("config: tiles[%d] needs camera, url, or motion: latest", i)
 		}
-		if t.URL == "" && c.RTSPBase == "" {
+		if t.URL == "" && c.RTSPBase == "" && t.Motion == "" {
 			return nil, fmt.Errorf("config: rtsp_base is required when a tile has no url (tiles[%d])", i)
 		}
 		switch t.Aspect {
 		case "", "wide", "tall":
 		default:
 			return nil, fmt.Errorf("config: tiles[%d].aspect must be wide or tall", i)
+		}
+		if t.Motion != "" && t.Motion != "latest" {
+			return nil, fmt.Errorf("config: tiles[%d].motion must be latest (got %q)", i, t.Motion)
+		}
+		if t.Motion == "" && (len(t.Watch) > 0 || t.BlankAfterSeconds > 0 || t.DwellSeconds > 0) {
+			return nil, fmt.Errorf("config: tiles[%d] sets watch/blank_after_seconds/dwell_seconds but is not a motion tile", i)
+		}
+		if t.Motion != "" && t.Camera != "" {
+			return nil, fmt.Errorf("config: tiles[%d] is a motion tile, so it follows `watch` rather than a fixed camera", i)
 		}
 		switch t.Codec {
 		case "", "h264", "h265":
