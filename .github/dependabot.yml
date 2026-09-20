@@ -5,6 +5,12 @@ updates:
     schedule: { interval: weekly }
     versioning-strategy: increase   # keeps the exact pin, bumps it in a PR
     labels: [dependencies, server]
+    ignore:
+      # Pinned to a fork branch (github:sapireli/eufy-sdk#eufy-wall) carrying P2P fixes that are still
+      # open upstream. A bump back to a published release would silently drop them: direct-LAN connects
+      # would fall back to the relay again and lossy cameras would freeze on a single frame. Unpin only
+      # once the upstream PRs are released. See docs/p2p-direct-lan.md.
+      - dependency-name: "@mega-yfue/eufy-sdk"
   - package-ecosystem: gomod
     directory: /client
     schedule: { interval: weekly }
