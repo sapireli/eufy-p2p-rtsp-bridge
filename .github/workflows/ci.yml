@@ -8,7 +8,7 @@ jobs:
     defaults: { run: { working-directory: server } }
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: "24", cache: npm, cache-dependency-path: server/package-lock.json }
       - run: npm ci
       - run: npm test
@@ -18,7 +18,7 @@ jobs:
     defaults: { run: { working-directory: client } }
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with: { go-version-file: client/go.mod, cache-dependency-path: client/go.sum }
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
