@@ -23,6 +23,9 @@ const DUAL_VIEWS = new Set(["split", "pip-tl", "pip-tr", "pip-bl", "pip-br", "si
  */
 const CAMERA_MODES = new Set(["always", "on_motion", "on_demand"]);
 
+/** Codecs a camera can be declared as; anything else is a typo we should not silently accept. */
+export const CAMERA_CODECS = new Set(["h264", "h265"]);
+
 function cameraEntry(sn, raw) {
   const out = {};
   if (raw.name != null) out.name = String(raw.name);
@@ -35,6 +38,14 @@ function cameraEntry(sn, raw) {
     const n = Number(raw.hold_seconds);
     if (!Number.isFinite(n) || n <= 0) throw new Error(`cameras.${sn}.hold_seconds must be a positive number of seconds`);
     out.holdSeconds = n;
+  }
+  if (raw.codec != null) {
+    // Declaring the codec means go2rtc never has to probe for it, not even on a cold start — see
+    // execSourceFor() in go2rtc.mjs for why probing is slow for low-bitrate cameras. A camera's feed
+    // still corrects this if the device disagrees.
+    const codec = String(raw.codec).toLowerCase();
+    if (!CAMERA_CODECS.has(codec)) throw new Error(`cameras.${sn}.codec must be one of ${[...CAMERA_CODECS].join(", ")}`);
+    out.codec = codec;
   }
   if (raw.quality != null) out.quality = String(raw.quality);
   if (raw.dual_view != null) {

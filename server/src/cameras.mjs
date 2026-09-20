@@ -79,6 +79,10 @@ export function createCameras(ctx) {
         mode,
         holdSeconds: c.holdSeconds ?? ctx.cfg.defaults.holdSeconds,
         quality: c.quality ?? ctx.cfg.defaults.quality ?? null,
+        // Declared codec, if the operator set one. go2rtc prefers what a live feed actually reported and
+        // falls back to this, so declaring it only removes the cold-start probe — it cannot be wrong for
+        // long if it disagrees with the device.
+        codec: c.codec,
         isDual,
         viewModeCmd: isDual ? DUAL_MODELS[modelKey] : null,
         dualView: isDual ? (c.dualView ?? ctx.cfg.defaults.dualView) : null,

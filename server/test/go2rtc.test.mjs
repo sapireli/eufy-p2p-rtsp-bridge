@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "yaml";
-import { createGo2rtc, hardenGo2rtcYaml, withNamedStreams, streamKeys, streamSlug } from "../src/go2rtc.mjs";
+import { createGo2rtc, hardenGo2rtcYaml, withNamedStreams, streamKeys, streamSlug, execSourceFor } from "../src/go2rtc.mjs";
 import { createState } from "../src/state.mjs";
 
 const originals = {};
@@ -70,4 +70,28 @@ test("streamSlug makes URL-safe keys", () => {
   assert.equal(streamSlug("Solar Wall Light Cam"), "solar_wall_light_cam");
   assert.equal(streamSlug("  Garage – Interior/Door  "), "garage_interior_door");
   assert.equal(streamSlug(""), "");
+});
+
+// Probing consumes DATA, not time, so a low-bitrate camera can outlast go2rtc's exec timeout while a
+// high-bitrate one probes in seconds. Naming the codec removes that difference.
+test("a passthrough stream with a known codec is handed to ffmpeg with the format named", () => {
+  const src = execSourceFor("http://127.0.0.1:3000/stream/T8423A", "h265", "#video=copy");
+  assert.match(src, /^exec:ffmpeg /);
+  assert.match(src, / -f hevc /, "hevc, not h265 — that is ffmpeg's demuxer name");
+  assert.match(src, /-i http:\/\/127\.0\.0\.1:3000\/stream\/T8423A /);
+  assert.match(src, /-f rtsp \{output\}$/, "go2rtc substitutes its own publish target");
+});
+
+test("h264 cameras get their own format, not hevc", () => {
+  assert.match(execSourceFor("http://x/s/A", "h264", "#video=copy"), / -f h264 /);
+});
+
+// Two cases must fall back to go2rtc's own ffmpeg: source rather than a hand-written command.
+test("an unknown codec or a transcode falls back to go2rtc's own source", () => {
+  assert.equal(execSourceFor("http://x/s/A", undefined, "#video=copy"), "", "first open still has to probe");
+  assert.equal(
+    execSourceFor("http://x/s/A", "h265", "#video=h264#hardware"),
+    "",
+    "go2rtc's templates pick the platform's hardware encoder better than a hand-written command",
+  );
 });
