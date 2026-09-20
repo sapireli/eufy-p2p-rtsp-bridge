@@ -17,6 +17,7 @@ import { createStreamManager } from "./src/stream-manager.mjs";
 import { createLanGuard } from "./src/lan-guard.mjs";
 import { createLanUpgrade } from "./src/lan-upgrade.mjs";
 import { createHolds } from "./src/holds.mjs";
+import { createWsHub } from "./src/ws-hub.mjs";
 import { createGo2rtc } from "./src/go2rtc.mjs";
 import { createHttpHandler } from "./src/http.mjs";
 import { installRecoveryRepin } from "./src/recovery.mjs";
@@ -37,6 +38,10 @@ ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);
 ctx.lanUpgrade = createLanUpgrade(ctx);
 Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), createStreamManager(ctx), createGo2rtc(ctx), createAuth(ctx), createWatchdog(ctx));
 ctx.holds = createHolds(ctx);
+// The wall's event channel. Created before anything can emit, so an event during boot is not dropped on
+// the floor by an undefined broadcaster.
+ctx.ws = createWsHub(ctx);
+ctx.broadcastEvent = (event) => ctx.ws.broadcast(event);
 
 /**
  * Motion takes a hold rather than starting a stream directly: see src/holds.mjs. Events arrive over push
@@ -98,6 +103,7 @@ eufy.on("pushDisconnect", () => { state.flags.pushConnected = false; state.flags
 eufy.on("p2pConnect", () => { if (state.flags.ready) void ctx.applyAllPins().catch(() => {}); });
 
 const server = http.createServer(createHttpHandler(ctx));
+ctx.ws.attach(server);
 
 async function main() {
   server.listen(cfg.port, cfg.host, () => console.log(`[bridge] listening on ${cfg.host}:${cfg.port}`));
@@ -114,6 +120,7 @@ async function main() {
 
 async function shutdown() {
   for (const t of Object.values(state.timers)) if (t) clearInterval(t);
+  ctx.ws?.close();
   ctx.stopGo2rtc();
   await ctx.stopAll();
   await sdk.closeStreamClients();

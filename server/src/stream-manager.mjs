@@ -19,6 +19,7 @@ export function createStreamManager(ctx) {
     if (!state.streaming.has(slot.sn)) {
       state.streaming.add(slot.sn);
       console.log(`[bridge] ${slot.sn}: streaming`);
+      ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "live" });
     }
     const sets = ctx.sdk.extractParamSets(chunk); // non-undefined ⇒ this chunk carries SPS/PPS (keyframe AU)
     if (sets) {
@@ -86,7 +87,10 @@ export function createStreamManager(ctx) {
   function closeFeed(slot) {
     const f = slot.feed;
     slot.feed = undefined;
-    if (state.streaming.delete(slot.sn)) console.log(`[bridge] ${slot.sn}: stopped`);
+    if (state.streaming.delete(slot.sn)) {
+      console.log(`[bridge] ${slot.sn}: stopped`);
+      ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "idle" });
+    }
     if (f) { f.removeAllListeners(); f.destroy(); }
   }
 

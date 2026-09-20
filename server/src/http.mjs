@@ -75,6 +75,27 @@ export function createHttpHandler(ctx) {
     }
     if (kind === "auth") return auth(req, res, url, arg);
 
+    // A tile asks for a camera it wants to show. The wall is on a trusted LAN and this only ever makes a
+    // camera stream for a bounded time, so it is deliberately unauthenticated like /stream itself.
+    //
+    // POST /hold/<sn>?owner=<id>&seconds=<n>   take or extend a hold
+    // DELETE /hold/<sn>?owner=<id>             release it early (a tile that stopped showing the camera)
+    if (kind === "hold" && arg) {
+      const cam = ctx.getCamera?.(arg);
+      if (!cam || !cam.enabled) return json(res, 404, { error: "unknown or disabled camera" });
+      const owner = url.searchParams.get("owner") || `client:${req.socket.remoteAddress ?? "?"}`;
+      if (req.method === "DELETE") {
+        ctx.holds.release(arg, owner);
+        return json(res, 200, { sn: arg, owner, held: ctx.holds.isHeld(arg) });
+      }
+      if (req.method !== "POST") return json(res, 405, { error: "use POST to take a hold, DELETE to release it" });
+      const seconds = Number(url.searchParams.get("seconds")) || undefined;
+      const until = ctx.holds.hold(arg, owner, seconds);
+      return json(res, 200, { sn: arg, owner, untilMs: until - Date.now(), owners: ctx.holds.owners(arg) });
+    }
+
+    if (kind === "holds") return json(res, 200, ctx.holds?.status?.() ?? {});
+
     // DEBUG API — loopback only, and gated by BRIDGE_DEBUG. Read-only state plus one recovery lever:
     // `p2p` (live sessions and the peer each settled on), `lan` (per-station LAN/relay mode) and `drop`
     // (tear a station's sessions down so the next open re-runs the lookup).

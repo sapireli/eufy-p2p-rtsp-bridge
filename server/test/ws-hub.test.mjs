@@ -1,0 +1,107 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
+import { WebSocket } from "ws";
+import { createWsHub } from "../src/ws-hub.mjs";
+import { createHolds } from "../src/holds.mjs";
+
+/**
+ * The event channel is how a tile learns that something moved. A poll would always be too late, so these
+ * cover the properties a tile depends on: it is told the current state on connect (not just future
+ * events), every event reaches every client, and a client going away never affects the others.
+ */
+async function withHub(t, cameras = []) {
+  const ctx = {
+    cfg: { defaults: { holdSeconds: 60 } },
+    state: { streaming: new Set(), timers: {} },
+    listCameras: () => cameras,
+    getCamera: (sn) => cameras.find((c) => c.sn === sn),
+    ensureWarm: () => {},
+    stopCamera: () => {},
+  };
+  ctx.holds = createHolds(ctx);
+  const hub = createWsHub(ctx);
+  ctx.broadcastEvent = (e) => hub.broadcast(e);
+  const server = http.createServer((_, res) => res.end("ok"));
+  hub.attach(server);
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const url = `ws://127.0.0.1:${server.address().port}/ws`;
+  t.after(() => {
+    hub.close();
+    server.close();
+  });
+  return { ctx, hub, url };
+}
+
+/** Connect and collect messages; resolves once `want` have arrived (or the wait elapses). */
+function collect(url, want, waitMs = 1500) {
+  return new Promise((resolve, reject) => {
+    const msgs = [];
+    const ws = new WebSocket(url);
+    const done = () => {
+      ws.close();
+      resolve(msgs);
+    };
+    const timer = setTimeout(done, waitMs);
+    ws.on("message", (raw) => {
+      msgs.push(JSON.parse(raw.toString()));
+      if (msgs.length >= want) {
+        clearTimeout(timer);
+        done();
+      }
+    });
+    ws.on("error", reject);
+  });
+}
+
+const battery = { sn: "BATT", name: "Yard", enabled: true, mode: "on_motion", holdSeconds: 60 };
+
+test("a joining client is told the current state, not just future events", async (t) => {
+  const { ctx, url } = await withHub(t, [battery]);
+  ctx.state.streaming.add("BATT");
+  const [hello] = await collect(url, 1);
+  assert.equal(hello.type, "hello");
+  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", state: "live" }]);
+  assert.ok(hello.at > 0, "every message is timestamped so a replay is distinguishable from a live event");
+});
+
+test("motion, hold and streamState all reach a connected client", async (t) => {
+  const { ctx, url } = await withHub(t, [battery]);
+  const got = collect(url, 4);
+  await new Promise((r) => setTimeout(r, 100)); // let the socket finish connecting
+  ctx.broadcastEvent({ type: "motion", sn: "BATT", event: "motion" });
+  ctx.holds.hold("BATT", "motion", 60); // emits a hold event
+  ctx.broadcastEvent({ type: "streamState", sn: "BATT", state: "live" });
+  const msgs = await got;
+  assert.deepEqual(msgs.map((m) => m.type), ["hello", "motion", "hold", "streamState"]);
+  assert.equal(msgs[2].owners[0], "motion");
+});
+
+test("every client gets every event", async (t) => {
+  const { ctx, url } = await withHub(t, [battery]);
+  const a = collect(url, 2);
+  const b = collect(url, 2);
+  await new Promise((r) => setTimeout(r, 100));
+  ctx.broadcastEvent({ type: "motion", sn: "BATT", event: "motion" });
+  const [ma, mb] = await Promise.all([a, b]);
+  assert.equal(ma.at(-1).type, "motion");
+  assert.equal(mb.at(-1).type, "motion");
+});
+
+test("a client that goes away is dropped and does not break broadcasting", async (t) => {
+  const { ctx, hub, url } = await withHub(t, [battery]);
+  const ws = new WebSocket(url);
+  await new Promise((r) => ws.on("open", r));
+  assert.equal(hub.clientCount(), 1);
+  ws.terminate();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(hub.clientCount(), 0);
+  assert.doesNotThrow(() => ctx.broadcastEvent({ type: "motion", sn: "BATT", event: "motion" }));
+});
+
+test("broadcasting with nobody connected is harmless", async (t) => {
+  const { ctx } = await withHub(t, [battery]);
+  const msg = ctx.broadcastEvent({ type: "motion", sn: "BATT", event: "motion" });
+  assert.equal(msg.type, "motion");
+  assert.ok(msg.at > 0);
+});
