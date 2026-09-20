@@ -41,3 +41,17 @@ cameras:                         # keyed by camera serial; unlisted WIRED camera
 # (client tile `codec: h265`). Transcode instead when the display cannot, e.g. a Pi.
 go2rtc:
   transcode: auto                      # auto (default) | never | always
+
+# PHASE 2 — when each camera streams. Defaults follow the power source: wired → always, battery →
+# on_motion. A battery camera on `always` is legal but will flatten it, and the bridge says so.
+#   always     stream continuously
+#   on_motion  idle until an event takes a hold on it
+#   on_demand  stream only while something is watching
+# hold_seconds bounds how long motion keeps a camera up; further motion extends it.
+#
+# cameras:
+#   T81A0XXXXXXXXXXX: { mode: on_motion, hold_seconds: 60 }
+#
+# defaults:
+#   hold_seconds: 60
+#   motion_events: [motion, personDetected, doorbellPress]

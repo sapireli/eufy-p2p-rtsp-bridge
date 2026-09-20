@@ -21,6 +21,23 @@ decoder: auto                          # auto | v4l2 (Pi) | va (x86 VAAPI) | sof
 sink: auto                             # auto | planes (Pi, one kmssink per tile) | compositor | window (dev)
 # planes: [31, 32, 33, 34, 35, 36]     # DRM overlay plane ids for sink=planes → `modetest -M vc4 -p`
 latency_ms: 200
+# MOTION TILES. A tile with `motion: latest` follows whichever watched camera moved most recently,
+# instead of being pinned to one camera. Two behaviours fall out of it:
+#   follow          — a tile inside a normal layout that swaps to whatever just moved
+#   magic screen    — `layout: 1` with one motion tile and blank_after_seconds: a screen that is DARK
+#                     until something moves, then lights up, then goes dark again
+# watch is any set of cameras, not just battery ones: a wired camera costs nothing extra here because
+# it is already streaming, so the tile just switches URL.
+#
+#   - motion: latest
+#     watch: [T81A0XXXXXXXXXXX, T8425XXXXXXXXXXX]   # omit to watch every camera
+#     blank_after_seconds: 90                       # nothing recent → show nothing (0 = never blank)
+#     dwell_seconds: 5                              # minimum time on a camera, so it cannot strobe
+#
+# A FIXED tile for a battery camera needs no extra config: it shows nothing while that camera sleeps and
+# lights up on its own when motion wakes it. The wall holds a camera while it is on screen and releases
+# it when it leaves, so nothing keeps a battery camera awake.
+#
 # codec: what the camera actually sends, so the tile decodes it directly.
 #   Omit (or h264) when the bridge transcodes for you — the default.
 #   Set h265 when the bridge passes that camera through with `go2rtc.transcode: never`: several eufy

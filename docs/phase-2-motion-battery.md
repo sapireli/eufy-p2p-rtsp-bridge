@@ -121,15 +121,26 @@ Mechanics:
 - The server already broadcasts `motion` for EVERY enabled camera regardless of mode, which is what lets
   the set include wired ones.
 
-## Staging
+## Staging — all four done
 
-1. **Server policy + holds + battery care.** Testable without any client change: motion on a battery
-   camera starts a stream that stops on its own.
-2. **WS `/ws`.** Emit the three messages; verify with `websocat`.
-3. **Client per-tile pipelines.** Refactor the supervisor to N processes. No behaviour change on a
-   Phase 1 wall — this is the risky step, so it lands on its own.
-4. **Client WS + tile modes.** Placeholder/live swapping, `motion: latest` including the magic screen
-   (watch set, dwell time, blank-after), and `POST /hold/<sn>` for cameras the server is not already
-   holding.
+1. ✅ **Server policy + holds + battery care.**
+2. ✅ **WS `/ws`** plus `POST`/`DELETE /hold/<sn>`.
+3. ✅ **Client per-tile pipelines** (planes split per tile; a compositor stays one process).
+4. ✅ **Client WS + motion tiles**, including the magic screen.
+
+Verified end to end against the cameras: motion on a sleeping battery camera woke it, the wall showed
+it, the hold was refreshed while it stayed on screen, and at `blank_after_seconds` the tile blanked,
+the wall released, and the camera went back to sleep with no pipeline left running for it.
+
+`POST /debug/motion?sn=…` injects an event down the same path as a real one, so a motion wall can be
+exercised without waiting for something to walk past a camera.
+
+### Not done
+
+- **Snapshot placeholders.** A blank tile is currently blank, not a last-known still. `/snapshot/<sn>`
+  does not exist on the bridge yet; the SDK's `snapshotStored()` would supply it without waking a
+  camera.
+- **`streamState: starting`.** The server reports only `idle` and `live`, so a tile shows nothing
+  during the second or two a battery camera takes to wake rather than saying it is coming.
 
 Phase 1 config, layout, RTSP naming and `/api/cameras` do not change shape, as the design spec intended.
