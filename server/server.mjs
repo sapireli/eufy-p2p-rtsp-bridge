@@ -53,7 +53,13 @@ for (const event of cfg.defaults.motionEvents) {
     if (!sn) return;
     const cam = ctx.getCamera?.(sn);
     if (!cam?.enabled) return;
-    ctx.broadcastEvent?.({ type: "motion", sn, event, at: Date.now() });
+    // `still` tells a wall whether GET /snapshot/<sn> has anything to show. The push that carries this
+    // event is also what delivers the thumbnail, so this is the moment it becomes true — and a tile that
+    // knows can put a picture up immediately instead of waiting out the wake.
+    ctx.sdk
+      .snapshotStored(sn)
+      .catch(() => undefined)
+      .then((jpeg) => ctx.broadcastEvent?.({ type: "motion", sn, event, still: Boolean(jpeg), at: Date.now() }));
     if (cam.mode === "on_motion") ctx.holds.hold(sn, "motion", cam.holdSeconds);
   });
 }

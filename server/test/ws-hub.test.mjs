@@ -61,7 +61,7 @@ test("a joining client is told the current state, not just future events", async
   ctx.state.streaming.add("BATT");
   const [hello] = await collect(url, 1);
   assert.equal(hello.type, "hello");
-  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", state: "live" }]);
+  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", state: "live", still: false }]);
   assert.ok(hello.at > 0, "every message is timestamped so a replay is distinguishable from a live event");
 });
 
@@ -104,4 +104,14 @@ test("broadcasting with nobody connected is harmless", async (t) => {
   const msg = ctx.broadcastEvent({ type: "motion", sn: "BATT", event: "motion" });
   assert.equal(msg.type, "motion");
   assert.ok(msg.at > 0);
+});
+
+// A wall renders a still only where one exists; without this it would point a pipeline at a 404 and the
+// supervisor would restart it forever.
+test("hello says which cameras have a retained thumbnail", async (t) => {
+  const { ctx, url } = await withHub(t, [battery, { sn: "GAR", name: "Garage", enabled: true, mode: "always" }]);
+  ctx.sdk = { snapshotStored: async (sn) => (sn === "BATT" ? Buffer.from("jpeg") : undefined) };
+  const [hello] = await collect(url, 1);
+  const still = Object.fromEntries(hello.cameras.map((c) => [c.sn, c.still]));
+  assert.deepEqual(still, { BATT: true, GAR: false });
 });

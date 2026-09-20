@@ -25,15 +25,20 @@ export function createWsHub(ctx) {
   let heartbeat;
 
   /** The state a joining client would otherwise have to wait for an event to learn. */
-  function snapshot() {
-    const cameras = (ctx.listCameras?.() ?? [])
-      .filter((c) => c.enabled)
-      .map((c) => ({
-        sn: c.sn,
-        name: c.name,
-        mode: c.mode ?? "always",
-        state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
-      }));
+  async function snapshot() {
+    const cameras = await Promise.all(
+      (ctx.listCameras?.() ?? [])
+        .filter((c) => c.enabled)
+        .map(async (c) => ({
+          sn: c.sn,
+          name: c.name,
+          mode: c.mode ?? "always",
+          state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
+          // Whether GET /snapshot/<sn> has a thumbnail. A wall that renders a still for a camera with
+          // none would be pointing a pipeline at a 404 and restarting it forever.
+          still: Boolean(await ctx.sdk?.snapshotStored?.(c.sn).catch(() => undefined)),
+        })),
+    );
     return { type: "hello", at: Date.now(), cameras, holds: ctx.holds?.status?.() ?? {} };
   }
 
@@ -63,7 +68,7 @@ export function createWsHub(ctx) {
       });
       ws.on("close", () => clients.delete(ws));
       ws.on("error", () => clients.delete(ws));
-      send(ws, snapshot());
+      snapshot().then((hello) => send(ws, hello));
     });
     // A wall display that loses power or its network leaves a socket that never closes; without this the
     // server accumulates them and keeps serialising events to nobody.
