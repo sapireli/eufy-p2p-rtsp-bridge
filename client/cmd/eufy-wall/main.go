@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"eufy-wall/internal/config"
@@ -54,7 +55,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
-	args, err := pipeline.Build(c, tiles, caps)
+	plans, err := pipeline.Plans(c, tiles, caps)
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
@@ -71,7 +72,9 @@ func main() {
 		return
 	}
 	if *dryRun {
-		fmt.Println("gst-launch-1.0 " + pipeline.String(args))
+		for _, p := range plans {
+			fmt.Printf("# %s\ngst-launch-1.0 %s\n", p.Name, pipeline.String(p.Args))
+		}
 		return
 	}
 	if os.Getenv("GST_DEBUG") == "" {
@@ -79,6 +82,18 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	_ = supervisor.Run(ctx, "gst-launch-1.0", args, c.Restart, func(s string) { log.Printf("[gst] %s", s) })
+	mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) { log.Printf("[gst %s] %s", name, line) })
+	log.Printf("[wall] %d pipeline(s): %s", len(plans), planNames(plans))
+	_ = mgr.Run(ctx, plans)
 	log.Printf("[wall] stopped")
+}
+
+// planNames lists what the wall is running, so the log says whether tiles are independent processes or
+// one composited pipeline.
+func planNames(plans []pipeline.Plan) string {
+	names := make([]string, 0, len(plans))
+	for _, p := range plans {
+		names = append(names, p.Name)
+	}
+	return strings.Join(names, ", ")
 }

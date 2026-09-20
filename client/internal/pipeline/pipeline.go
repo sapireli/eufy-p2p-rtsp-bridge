@@ -54,6 +54,45 @@ func codecOf(t layout.Placed) string {
 	return t.Codec
 }
 
+// Plan is one process that renders part (or all) of the wall.
+type Plan struct {
+	// Name identifies it in logs and, more importantly, identifies it across an Update: a plan whose
+	// args are unchanged keeps running rather than being restarted.
+	Name string
+	Args []string
+}
+
+// Plans returns the processes this wall needs.
+//
+// With sink=planes each tile owns a DRM overlay plane and is genuinely independent, so it gets its own
+// process: one camera dropping out then restarts one tile instead of every tile, and a tile can be
+// started, stopped or repointed on its own — which is what a wall with motion tiles needs.
+//
+// A compositor mixes every tile into one frame, so its tiles cannot be split; that wall is one process
+// and changing any tile restarts all of them. This is the honest trade of the two sinks, not a gap.
+func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
+	if caps.Sink != "planes" {
+		args, err := Build(c, tiles, caps)
+		if err != nil {
+			return nil, err
+		}
+		return []Plan{{Name: "wall", Args: args}}, nil
+	}
+	out := make([]Plan, 0, len(tiles))
+	for i, t := range tiles {
+		args, err := Build(c, []layout.Placed{t}, caps)
+		if err != nil {
+			return nil, err
+		}
+		name := t.Camera
+		if name == "" {
+			name = fmt.Sprintf("tile%d", i)
+		}
+		out = append(out, Plan{Name: name, Args: args})
+	}
+	return out, nil
+}
+
 func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error) {
 	family, ok := decoders[caps.Decoder]
 	if !ok {
@@ -64,8 +103,18 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 			return nil, fmt.Errorf("pipeline: decoder %q cannot decode %s (tile %s)", caps.Decoder, codecOf(t), t.Camera)
 		}
 	}
-	if caps.Sink == "planes" && len(c.Planes) < len(tiles) {
-		return nil, fmt.Errorf("pipeline: sink=planes needs %d plane ids in `planes:` (have %d) — list overlay planes with `modetest -M vc4 -p`", len(tiles), len(c.Planes))
+	if caps.Sink == "planes" {
+		// Each tile takes the plane at its OWN index, so this holds whether the wall is built as one
+		// process or split into one per tile.
+		need := 0
+		for _, t := range tiles {
+			if t.Index+1 > need {
+				need = t.Index + 1
+			}
+		}
+		if len(c.Planes) < need {
+			return nil, fmt.Errorf("pipeline: sink=planes needs %d plane ids in `planes:` (have %d) — list overlay planes with `modetest -M vc4 -p`", need, len(c.Planes))
+		}
 	}
 	args := []string{"-e"}
 	src := func(i int, t layout.Placed) []string {
@@ -81,7 +130,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		for i, t := range tiles {
 			args = append(args, src(i, t)...)
 			args = append(args, "!")
-			args = append(args, caps.kmssinkArgs(fmt.Sprintf("name=sink%d", i), fmt.Sprintf("plane-id=%d", c.Planes[i]),
+			args = append(args, caps.kmssinkArgs(fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]),
 				fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H), "force-aspect-ratio=true", "sync=false")...)
 		}
 	case "compositor", "window":

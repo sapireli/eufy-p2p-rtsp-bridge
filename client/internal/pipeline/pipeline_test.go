@@ -138,3 +138,62 @@ func TestNoConnectorIDLeavesOutputToKmssink(t *testing.T) {
 		t.Errorf("no output configured, so none should be pinned: %s", got)
 	}
 }
+
+// With DRM planes each tile owns its own plane and is genuinely independent, so it becomes its own
+// process: one camera dropping out restarts one tile rather than the whole wall. A compositor mixes
+// every tile into one frame, so those tiles cannot be split.
+func TestPlansSplitPerTileOnlyForPlanes(t *testing.T) {
+	tiles := []layout.Placed{
+		{Index: 0, Camera: "GARAGE", URL: "rtsp://s/GA", W: 960, H: 1080},
+		{Index: 1, Camera: "FRONTDOOR", URL: "rtsp://s/FD", X: 960, W: 960, H: 1080},
+	}
+	c := &config.Config{Latency: 200, Planes: []int{31, 32}}
+	screen := config.Screen{Width: 1920, Height: 1080}
+
+	planes, err := Plans(c, tiles, Caps{Decoder: "software", Sink: "planes", Screen: screen})
+	if err != nil {
+		t.Fatalf("planes: %v", err)
+	}
+	if len(planes) != 2 {
+		t.Fatalf("planes should give one process per tile, got %d", len(planes))
+	}
+	if planes[0].Name != "GARAGE" || planes[1].Name != "FRONTDOOR" {
+		t.Errorf("plans should be named for their camera: %v, %v", planes[0].Name, planes[1].Name)
+	}
+	// Each tile must drive its OWN plane, not the first one twice.
+	if !strings.Contains(String(planes[0].Args), "plane-id=31") || !strings.Contains(String(planes[1].Args), "plane-id=32") {
+		t.Errorf("each tile should take the plane at its own index:\n%s\n%s", String(planes[0].Args), String(planes[1].Args))
+	}
+	if !strings.Contains(String(planes[1].Args), "rtsp://s/FD") || strings.Contains(String(planes[1].Args), "rtsp://s/GA") {
+		t.Errorf("a per-tile plan should carry only its own source: %s", String(planes[1].Args))
+	}
+
+	comp, err := Plans(c, tiles, Caps{Decoder: "software", Sink: "compositor", Screen: screen})
+	if err != nil {
+		t.Fatalf("compositor: %v", err)
+	}
+	if len(comp) != 1 {
+		t.Fatalf("a composited wall is one process, got %d", len(comp))
+	}
+	for _, url := range []string{"rtsp://s/GA", "rtsp://s/FD"} {
+		if !strings.Contains(String(comp[0].Args), url) {
+			t.Errorf("the single plan should carry every source, missing %s", url)
+		}
+	}
+}
+
+// A wall with fewer plane ids than tiles cannot be rendered, and saying so beats a tile silently
+// landing on the wrong plane.
+func TestPlanesNeedAPlanePerTile(t *testing.T) {
+	tiles := []layout.Placed{
+		{Index: 0, Camera: "A", URL: "rtsp://s/A", W: 960, H: 1080},
+		{Index: 1, Camera: "B", URL: "rtsp://s/B", W: 960, H: 1080},
+	}
+	_, err := Plans(&config.Config{Latency: 200, Planes: []int{31}}, tiles, Caps{Decoder: "software", Sink: "planes", Screen: config.Screen{Width: 1920, Height: 1080}})
+	if err == nil {
+		t.Fatal("expected an error when a tile has no plane")
+	}
+	if !strings.Contains(err.Error(), "plane") {
+		t.Errorf("the error should point at planes: %v", err)
+	}
+}
