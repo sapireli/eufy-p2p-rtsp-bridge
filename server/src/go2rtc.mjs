@@ -8,8 +8,8 @@ import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
 /** go2rtc source suffix for a camera: transcode to H.264 when the device speaks H.265 (see cfg comment). */
 export function egressFor(codec, mode) {
   if (mode === "never") return "#video=copy";
-  if (mode === "always") return "#video=h264#hardware";
-  return codec === "h265" ? "#video=h264#hardware" : "#video=copy"; // "auto"
+  if (mode === "always") return "#video=h264";
+  return codec === "h265" ? "#video=h264" : "#video=copy"; // "auto"
 }
 
 /**
