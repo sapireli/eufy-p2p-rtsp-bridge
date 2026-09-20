@@ -19,7 +19,7 @@ jobs:
           server/scripts/sync-upstream.sh --apply
           SHA=$(git ls-remote https://github.com/mega-yfue/ha-eufy-sdk-bridge HEAD | cut -f1)
           sed -i "s/^- Commit: .*/- Commit: $SHA/" server/src/vendor/ha-bridge/VENDOR.md
-      - uses: peter-evans/create-pull-request@v7
+      - uses: peter-evans/create-pull-request@v8
         if: steps.drift.outputs.changed == 'true'
         with:
           branch: chore/upstream-ha-bridge
