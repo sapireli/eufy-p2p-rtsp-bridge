@@ -138,6 +138,23 @@ export function createHttpHandler(ctx) {
 
     if (url.pathname === "/api/cameras") return json(res, 200, ctx.listCameras().map((c) => ctx.apiShape(c, host)));
 
+    // The last thumbnail the SDK retained for a camera. Served so a tile can show something real while
+    // its camera is asleep or still waking, instead of a black rectangle. Never wakes the camera.
+    if (kind === "snapshot" && arg) {
+      const cam = ctx.getCamera?.(arg);
+      if (!cam || !cam.enabled) return json(res, 404, { error: "unknown or disabled camera" });
+      const jpeg = await ctx.sdk.snapshotStored(arg);
+      if (!jpeg) return json(res, 404, { error: "no retained snapshot yet for this camera" });
+      res.writeHead(200, {
+        "content-type": "image/jpeg",
+        "content-length": jpeg.length,
+        // It changes whenever the camera pushes a new thumbnail, and a stale still on a wall is worse
+        // than a re-fetch.
+        "cache-control": "no-cache",
+      });
+      return res.end(jpeg);
+    }
+
     if (kind === "stream" && arg) {
       const cam = ctx.getCamera(arg);
       if (!cam || !cam.enabled) return json(res, 404, { error: "unknown or disabled camera" });

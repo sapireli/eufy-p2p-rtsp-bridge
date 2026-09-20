@@ -15,6 +15,7 @@ export function createState() {
     },
     timers: { watchdog: null, stream: null },
     streaming: new Set(), // sns with a live feed right now (upstream name; read by vendored code paths)
+    starting: new Set(), // sns whose feed is being opened — a waking battery camera, not yet delivering
     slots: new Map(), // sn -> Slot (stream-manager.mjs)
     blocked: new Map(), // sn -> reason (lan-guard.mjs), e.g. "wan-path 203.0.113.9"
   };

@@ -32,7 +32,7 @@ export function createWsHub(ctx) {
         sn: c.sn,
         name: c.name,
         mode: c.mode ?? "always",
-        state: ctx.state.streaming.has(c.sn) ? "live" : "idle",
+        state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
       }));
     return { type: "hello", at: Date.now(), cameras, holds: ctx.holds?.status?.() ?? {} };
   }

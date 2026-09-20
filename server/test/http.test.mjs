@@ -107,3 +107,44 @@ test("a synchronous throw inside the handler answers 500 instead of hanging the 
     console.error = origError;
   }
 });
+
+// A tile shows a still while its camera is asleep or waking. The endpoint serves only what the SDK has
+// already retained from a push event, so it can never wake a camera to satisfy a wall.
+test("snapshot serves the retained still, and says so plainly when there is none", async () => {
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 0xff, 0xd9]);
+  const asked = [];
+  const ctx = ctxWith({
+    sdk: {
+      snapshotStored: async (sn) => {
+        asked.push(sn);
+        return sn === "A" ? jpeg : undefined;
+      },
+    },
+  });
+
+  await withServer(ctx, async (base) => {
+    const ok = await fetch(`${base}/snapshot/A`);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get("content-type"), "image/jpeg");
+    assert.equal(ok.headers.get("cache-control"), "no-cache", "a stale still on a wall is worse than a re-fetch");
+    assert.deepEqual(Buffer.from(await ok.arrayBuffer()), jpeg);
+
+    // Nothing retained yet is the normal case for a camera that has not moved since the bridge started.
+    const none = await fetch(`${base}/snapshot/NOPE_BUT_ENABLED`);
+    assert.equal(none.status, 404);
+
+    const disabled = await fetch(`${base}/snapshot/B`);
+    assert.equal(disabled.status, 404, "a disabled camera has nothing to show");
+  });
+  assert.ok(asked.includes("A"));
+});
+
+test("a camera with no retained still returns 404 rather than an empty image", async () => {
+  const ctx = ctxWith({ sdk: { snapshotStored: async () => undefined } });
+  await withServer(ctx, async (base) => {
+    const r = await fetch(`${base}/snapshot/A`);
+    assert.equal(r.status, 404);
+    const body = await r.json();
+    assert.match(body.error, /no retained snapshot/i);
+  });
+});

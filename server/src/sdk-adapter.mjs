@@ -67,6 +67,27 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
       return cam.openReadable(powered ? { powered: "wired", ...opts } : opts);
     },
 
+    /**
+     * The most recent push thumbnail the SDK has retained for a camera, as JPEG bytes.
+     *
+     * Reads from memory only: it performs no network or P2P work and CANNOT wake a sleeping camera,
+     * which is what makes it safe to show on a wall for a battery camera that is asleep. Returns
+     * undefined when nothing has been retained yet (no event since the bridge started) or the camera
+     * does not report thumbnails.
+     */
+    async snapshotStored(sn) {
+      const cam = (await eufy.getDevice(sn)).camera?.();
+      if (!cam?.snapshotStored) return undefined;
+      try {
+        const shot = await cam.snapshotStored();
+        // The SDK returns either raw bytes or {jpeg}; accept both rather than guessing.
+        const bytes = shot?.jpeg ?? shot;
+        return Buffer.isBuffer(bytes) ? bytes : undefined;
+      } catch {
+        return undefined; // nothing retained is the normal case, not an error worth logging per request
+      }
+    },
+
     /** Manifest + power source for the /api shape. */
     async describe(sn) {
       const dev = await eufy.getDevice(sn);

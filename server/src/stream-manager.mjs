@@ -17,6 +17,7 @@ export function createStreamManager(ctx) {
     slot.backoffIdx = 0;
     slot.gapFired = false; // bytes are flowing again → allow one fresh gap-disconnect if it stalls later
     if (!state.streaming.has(slot.sn)) {
+      state.starting.delete(slot.sn);
       state.streaming.add(slot.sn);
       console.log(`[bridge] ${slot.sn}: streaming`);
       ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "live" });
@@ -85,6 +86,7 @@ export function createStreamManager(ctx) {
   }
 
   function closeFeed(slot) {
+    state.starting.delete(slot.sn);
     const f = slot.feed;
     slot.feed = undefined;
     if (state.streaming.delete(slot.sn)) {
@@ -126,6 +128,12 @@ export function createStreamManager(ctx) {
   /** The actual open, run serialised per station by ensureWarm. */
   async function openFeedInto(slot, sn) {
     if (slot.feed) return; // opened while queued
+    // A battery camera takes a second or two to wake. Saying so lets a tile show a still and a "coming"
+    // state instead of a black rectangle, which otherwise looks indistinguishable from a broken camera.
+    if (!state.streaming.has(sn)) {
+      state.starting.add(sn);
+      ctx.broadcastEvent?.({ type: "streamState", sn, state: "starting" });
+    }
     try {
       const stationSn = ctx.getCamera?.(sn)?.stationSn;
       // Tear the station's P2P session down before retrying: a reused session keeps CHECK_CAM-ing the same
