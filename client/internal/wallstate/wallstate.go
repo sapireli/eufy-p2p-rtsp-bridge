@@ -128,10 +128,13 @@ type Selection struct {
 	// is what puts a picture on screen during the second or two a battery camera takes to wake, instead
 	// of a black rectangle that looks the same as a broken camera.
 	Content string
-	// NeedsHold is true when the tile wants this camera but the server is not streaming it — the caller
-	// should ask for a hold. A camera in on_motion mode is already held by the server's own motion
-	// handler; one in on_demand is not, and would otherwise never come up.
-	NeedsHold bool
+	// Hold is true when this tile is actively asking for the camera to be streaming, and stays true
+	// while it is — a hold is bounded on the server, so a tile that stopped asking once the picture
+	// arrived would watch it die mid-view.
+	//
+	// Only a motion tile asks. A fixed tile pointed at a battery camera waits for the server to wake it
+	// on its own; asking would pin that camera awake for as long as the wall is powered on.
+	Hold bool
 }
 
 // dwellUntil is when a motion tile that switched at `since` is allowed to switch again.
@@ -197,13 +200,13 @@ func (s *Store) resolveMotion(i int, t config.Tile, showing string, since time.T
 		return Selection{TileIndex: i, Camera: ""}
 	}
 	if best == "" {
-		return Selection{TileIndex: i, Camera: showing, Content: s.contentFor(showing), NeedsHold: showing != "" && !s.IsLive(showing)}
+		return Selection{TileIndex: i, Camera: showing, Content: s.contentFor(showing), Hold: s.holdFor(showing)}
 	}
 	// Hold still if we switched recently and the tile is already showing something valid.
 	if showing != "" && best != showing && now.Before(dwellUntil(since, t)) {
 		best = showing
 	}
-	return Selection{TileIndex: i, Camera: best, Content: s.contentFor(best), NeedsHold: !s.IsLive(best)}
+	return Selection{TileIndex: i, Camera: best, Content: s.contentFor(best), Hold: s.holdFor(best)}
 }
 
 // contentFor is the whole "snapshot first, stream replaces it" rule: show the still the moment a camera
@@ -216,4 +219,14 @@ func (s *Store) contentFor(sn string) string {
 		return ContentLive
 	}
 	return ContentSnapshot
+}
+
+// holdFor reports whether this wall has to keep `sn` streaming itself. An always-on camera is streaming
+// for everyone already, so a hold on it would mean nothing.
+func (s *Store) holdFor(sn string) bool {
+	if sn == "" {
+		return false
+	}
+	c, ok := s.cams[sn]
+	return !ok || c.Mode != "always"
 }

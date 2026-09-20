@@ -108,6 +108,8 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	var mu sync.Mutex
 	showing := map[int]string{}
 	switchedAt := map[int]time.Time{}
+	// What each tile is rendering: live video, or the camera's last still while it wakes.
+	content := map[int]string{}
 	// Cameras this wall is keeping awake. A hold is bounded on the server, so showing one means
 	// refreshing it; no longer showing one means releasing it, or a battery camera would be held awake
 	// by a tile that stopped looking at it.
@@ -130,20 +132,16 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 				showing[sel.TileIndex] = sel.Camera
 				switchedAt[sel.TileIndex] = now
 			}
+			content[sel.TileIndex] = sel.Content
 		}
 
-		// Hold every camera on screen that is not always-on, and release the ones that left. Driven by
-		// what is SHOWING rather than by NeedsHold: once a camera is live NeedsHold goes false, and a
-		// wall that stopped asking there would let the hold lapse and the picture die mid-view.
+		// Take a hold for every tile that asked for one, and release the ones that stopped asking. A
+		// tile keeps asking for as long as it is watching, because the server's hold is bounded.
 		wanted := map[string]bool{}
-		for _, cam := range showing {
-			if cam == "" {
-				continue
+		for _, sel := range sels {
+			if sel.Hold && sel.Camera != "" {
+				wanted[sel.Camera] = true
 			}
-			if c, ok := store.Camera(cam); ok && c.Mode == "always" {
-				continue // already streaming for everyone; holding it would mean nothing
-			}
-			wanted[cam] = true
 		}
 		var take, drop []string
 		for cam := range wanted {
@@ -161,6 +159,10 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		for k, v := range showing {
 			snapshot[k] = v
 		}
+		kinds := make(map[int]string, len(content))
+		for k, v := range content {
+			kinds[k] = v
+		}
 		mu.Unlock()
 
 		for _, cam := range take {
@@ -169,7 +171,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		for _, cam := range drop {
 			go holdRequest(ctx, c.RTSPBase, http.MethodDelete, cam)
 		}
-		mgr.Update(ctx, plansFor(c, caps, tiles, snapshot))
+		mgr.Update(ctx, plansFor(c, caps, tiles, snapshot, kinds))
 	}
 
 	apply()
@@ -220,7 +222,7 @@ const holdRefreshInterval = 20 * time.Second
 
 // plansFor builds the pipelines for what each tile is currently showing. A tile showing nothing simply
 // has no plan, so a blank tile costs no process at all.
-func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showing map[int]string) []pipeline.Plan {
+func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showing, content map[int]string) []pipeline.Plan {
 	live := make([]layout.Placed, 0, len(tiles))
 	for _, t := range tiles {
 		if showing == nil {
@@ -235,6 +237,14 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 		t.URL = c.TileURL(config.Tile{Camera: cam})
 		if tc := c.TileFor(cam); tc != nil {
 			t.Codec = tc.Codec
+		}
+		if content[t.Index] == wallstate.ContentSnapshot {
+			// Not streaming yet: put the retained still up rather than pointing a decoder at a camera
+			// that is asleep, which shows one frozen frame at best.
+			t.StillURL = wsclient.StillURL(c.RTSPBase, cam)
+			if t.StillURL == "" {
+				continue
+			}
 		}
 		live = append(live, t)
 	}

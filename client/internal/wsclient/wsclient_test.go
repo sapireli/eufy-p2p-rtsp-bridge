@@ -104,3 +104,12 @@ func TestMalformedMessageDoesNotDropTheConnection(t *testing.T) {
 		t.Fatal("a malformed message should be skipped, not kill the connection")
 	}
 }
+
+func TestStillURL(t *testing.T) {
+	if got := StillURL("rtsp://192.168.1.50:8554", "T8210N1"); got != "http://192.168.1.50:3000/snapshot/T8210N1" {
+		t.Errorf("got %q", got)
+	}
+	if got := StillURL("", "X"); got != "" {
+		t.Errorf("no bridge configured should yield no URL, got %q", got)
+	}
+}

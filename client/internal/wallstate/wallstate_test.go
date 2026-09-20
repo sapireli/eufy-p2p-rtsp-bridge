@@ -58,8 +58,8 @@ func TestMotionTileFollowsWhateverMovedLast(t *testing.T) {
 	if sel[0].Camera != "YARD" {
 		t.Fatalf("tile should follow the camera that moved, got %q", sel[0].Camera)
 	}
-	if !sel[0].NeedsHold {
-		t.Error("YARD is not live, so the tile must ask for a hold or it would show nothing")
+	if !sel[0].Hold {
+		t.Error("YARD is a battery camera, so the tile must ask for a hold or it would show nothing")
 	}
 
 	off = 5 * time.Second
@@ -147,7 +147,7 @@ func TestAWiredCameraCanTakeTheMotionTileWithoutAHold(t *testing.T) {
 	if sel[0].Camera != "GAR" {
 		t.Fatalf("got %q", sel[0].Camera)
 	}
-	if sel[0].NeedsHold {
+	if sel[0].Hold {
 		t.Error("an always-on camera is already streaming; asking for a hold would be pointless")
 	}
 }
@@ -166,6 +166,10 @@ func TestFixedTileShowsAStillWhileItsBatteryCameraSleeps(t *testing.T) {
 	}
 	if sel[1].Camera != "GAR" || sel[1].Content != ContentLive {
 		t.Errorf("an always-on camera always shows live: %q/%q", sel[1].Camera, sel[1].Content)
+	}
+
+	if sel[0].Hold {
+		t.Error("a fixed tile must not hold a battery camera awake for as long as the wall is powered on")
 	}
 
 	s.Apply(Message{Type: "streamState", SN: "YARD", State: "live"})
@@ -202,8 +206,12 @@ func TestMotionShowsTheStillThenTheStreamReplacesIt(t *testing.T) {
 	}
 
 	s.Apply(Message{Type: "streamState", SN: "YARD", State: "live"})
-	if got := s.Resolve(tile, map[int]string{0: "YARD"}, nil)[0]; got.Content != ContentLive {
+	got := s.Resolve(tile, map[int]string{0: "YARD"}, nil)[0]
+	if got.Content != ContentLive {
 		t.Errorf("frames are flowing, the stream should replace the still, got %q", got.Content)
+	}
+	if !got.Hold {
+		t.Error("the tile must keep asking while it watches, or the bounded hold lapses mid-view")
 	}
 
 	off = 121 * time.Second

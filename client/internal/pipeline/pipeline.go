@@ -99,6 +99,9 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		return nil, fmt.Errorf("pipeline: unknown decoder %q", caps.Decoder)
 	}
 	for _, t := range tiles {
+		if t.StillURL != "" {
+			continue // a JPEG needs no video decoder
+		}
 		if _, ok := family[codecOf(t)]; !ok {
 			return nil, fmt.Errorf("pipeline: decoder %q cannot decode %s (tile %s)", caps.Decoder, codecOf(t), t.Camera)
 		}
@@ -118,6 +121,16 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 	}
 	args := []string{"-e"}
 	src := func(i int, t layout.Placed) []string {
+		if t.StillURL != "" {
+			// One JPEG held on screen as a video stream. `imagefreeze` repeats the single frame forever, so
+			// this costs nothing once it has decoded. If the bridge has no thumbnail yet the request 404s
+			// and the process exits; the supervisor's backoff retries it, which is also how the tile picks
+			// up a newer still after the next event.
+			return []string{
+				"souphttpsrc", "location=" + t.StillURL, "is-live=false", fmt.Sprintf("name=src%d", i),
+				"!", "jpegdec", "!", "imagefreeze", "!", "videoconvert",
+			}
+		}
 		codec := codecOf(t)
 		dp := depayParse[codec]
 		return []string{

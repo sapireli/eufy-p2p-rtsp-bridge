@@ -197,3 +197,35 @@ func TestPlanesNeedAPlanePerTile(t *testing.T) {
 		t.Errorf("the error should point at planes: %v", err)
 	}
 }
+
+// A tile showing a still must not touch RTSP at all: pointing a decoder at a sleeping camera is what
+// leaves a tile frozen on one frame.
+func TestStillTileRendersTheJPEGAndNeverOpensTheStream(t *testing.T) {
+	c := &config.Config{Latency: 100, Planes: []int{34, 41}}
+	tiles := []layout.Placed{{Index: 0, Camera: "YARD", StillURL: "http://b:3000/snapshot/YARD", W: 960, H: 540}}
+	args, err := Build(c, tiles, Caps{Decoder: "v4l2", Sink: "planes", Screen: config.Screen{Width: 1920, Height: 1080}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	for _, want := range []string{"souphttpsrc", "location=http://b:3000/snapshot/YARD", "jpegdec", "imagefreeze", "kmssink"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in: %s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"rtspsrc", "v4l2h264dec"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("a still must not use %q: %s", unwanted, got)
+		}
+	}
+}
+
+// H.265 on a decoder family that cannot handle it is an error for a live tile — but a still is a JPEG,
+// so the same tile showing its thumbnail must still build.
+func TestStillTileNeedsNoDecoderSupport(t *testing.T) {
+	c := &config.Config{Latency: 100}
+	tiles := []layout.Placed{{Index: 0, Camera: "A", Codec: "h265", StillURL: "http://b:3000/snapshot/A", W: 640, H: 480}}
+	if _, err := Build(c, tiles, Caps{Decoder: "v4l2", Sink: "window", Screen: config.Screen{Width: 1920, Height: 1080}}); err != nil {
+		t.Fatalf("a JPEG needs no video decoder: %v", err)
+	}
+}

@@ -8,10 +8,13 @@ import (
 )
 
 type Placed struct {
-	Index      int
-	Camera     string
-	Codec      string // h264 | h265 — which decoder this tile needs
-	URL        string
+	Index  int
+	Camera string
+	Codec  string // h264 | h265 — which decoder this tile needs
+	URL    string
+	// StillURL, when set, is an HTTP JPEG to display instead of URL — the camera's last retained
+	// thumbnail, shown while it is asleep or waking. It needs no decoder and wakes nothing.
+	StillURL   string
 	Col, Row   int
 	Cols, Rows int
 	X, Y, W, H int

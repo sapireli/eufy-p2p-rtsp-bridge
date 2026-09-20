@@ -43,6 +43,16 @@ func EventURL(rtspBase string) string {
 	return "ws://" + host + ":3000/ws"
 }
 
+// StillURL is where the bridge serves a camera's last retained thumbnail. Derived from the same
+// rtsp_base for the same reason as EventURL: one address to configure, not three.
+func StillURL(rtspBase, sn string) string {
+	u := EventURL(rtspBase)
+	if u == "" {
+		return ""
+	}
+	return strings.Replace(strings.Replace(u, "ws://", "http://", 1), "/ws", "/snapshot/"+sn, 1)
+}
+
 // Run follows the channel until ctx is cancelled, applying every message to `store` and calling
 // `changed` whenever a tile could care. Both are invoked on Run's own goroutine, so the caller does not
 // have to lock the store.
