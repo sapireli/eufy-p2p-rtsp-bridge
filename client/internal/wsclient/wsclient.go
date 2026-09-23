@@ -54,8 +54,7 @@ func StillURL(rtspBase, sn string) string {
 }
 
 // Run follows the channel until ctx is cancelled, applying every message to `store` and calling
-// `changed` whenever a tile could care. Both are invoked on Run's own goroutine, so the caller does not
-// have to lock the store.
+// `changed` whenever a tile could care. Store synchronizes updates with concurrent renderer reads.
 func Run(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), log func(string)) {
 	backoff := minBackoff
 	for ctx.Err() == nil {
