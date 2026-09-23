@@ -30,6 +30,21 @@ test("exports used by the bridge exist", () => {
   assert.ok(sdk.LoginStatus.Ok && sdk.LoginStatus.Captcha && sdk.LoginStatus.TwoFactor);
 });
 
+test("camera exposes the SDK power tier used by media", () => {
+  const dev = sdk.Device.fromRecord("T8000P0000000000", {
+    model: "T8214",
+    deviceType: 16,
+    params: { 1101: "42", 2111: "1" },
+  });
+  dev.bindActions(
+    { channel: 0, codec: "camera", model: "T8214", paramIds: new Set([1101, 2111]), capabilities: new Set(dev.capabilities) },
+    { dispatch: async () => {} },
+  );
+  assert.equal(dev.camera()?.powerTier(), "wired");
+  dev.applyParams({ 2111: "4" });
+  assert.equal(dev.camera()?.powerTier(), "battery");
+});
+
 test("EufyMega instance methods used by the bridge", () => {
   const eufy = new sdk.EufyMega({ email: "x@y.z", password: "p", countryCode: "US", autoRealtime: false });
   for (const m of ["login", "solveCaptcha", "submitVerifyCode", "getDevices", "getDevice", "setProperty", "getP2pSessions", "disconnect", "setPollInterval", "on"])
@@ -57,4 +72,3 @@ test("P2PSession exposes connectAddress and close (used by lan-guard)", () => {
   assert.match(src, /this\.connectAddress = /, "connectAddress field assigned on connect");
   assert.match(src, /async close\(\)/, "close() method");
 });
-

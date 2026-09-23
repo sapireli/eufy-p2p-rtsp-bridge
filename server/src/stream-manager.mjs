@@ -164,7 +164,7 @@ export function createStreamManager(ctx) {
       slot.client = client;
       ctx.attachLanGuard?.(client, sn);
       const cam = ctx.getCamera?.(sn);
-      const feed = await ctx.sdk.openFeed(client, sn, { powered: cam?.powered, standalone: cam?.standalone });
+      const feed = await ctx.sdk.openFeed(client, sn, { standalone: cam?.standalone });
       slot.feed = feed;
       slot.startedAt = Date.now();
       feed.on("data", (chunk) => onChunk(slot, chunk));

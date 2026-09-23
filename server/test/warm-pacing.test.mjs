@@ -35,11 +35,11 @@ test("a standalone camera is warmed more gently than one behind a HomeBase", asy
   const { sdk } = sdkWith({ warmTimeoutMs: 45_000, warmRetryMs: 2000, standaloneWarmRetryMs: 8000 });
   const client = fakeClient(seen);
 
-  await sdk.openFeed(client, "STA", { powered: true, standalone: true });
-  await sdk.openFeed(client, "ATT", { powered: true, standalone: false });
+  await sdk.openFeed(client, "STA", { standalone: true });
+  await sdk.openFeed(client, "ATT", { standalone: false });
 
   assert.equal(seen[0].warmRetryMs, 8000, "standalone: ask rarely, it has few session slots to spend");
   assert.equal(seen[1].warmRetryMs, 2000, "attached: a HomeBase has sessions to spare");
   assert.equal(seen[0].warmTimeoutMs, 45_000, "the deadline is unchanged — only how often we re-ask");
-  assert.equal(seen[0].powered, "wired", "the powered hint still rides along");
+  assert.equal("powered" in seen[0], false, "the SDK chooses the live power tier");
 });

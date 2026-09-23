@@ -1,5 +1,4 @@
 // Camera registry: SDK device list ∩ config → the set of cameras this bridge serves, plus the /api shape.
-// Phase 1 rule: wired cameras are in unless `enabled: false`; battery cameras are out unless `enabled: true`.
 
 import { streamKeys } from "./go2rtc.mjs";
 
@@ -17,26 +16,6 @@ export const DUAL_MODELS = {
 /** Config names → wire `video_type` values (bropat DualCamWatchViewMode states). */
 export const DUAL_VIEW_VALUES = { "pip-tl": 2, "pip-tr": 3, "pip-bl": 4, "pip-br": 5, split: 12, single: 0 };
 
-/**
- * Camera models the SDK tags with a `battery` capability although they are mains-powered (mirrors the
- * SDK's own MAINS_CAMERA_MODELS plus the Floodlight Cam 2 Pro, which reports no battery params at all).
- */
-export const MAINS_MODELS = ["T8425", "T8419", "T8423"];
-
-/**
- * Is this camera safe to stream 24/7? Evidence beats the capability flag: no `battery` capability, a
- * known mains model, no reported battery level, or a battery that is currently charging (hardwired
- * doorbell) all mean "powered". `cameras.<sn>.enabled` in config still overrides the answer.
- */
-export function isPowered(m) {
-  if (!m.battery) return true;
-  const model = String(m.model ?? "").toUpperCase();
-  if (MAINS_MODELS.some((p) => model.startsWith(p))) return true;
-  if (m.batteryLevel == null) return true;
-  if (m.charging === true) return true;
-  return false;
-}
-
 export function createCameras(ctx) {
   let cache = [];
 
@@ -53,7 +32,7 @@ export function createCameras(ctx) {
       }
       if (!m.isCamera) continue;
       const c = ctx.cfg.cameras[m.sn] ?? {};
-      const powered = isPowered(m);
+      const powered = m.powerTier === "wired";
       // A battery camera is enabled now, but it does not stream continuously: its mode decides when.
       // Phase 1 skipped them outright because always-on is the only thing it could do with one.
       const enabled = c.enabled ?? true;

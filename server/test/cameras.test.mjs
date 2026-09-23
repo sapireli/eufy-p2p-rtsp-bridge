@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createCameras, DUAL_MODELS, isPowered } from "../src/cameras.mjs";
+import { createCameras, DUAL_MODELS } from "../src/cameras.mjs";
 import { createState } from "../src/state.mjs";
 
 function ctxWith(devices, cfgCams = {}, defaults = { quality: "Full HD (1080P)", dualView: "split", holdSeconds: 60 }) {
@@ -14,9 +14,9 @@ function ctxWith(devices, cfgCams = {}, defaults = { quality: "Full HD (1080P)",
   };
 }
 
-const wired = { sn: "T8410A", name: "Garage", model: "T8410", modelName: "Indoor Cam", isCamera: true, battery: false };
-const batt = { sn: "T8113B", name: "Yard", model: "T8113", modelName: "eufyCam 2C", isCamera: true, battery: true, batteryLevel: 40, charging: false };
-const door = { sn: "T8214C", name: "Door", model: "T8214", modelName: "Doorbell E340", isCamera: true, battery: false };
+const wired = { sn: "T8410A", name: "Garage", model: "T8410", modelName: "Indoor Cam", isCamera: true, battery: false, powerTier: "wired" };
+const batt = { sn: "T8113B", name: "Yard", model: "T8113", modelName: "eufyCam 2C", isCamera: true, battery: true, powerTier: "battery" };
+const door = { sn: "T8214C", name: "Door", model: "T8214", modelName: "Doorbell E340", isCamera: true, battery: true, powerTier: "wired" };
 const hub = { sn: "T8010D", name: "HomeBase", model: "T8010", modelName: "HomeBase 2", isCamera: false, battery: false };
 
 // Every camera is enabled; the power source decides HOW it streams, not WHETHER it appears. Non-cameras
@@ -126,12 +126,9 @@ test("battery camera with explicit enabled: false does not log exclusion", async
   }
 });
 
-test("isPowered: evidence beats the battery capability flag", () => {
-  const base = { battery: true, model: "T8113", batteryLevel: 40, charging: false };
-  assert.equal(isPowered(base), false, "real battery camera");
-  assert.equal(isPowered({ ...base, battery: false }), true, "no battery capability");
-  assert.equal(isPowered({ ...base, model: "T8425" }), true, "Floodlight E340 is mains despite reporting a level");
-  assert.equal(isPowered({ ...base, model: "T8423", batteryLevel: undefined }), true, "Floodlight 2 Pro reports no level");
-  assert.equal(isPowered({ ...base, model: "T8214", charging: true }), true, "hardwired doorbell is charging");
-  assert.equal(isPowered({ ...base, model: "T8214", charging: false }), false, "battery doorbell not charging");
+test("camera mode follows the SDK power tier even when a battery capability is present", async () => {
+  const c = createCameras(ctxWith([door, batt]));
+  await c.refreshCameras();
+  assert.equal(c.getCamera(door.sn).mode, "always");
+  assert.equal(c.getCamera(batt.sn).mode, "on_motion");
 });
