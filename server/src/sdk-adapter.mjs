@@ -60,18 +60,10 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     async closeStreamClients() { /* single client is owned by createSdk; disconnected on shutdown elsewhere */ },
 
     /** Open the raw Annex-B Readable for a camera on the given client. */
-    async openFeed(client, sn, { standalone } = {}) {
+    async openFeed(client, sn) {
       const cam = (await client.getDevice(sn)).camera?.();
       if (!cam?.openReadable) throw new Error(`${sn}: no live video (not a camera or openReadable unavailable)`);
-      // warmTimeoutMs: see cfg.stall.warmTimeoutMs — the app waits out long dead spots rather than rebuilding.
-      // warmRetryMs is deliberately slower for a standalone camera: it has far fewer session slots than a
-      // HomeBase, and re-issuing the start every 2s for the whole deadline exhausts it rather than waking
-      // it — one here stayed frozen until every client stopped asking.
-      const opts = {
-        warmTimeoutMs: cfg.stall.warmTimeoutMs,
-        warmRetryMs: standalone ? cfg.stall.standaloneWarmRetryMs : cfg.stall.warmRetryMs,
-      };
-      return cam.openReadable(opts);
+      return cam.openReadable();
     },
 
     /**

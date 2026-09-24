@@ -163,8 +163,7 @@ export function createStreamManager(ctx) {
       const client = await ctx.sdk.streamClientFor(sn, stationSn);
       slot.client = client;
       ctx.attachLanGuard?.(client, sn);
-      const cam = ctx.getCamera?.(sn);
-      const feed = await ctx.sdk.openFeed(client, sn, { standalone: cam?.standalone });
+      const feed = await ctx.sdk.openFeed(client, sn);
       if (await ctx.checkMediaSessions?.(client, stationSn ?? sn, sn) === "blocked") {
         feed.destroy();
         throw new Error("media session peer is outside the configured LAN");

@@ -12,34 +12,6 @@ import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
  * go2rtc kills the producer on its exec timeout, which takes the RTSP stream down mid-view. Where hardware
  * accel is unavailable, pass the bitstream through with copy instead.
  */
-/**
- * A go2rtc source that tells ffmpeg the codec instead of letting it probe for one.
- *
- * Probing consumes a fixed amount of DATA, not time, and `-fflags nobuffer` — which is what keeps latency
- * down — shrinks the buffer it probes from. So the time to identify a stream scales with how FEW bytes
- * per second it sends: measured on this fleet, a 1280x720 HEVC camera at ~29 KiB/s never finished probing
- * before go2rtc's exec timeout killed the producer, while a 1920x2160 camera at ~210 KiB/s probed in about
- * two seconds. Naming the format skips that entirely, for every camera rather than only the slow one.
- *
- * Only used where we are passing the bitstream through; a transcode goes back to go2rtc's own `ffmpeg:`
- * source, whose templates pick the hardware encoder per platform better than a hand-written command could.
- * Returns "" when the codec is not known yet — the first open of a new camera still probes, and
- * {@link createGo2rtc} rewrites the config once its feed reports one.
- */
-export function execSourceFor(url, codec, suffix) {
-  const fmt = codec === "h265" ? "hevc" : codec === "h264" ? "h264" : undefined;
-  if (!fmt || suffix !== "#video=copy") return "";
-  // -use_wallclock_as_timestamps: a raw elementary stream carries NO timestamps, so ffmpeg invents them
-  // from an assumed 25 fps. Measured through go2rtc without this: a 15 fps camera republished at 0.4x
-  // real time (falling behind forever), and a 25 fps one crammed 48 frames into 40 ms of presentation
-  // time — which is precisely what a player shows as a frozen frame. Stamping by ARRIVAL is correct for
-  // a live feed and needs no per-camera frame rate.
-  return (
-    `exec:ffmpeg -hide_banner -v error -f ${fmt} -use_wallclock_as_timestamps 1 -fflags nobuffer -flags low_delay ` +
-    `-i ${url} -c:v copy -an -user_agent ffmpeg/go2rtc -rtsp_transport tcp -f rtsp {output}`
-  );
-}
-
 export function egressFor(codec, mode) {
   if (mode === "never") return "#video=copy";
   if (mode === "always") return "#video=h264#hardware";
@@ -133,11 +105,9 @@ export function createGo2rtc(ctx) {
     const plan = egressPlan();
     let text = hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8"));
     for (const [sn, suffix] of Object.entries(plan)) {
-      const url = `http://127.0.0.1:${cfg.port}/stream/${sn}`;
-      const exec = execSourceFor(url, codecOf(sn), suffix);
-      text = exec
-        ? text.replace(`ffmpeg:${url}#video=copy`, exec)
-        : text.replace(`/stream/${sn}#video=copy`, `/stream/${sn}${suffix}`);
+      const url = `http://${cfg.selfHost}:${cfg.port}/stream/${sn}`;
+      const source = suffix === "#video=copy" ? url : `ffmpeg:${url}${suffix}`;
+      text = text.replace(`ffmpeg:${url}#video=copy`, source);
     }
     text = withNamedStreams(text, ctx.listCameras().filter((c) => c.enabled));
     await writeFile(cfg.go2rtcConfig, text, "utf8");

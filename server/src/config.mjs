@@ -46,9 +46,8 @@ function cameraEntry(sn, raw) {
     out.holdSeconds = n;
   }
   if (raw.codec != null) {
-    // Declaring the codec means go2rtc never has to probe for it, not even on a cold start — see
-    // execSourceFor() in go2rtc.mjs for why probing is slow for low-bitrate cameras. A camera's feed
-    // still corrects this if the device disagrees.
+    // A declared codec lets automatic transcoding choose its egress before the first frame arrives.
+    // The live feed still corrects the declaration if the device reports a different codec.
     const codec = String(raw.codec).toLowerCase();
     if (!CAMERA_CODECS.has(codec)) throw new Error(`cameras.${sn}.codec must be one of ${[...CAMERA_CODECS].join(", ")}`);
     out.codec = codec;
@@ -131,21 +130,8 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
       // on every camera flap would keep killing the connection all cameras share. Reserve teardown for a
       // control session that looks truly dead (many failures in a row).
       recreateClientAfter: Number(raw.stall?.recreate_client_after ?? 8),
-      // The socket-sweep connect is reliable (it retries dropped probes continuously), so a reopen means
-      // a real session drop, not a flaky connect — recover fast rather than backing off to a full minute.
+      // A failed open retries promptly; longer waits leave a feed unavailable even after its path recovers.
       backoffMs: raw.stall?.backoff_ms ?? [1000, 2000, 4000, 8000],
-      // How long the SDK waits for a stream to produce its first frame/keyframe before failing the open.
-      // The eufy app rides out multi-second dead spots on the SAME session (packet capture: an 11s gap with
-      // nothing but ACKs, then video resumed — no reconnect, no restart command). The SDK's 20s default was
-      // tearing our feed down mid-recovery, and each rebuild can bring the camera back at a different
-      // resolution, which breaks an already-negotiated RTSP session. Be patient like the app instead.
-      warmTimeoutMs: Number(raw.stall?.warm_timeout_ms ?? 45_000),
-      // How often an unanswered start is re-issued while warming. The SDK's 2s is fine for a HomeBase,
-      // which has sessions to spare. A STANDALONE camera does not: re-asking 21 times inside the warm
-      // deadline exhausts it, and one observed here froze until every client backed off. A camera that
-      // has not answered in two seconds will not answer sooner because we asked again.
-      warmRetryMs: Number(raw.stall?.warm_retry_ms ?? 2000),
-      standaloneWarmRetryMs: Number(raw.stall?.standalone_warm_retry_ms ?? 8000),
     },
   };
   if (!cfg.email || !cfg.password) throw new Error("eufy email/password are required (config.yaml eufy.* or EUFY_EMAIL/EUFY_PASSWORD)");

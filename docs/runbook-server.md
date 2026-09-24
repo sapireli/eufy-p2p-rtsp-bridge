@@ -6,9 +6,8 @@
     sudo nano /etc/eufy-wall-bridge.env      # EUFY_EMAIL / EUFY_PASSWORD / EUFY_COUNTRY (dedicated account!)
     sudo nano /etc/eufy-wall-bridge.yaml     # lan.cidr, cameras, defaults
     sudo systemctl start eufy-wall-bridge && journalctl -fu eufy-wall-bridge
-The install script apt-installs Node 24 (NodeSource), rsync and **ffmpeg** — go2rtc's generated
-`ffmpeg:http://…/stream/<sn>#video=copy` sources spawn the `ffmpeg` binary to remux (no transcode), so
-RTSP is silent without it (`which ffmpeg` on the server if `ffplay` gets nothing).
+The install script apt-installs Node 24 (NodeSource), rsync and **ffmpeg**. Copy-mode streams use
+go2rtc's raw HTTP source; FFmpeg is used when `go2rtc.transcode` selects a hardware transcode.
 
 ## First-run login (2FA / captcha)
     curl -s localhost:3000/auth/status
