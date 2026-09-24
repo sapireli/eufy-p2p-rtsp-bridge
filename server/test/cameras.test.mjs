@@ -55,7 +55,7 @@ test("apiShape merges stream status and rtsp url", async () => {
   await c.refreshCameras();
   const s = c.apiShape(c.getCamera("T8410A"), "192.168.1.10");
   assert.deepEqual(s, {
-    sn: "T8410A", name: "Garage", model: "T8410", modelName: "Indoor Cam", enabled: true, powered: true,
+    sn: "T8410A", name: "Garage", model: "T8410", modelName: "Indoor Cam", enabled: true, powered: true, powerOverride: "auto",
     mode: "always", holdSeconds: 60, held: false, streamKey: "garage",
     dual: false, dualView: null, quality: "Full HD (1080P)", codec: "h264", width: 1920, height: 1080,
     streaming: true, stalls: 2, blocked: "wan-path 203.0.113.9", rtsp: "rtsp://192.168.1.10:8554/garage",
@@ -98,18 +98,9 @@ test("a wired camera defaults to always-on, and mode can be overridden per camer
   assert.equal(c.getCamera("T8113B").holdSeconds, 15);
 });
 
-// Asking for always-on on a battery camera is legal but self-defeating, so it is called out.
-test("battery camera forced to always warns that it will flatten", async () => {
-  const warns = [];
-  const origWarn = console.warn;
-  console.warn = (...args) => warns.push(args.join(" "));
-  try {
-    const c = createCameras(ctxWith([batt], { T8113B: { mode: "always" } }));
-    await c.refreshCameras();
-    assert.equal(warns.some((l) => l.includes("T8113B") && l.includes("flatten")), true);
-  } finally {
-    console.warn = origWarn;
-  }
+test("battery-budgeted camera cannot be continuously reopened after every SDK budget stop", async () => {
+  const c = createCameras(ctxWith([batt], { T8113B: { mode: "always" } }));
+  await assert.rejects(c.refreshCameras(), /power_override: always-on/);
 });
 
 test("battery camera with explicit enabled: false does not log exclusion", async () => {
@@ -131,4 +122,12 @@ test("camera mode follows the SDK power tier even when a battery capability is p
   await c.refreshCameras();
   assert.equal(c.getCamera(door.sn).mode, "always");
   assert.equal(c.getCamera(batt.sn).mode, "on_motion");
+});
+
+test("an explicit local power claim sets the default stream mode and API policy", async () => {
+  const camera = { ...batt, powerTier: "wired", powerOverride: "always-on" };
+  const c = createCameras(ctxWith([camera]));
+  await c.refreshCameras();
+  assert.equal(c.getCamera(camera.sn).mode, "always");
+  assert.equal(c.apiShape(c.getCamera(camera.sn), "192.0.2.1").powerOverride, "always-on");
 });

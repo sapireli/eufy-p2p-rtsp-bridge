@@ -1,8 +1,6 @@
-// Force-LAN: the SDK always races a LAN lookup against the PPCS cloud lookup and keeps whichever peer
-// answers first. We can't stop the race (no local-only option in 0.1.1 — upstream PR pending), so we
-// inspect the winner on every p2pConnect and refuse a WAN/relay peer: close the session, mark the camera
-// blocked (visible in /healthz + /api/cameras), and let the stream manager's backoff try again — the
-// station usually answers locally on the next attempt.
+// The SDK's lanOnly option rejects non-private peers when a station is pinned to LAN. This guard also
+// checks the configured CIDR on connected control and media sessions, closing an out-of-range peer and
+// marking the camera blocked until the stream manager can retry it.
 
 export function inCidr(ip, cidr) {
   const [net, bitsStr] = cidr.split("/");
@@ -21,6 +19,7 @@ export function inCidr(ip, cidr) {
 export function createLanGuard(ctx) {
   const { cfg, state } = ctx;
   const attached = new WeakSet();
+  const watchedMedia = new WeakSet();
   const seen = new Set(); // label:station:host already announced
 
   /** Decide for one connected session. Returns "ok" | "blocked" | "unknown". */
@@ -60,6 +59,46 @@ export function createLanGuard(ctx) {
     }
   }
 
+  /** Check the station's control and per-camera media sessions, which do not emit p2pConnect. */
+  async function checkMediaSessions(client, stationSn, label) {
+    try {
+      if (!cfg.lan.cidr) return "ok";
+      const sessions = client.getP2pSessions?.();
+      let observed = false;
+      let outside = false;
+      for (const [key, session] of sessions ?? []) {
+        if (key !== stationSn && !String(key).startsWith(`${stationSn}#live:`)) continue;
+        const host = ctx.sdk.sessionPeerHost(client, key);
+        if (!host) {
+          if (session && typeof session.once === "function" && !watchedMedia.has(session)) {
+            watchedMedia.add(session);
+            session.once("connect", () => void checkMediaSessions(client, stationSn, label));
+          }
+          continue;
+        }
+        observed = true;
+        if (inCidr(host, cfg.lan.cidr)) continue;
+        outside = true;
+        if (!(ctx.lanUpgrade?.isForced?.(stationSn) ?? cfg.lan.force)) continue;
+        state.blocked.set(label, `wan-path ${host}`);
+        console.error(`[bridge] ${label}: P2P media peer ${host} is outside ${cfg.lan.cidr} — closing ${key}`);
+        try {
+          await ctx.sdk.closeSession(client, key);
+        } catch (e) {
+          console.error(`[bridge] ${label}: close after media WAN detect failed: ${e?.message ?? e}`);
+        }
+        return "blocked";
+      }
+      if (!observed) return "unknown";
+      if (state.blocked.delete(label)) console.log(`[bridge] ${label}: LAN media path restored — unblocked`);
+      ctx.lanUpgrade?.onPeer?.(stationSn, outside ? "wan" : "lan");
+      return "ok";
+    } catch (e) {
+      console.error(`[bridge] ${label}: media LAN check failed: ${e?.message ?? e}`);
+      return "unknown";
+    }
+  }
+
   /**
    * Subscribe once per EufyMega client (the control client and each per-camera stream client), and
    * judge any session that connected before we were listening (pins can open it before the stream).
@@ -69,14 +108,18 @@ export function createLanGuard(ctx) {
     attached.add(client);
     client.on("p2pConnect", (stationSn) => void checkSession(client, stationSn, label));
     const existing = typeof client.getP2pSessions === "function" ? client.getP2pSessions() : undefined;
-    for (const stationSn of existing?.keys?.() ?? []) {
+    for (const key of existing?.keys?.() ?? []) {
+      if (String(key).includes("#live:")) {
+        void checkMediaSessions(client, String(key).split("#live:")[0], label);
+        continue;
+      }
       // A session still mid-handshake has no peer yet; its own p2pConnect will bring it here.
-      if (ctx.sdk.sessionConnecting?.(client, stationSn)) continue;
-      void checkSession(client, stationSn, label);
+      if (ctx.sdk.sessionConnecting?.(client, key)) continue;
+      void checkSession(client, key, label);
     }
   }
 
   const isBlocked = (sn) => state.blocked.has(sn);
 
-  return { attachLanGuard, checkSession, isBlocked };
+  return { attachLanGuard, checkSession, checkMediaSessions, isBlocked };
 }

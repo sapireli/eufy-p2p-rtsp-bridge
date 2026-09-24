@@ -27,14 +27,20 @@ Opening the eufy phone app with the SAME account kicks the bridge (state "reauth
     ffplay rtsp://<server>:8554/<sn>             # from any machine on the LAN
 
 ## Camera settings the wall depends on
-- Streaming quality: 1080p or 720p ⇒ H.264. 2K/Max ⇒ H.265 (Pi cannot decode). The SDK 0.1.1 cannot
-  write this setting; set it in the eufy app (camera → Settings → Video → Streaming quality). The bridge
-  logs `stream is H265` if a camera is wrong; /api/cameras shows `codec`.
-- Dual-lens (E340 doorbell/floodlight, S340): the bridge sends view mode `dual_view` (default split=12)
-  on boot and after reconnects.
+- Streaming quality: set the device's quality in the eufy app when needed. The bridge reports the live
+  `codec` in `/api/cameras`; a wall tile must declare `codec: h265` if that stream is HEVC.
+- Dual-lens (E340 doorbell/floodlight, S340): the bridge sends `dual_view` only when configured for that
+  camera or under `defaults`. It does not change a device setting on an unset value.
+- A battery device reports charging without proving that its external input can support continuous video.
+  The SDK keeps its battery budget by default. For a camera whose installation supports a persistent
+  stream, set `cameras.<sn>.power_override: always-on` in the bridge YAML. This records a local SDK claim,
+  sends no command to the camera, and makes `always` the default mode. `mode: always` on a battery-budgeted
+  camera requires that claim; the bridge refuses the conflicting configuration. `/api/cameras` reports
+  `powerOverride`, `powered`, and `mode` so the decision is visible.
 
 ## Force-LAN
-`lan.force: true` closes any P2P session whose peer is outside `lan.cidr` and marks the camera
+`lan.force: true` asks the SDK to reject non-private IPv4 peers before connecting. The bridge closes any
+connected control or media session whose peer is outside `lan.cidr` and marks the camera
 `blocked: wan-path <ip>` in /healthz and /api/cameras (HTTP 423 on /stream). The stream manager retries
 with backoff. Verify with: `sudo tcpdump -ni <iface> udp and not net <lan.cidr>` — no sustained traffic.
 If a station keeps connecting via WAN, add its LAN IP under `lan.station_addresses`.
@@ -55,8 +61,8 @@ Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session 
 - Cloud poll silent ≥ 30 min or push down ≥ 15 min → re-login in place, else exit(1).
 
 ## Upgrading
-- SDK: bump `@mega-yfue/eufy-sdk` in server/package.json (exact version), `npm test` (contract test
-  fails loudly on removed APIs), rerun install script.
+- SDK: update the `eufy-wall` Git dependency in `server/package-lock.json`, run `npm ci && npm test`
+  (the contract test checks the installed SDK surface), then rerun the install script.
 - Vendored ha-eufy-sdk-bridge modules: `server/scripts/sync-upstream.sh` shows diffs; `--apply` copies;
   update the SHA in server/src/vendor/ha-bridge/VENDOR.md.
 

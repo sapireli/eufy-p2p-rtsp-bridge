@@ -22,6 +22,7 @@ const DUAL_VIEWS = new Set(["split", "pip-tl", "pip-tr", "pip-bl", "pip-br", "si
  *  on_demand — only while something is actually watching it
  */
 const CAMERA_MODES = new Set(["always", "on_motion", "on_demand"]);
+const POWER_OVERRIDES = new Set(["auto", "always-on", "battery"]);
 
 /** Codecs a camera can be declared as; anything else is a typo we should not silently accept. */
 export const CAMERA_CODECS = new Set(["h264", "h265"]);
@@ -33,6 +34,11 @@ function cameraEntry(sn, raw) {
   if (raw.mode != null) {
     if (!CAMERA_MODES.has(raw.mode)) throw new Error(`cameras.${sn}.mode must be one of ${[...CAMERA_MODES].join(", ")}`);
     out.mode = raw.mode;
+  }
+  if (raw.power_override != null) {
+    if (!POWER_OVERRIDES.has(raw.power_override))
+      throw new Error(`cameras.${sn}.power_override must be one of ${[...POWER_OVERRIDES].join(", ")}`);
+    out.powerOverride = raw.power_override;
   }
   if (raw.hold_seconds != null) {
     const n = Number(raw.hold_seconds);

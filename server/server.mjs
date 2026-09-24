@@ -72,7 +72,7 @@ for (const event of cfg.defaults.motionEvents) {
 // p2pConnect) before the stream manager ever sees it.
 hooks.onStreamClient = (client, sn) => ctx.attachLanGuard(client, sn);
 // P2P-only enforcement lives in the SDK; it asks per session which stations are pinned right now.
-hooks.lanOnlyForStation = (stationSn) => ctx.lanUpgrade?.cidrFor?.(stationSn);
+hooks.lanOnlyForStation = (stationSn) => ctx.lanUpgrade?.isForced?.(stationSn);
 installRecoveryRepin(ctx); // pins re-applied after watchdog / kicked-session re-logins
 
 /** Runs once after the first successful login (re-auth calls it again and it returns immediately). */

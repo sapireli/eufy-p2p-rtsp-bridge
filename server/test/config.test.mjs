@@ -19,7 +19,7 @@ lan: { cidr: 10.0.0.0/8, force: true, station_addresses: { T8010X: 10.0.0.5 } }
 defaults: { quality: "Full HD (1080P)" }
 cameras:
   T8410X: { name: Garage }
-  T8214X: { dual_view: split }
+  T8214X: { dual_view: split, power_override: always-on }
   T8113X: { enabled: false }
 `);
   const { cfg } = loadConfig({ env: { EUFY_PASSWORD: "envpw" }, configPath: p });
@@ -37,7 +37,7 @@ cameras:
   // bridge is a SET_PAYLOAD to a possibly-live camera for a setting nobody asked us to change.
   assert.equal(cfg.defaults.dualView, null);
   assert.deepEqual(cfg.cameras.T8410X, { name: "Garage" });
-  assert.deepEqual(cfg.cameras.T8214X, { dualView: "split" });
+  assert.deepEqual(cfg.cameras.T8214X, { dualView: "split", powerOverride: "always-on" });
   assert.deepEqual(cfg.cameras.T8113X, { enabled: false });
   assert.deepEqual(cfg.stall, { stallMs: 30000, gapMs: 45000, exitAfterMs: 300000, recreateClientAfter: 8, backoffMs: [1000, 2000, 4000, 8000], warmTimeoutMs: 45000, warmRetryMs: 2000, standaloneWarmRetryMs: 8000 });
   assert.equal(cfg.go2rtcBin, "go2rtc");
@@ -85,4 +85,11 @@ test("dual view is only written when the operator asks for it", () => {
     /dual_view must be one of/,
     "a typo is still rejected rather than silently ignored",
   );
+});
+
+test("power override is an explicit SDK policy with validated values", () => {
+  const config = (value) => tmpYaml(`eufy: { email: a@b.c, password: p }\ncameras: { T8214X: { power_override: ${value} } }\n`);
+  for (const value of ["auto", "always-on", "battery"])
+    assert.equal(loadConfig({ env: {}, configPath: config(value) }).cfg.cameras.T8214X.powerOverride, value);
+  assert.throws(() => loadConfig({ env: {}, configPath: config("wired") }), /power_override must be one of/);
 });

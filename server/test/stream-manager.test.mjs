@@ -79,6 +79,21 @@ test("warm feed sniffs codec/geometry, primes late consumer with last keyframe, 
   }
 });
 
+test("a blocked media peer is closed before its feed is served", async () => {
+  const feed = new PassThrough();
+  const ctx = ctxWith({ feeds: [() => feed] });
+  ctx.checkMediaSessions = async () => "blocked";
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    assert.equal(feed.destroyed, true);
+    assert.equal(ctx.state.slots.get("A").feed, undefined);
+    assert.equal(ctx.opens(), 1);
+  } finally {
+    await sm.stopAll();
+  }
+});
+
 test("consumer under backpressure drops until next keyframe", async () => {
   const feed = new PassThrough();
   const ctx = ctxWith({ feeds: [() => feed] });

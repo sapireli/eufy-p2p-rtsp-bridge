@@ -40,11 +40,11 @@ export function createCameras(ctx) {
       const modelKey = String(m.model ?? "").slice(0, 5).toUpperCase();
       const isDual = modelKey in DUAL_MODELS;
       if (!powered && mode === "always")
-        console.warn(`[bridge] ${m.sn} (${m.name}) is battery-powered but mode=always — a continuous stream keeps it awake and will flatten it; use on_motion or on_demand`);
+        throw new Error(`cameras.${m.sn}.mode=always requires power_override: always-on for a battery-budgeted camera`);
       // Parent station (HomeBase) serial; equals the camera's own sn for a standalone camera. Used to
       // serialise per-HomeBase P2P session opens (so their level-2 E2E keys don't race) and to decide
       // which cameras need the local-port sweep (HomeBase-attached only).
-      const stationSn = d.stationSn ?? d.raw?.station_sn ?? m.sn;
+      const stationSn = d.raw?.parent_sn || d.stationSn || d.raw?.station_sn || m.sn;
       out.push({
         sn: m.sn,
         name: c.name ?? m.name,
@@ -54,6 +54,7 @@ export function createCameras(ctx) {
         standalone: stationSn === m.sn,
         battery: m.battery,
         powered,
+        powerOverride: m.powerOverride ?? "auto",
         enabled,
         mode,
         holdSeconds: c.holdSeconds ?? ctx.cfg.defaults.holdSeconds,
@@ -94,6 +95,7 @@ export function createCameras(ctx) {
       holdSeconds: cam.holdSeconds,
       held: ctx.holds?.isHeld?.(cam.sn) ?? false,
       powered: cam.powered,
+      powerOverride: cam.powerOverride,
       dual: cam.isDual,
       dualView: cam.dualView,
       quality: cam.quality,

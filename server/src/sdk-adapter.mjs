@@ -1,6 +1,6 @@
 // The ONLY non-vendored file that imports @mega-yfue/eufy-sdk. Everything the bridge needs from the SDK
 // is re-exposed here with stable names, so an SDK API change is a one-file edit (+ the contract test).
-import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry } from "@mega-yfue/eufy-sdk";
+import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry, cameraPowerTier } from "@mega-yfue/eufy-sdk";
 
 /**
  * @param {object} o
@@ -8,6 +8,11 @@ import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSet
  *   invoked for every per-camera client as soon as it is constructed (server.mjs points it at the LAN guard).
  */
 export function createSdk({ cfg, DEBUG, hooks = {} }) {
+  const powerOverrides = Object.fromEntries(
+    Object.entries(cfg.cameras ?? {})
+      .filter(([, camera]) => camera.powerOverride && camera.powerOverride !== "auto")
+      .map(([sn, camera]) => [sn, camera.powerOverride]),
+  );
   const eufy = new EufyMega({
     email: cfg.email,
     password: cfg.password,
@@ -19,11 +24,11 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     // camera pre-warm races our own open and wins nothing. For any other mode it would spend a battery
     // camera's radio opening a session nothing is going to stream.
     prewarmEvents: [],
+    powerOverrides,
     localAddresses: Object.keys(cfg.lan.stationAddresses).length ? cfg.lan.stationAddresses : undefined,
-    // P2P-only enforcement, per station, asked fresh for every session (see lan-upgrade.mjs). Returning a
-    // CIDR makes the SDK refuse any peer outside it — END'ing the session the station opened — and keep
-    // looking for a local one; returning undefined accepts whichever peer answers first.
-    lanOnlyForStation: (stationSn) => hooks.lanOnlyForStation?.(stationSn),
+    // Queried for every station and media session. The SDK rejects non-private IPv4 peers while this
+    // station is pinned; lan-guard.mjs checks the configured CIDR on control and media sessions.
+    lanOnly: (stationSn) => Boolean(hooks.lanOnlyForStation?.(stationSn)),
     logger: DEBUG ? new ConsoleLogger("debug") : undefined,
   });
 
@@ -94,6 +99,8 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     async describe(sn) {
       const dev = await eufy.getDevice(sn);
       const m = dev.describe();
+      const powerOverride = powerOverrides[sn] ?? "auto";
+      const automaticTier = cameraPowerTier(m.model, new Set(m.capabilities));
       return {
         sn: m.sn,
         name: m.name,
@@ -101,7 +108,8 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
         modelName: m.modelName,
         isCamera: m.capabilities.includes("camera") || m.capabilities.includes("video"),
         battery: dev.has("battery"),
-        powerTier: dev.camera?.()?.powerTier(),
+        powerOverride,
+        powerTier: powerOverride === "auto" ? automaticTier : powerOverride === "always-on" ? "wired" : "battery",
       };
     },
 
