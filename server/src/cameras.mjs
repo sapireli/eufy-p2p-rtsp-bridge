@@ -1,5 +1,4 @@
 // Camera registry: SDK device list ∩ config → the set of cameras this bridge serves, plus the /api shape.
-// Phase 1 rule: wired cameras are in unless `enabled: false`; battery cameras are out unless `enabled: true`.
 
 import { streamKeys } from "./go2rtc.mjs";
 
@@ -17,26 +16,6 @@ export const DUAL_MODELS = {
 /** Config names → wire `video_type` values (bropat DualCamWatchViewMode states). */
 export const DUAL_VIEW_VALUES = { "pip-tl": 2, "pip-tr": 3, "pip-bl": 4, "pip-br": 5, split: 12, single: 0 };
 
-/**
- * Camera models the SDK tags with a `battery` capability although they are mains-powered (mirrors the
- * SDK's own MAINS_CAMERA_MODELS plus the Floodlight Cam 2 Pro, which reports no battery params at all).
- */
-export const MAINS_MODELS = ["T8425", "T8419", "T8423"];
-
-/**
- * Is this camera safe to stream 24/7? Evidence beats the capability flag: no `battery` capability, a
- * known mains model, no reported battery level, or a battery that is currently charging (hardwired
- * doorbell) all mean "powered". `cameras.<sn>.enabled` in config still overrides the answer.
- */
-export function isPowered(m) {
-  if (!m.battery) return true;
-  const model = String(m.model ?? "").toUpperCase();
-  if (MAINS_MODELS.some((p) => model.startsWith(p))) return true;
-  if (m.batteryLevel == null) return true;
-  if (m.charging === true) return true;
-  return false;
-}
-
 export function createCameras(ctx) {
   let cache = [];
 
@@ -53,7 +32,7 @@ export function createCameras(ctx) {
       }
       if (!m.isCamera) continue;
       const c = ctx.cfg.cameras[m.sn] ?? {};
-      const powered = isPowered(m);
+      const powered = m.powerTier === "wired";
       // A battery camera is enabled now, but it does not stream continuously: its mode decides when.
       // Phase 1 skipped them outright because always-on is the only thing it could do with one.
       const enabled = c.enabled ?? true;
@@ -61,11 +40,11 @@ export function createCameras(ctx) {
       const modelKey = String(m.model ?? "").slice(0, 5).toUpperCase();
       const isDual = modelKey in DUAL_MODELS;
       if (!powered && mode === "always")
-        console.warn(`[bridge] ${m.sn} (${m.name}) is battery-powered but mode=always — a continuous stream keeps it awake and will flatten it; use on_motion or on_demand`);
+        throw new Error(`cameras.${m.sn}.mode=always requires power_override: always-on for a battery-budgeted camera`);
       // Parent station (HomeBase) serial; equals the camera's own sn for a standalone camera. Used to
       // serialise per-HomeBase P2P session opens (so their level-2 E2E keys don't race) and to decide
       // which cameras need the local-port sweep (HomeBase-attached only).
-      const stationSn = d.stationSn ?? d.raw?.station_sn ?? m.sn;
+      const stationSn = d.raw?.parent_sn || d.stationSn || d.raw?.station_sn || m.sn;
       out.push({
         sn: m.sn,
         name: c.name ?? m.name,
@@ -75,6 +54,7 @@ export function createCameras(ctx) {
         standalone: stationSn === m.sn,
         battery: m.battery,
         powered,
+        powerOverride: m.powerOverride ?? "auto",
         enabled,
         mode,
         holdSeconds: c.holdSeconds ?? ctx.cfg.defaults.holdSeconds,
@@ -115,6 +95,7 @@ export function createCameras(ctx) {
       holdSeconds: cam.holdSeconds,
       held: ctx.holds?.isHeld?.(cam.sn) ?? false,
       powered: cam.powered,
+      powerOverride: cam.powerOverride,
       dual: cam.isDual,
       dualView: cam.dualView,
       quality: cam.quality,

@@ -14,7 +14,7 @@ port: 3000
 
 lan:
   cidr: 192.168.1.0/24           # your LAN
-  force: true                    # refuse P2P sessions whose peer is outside cidr (LAN-only streaming)
+  force: true                    # SDK refuses public IPv4 peers; bridge checks cidr on control and media sessions
   station_addresses: {}          # optional LAN IP hints keyed by HomeBase/station serial, e.g. T8010XXXX: 192.168.1.50
 
 # Both of these are UNSET by default, and unset means the bridge writes nothing to the camera.
@@ -57,14 +57,18 @@ cameras:                         # keyed by camera serial; unlisted WIRED camera
 go2rtc:
   transcode: never                     # never (default) | auto | always
 
-# PHASE 2 — when each camera streams. Defaults follow the power source: wired → always, battery →
-# on_motion. A battery camera on `always` is legal but will flatten it, and the bridge says so.
+# When each camera streams. The SDK's automatic policy budgets a battery device even while charging:
+# mains-only → always, battery → on_motion. A continuous battery stream requires an explicit local
+# power_override: always-on claim; the bridge refuses mode: always without it.
 #   always     stream continuously
 #   on_motion  idle until an event takes a hold on it
 #   on_demand  stream only while something is watching
 # hold_seconds bounds how long motion keeps a camera up; further motion extends it.
 #
+# power_override changes SDK stream/session limits without writing to the device. Set it only when the
+# installation can support a persistent stream; auto clears the claim, battery forces battery limits.
 # cameras:
+#   T8000P0000000000: { power_override: always-on, mode: always }  # synthetic serial
 #   T81A0XXXXXXXXXXX: { mode: on_motion, hold_seconds: 60 }
 #
 # defaults:

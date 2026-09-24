@@ -15,8 +15,8 @@
 //
 // Levers (both scoped per station, so one HomeBase attempting LAN never disturbs another):
 //   - guard force: lan-guard.mjs calls isForced(stationSn); forced ⇒ WAN peers are closed.
-//   - force-LAN: the SDK's `lanOnlyForStation` option, asked per session, names the CIDR a pinned
-//     station's peer must be inside; the SDK refuses (and END's) anything outside it and keeps looking.
+//   - force-LAN: the SDK's `lanOnly` callback, asked per session, rejects non-private IPv4 peers while
+//     a station is pinned. The bridge checks its configured CIDR on observed control and media sessions.
 //
 // Only meaningful when lan.force is false and a lan.cidr is set (lan.force=true is already LAN-only).
 
@@ -32,7 +32,7 @@ export function createLanUpgrade(ctx) {
   const st = new Map(); // stationSn -> { mode, attempts, deadline, nextTryAt, sawLan }
   const forced = new Set(); // stations currently forced LAN-only
   state.peerPath = new Map(); // stationSn -> "lan" | "wan" (last observed), for /healthz + decisions
-  // Force-LAN is enforced INSIDE the SDK, via the `lanOnlyForStation` option it asks for every session, so
+  // Force-LAN is enforced INSIDE the SDK, via the `lanOnly` option it asks for every session, so
   // it covers the media #live sessions too — those look up independently, and a guard that only sees the
   // control session's p2pConnect cannot pin them.
   // Multi-socket punch applies to EVERY station. Measured: with it, both the HomeBase and the standalone
@@ -53,11 +53,6 @@ export function createLanUpgrade(ctx) {
   function setForce(station, on) {
     if (on) forced.add(station);
     else forced.delete(station);
-  }
-
-  /** SDK hook: the CIDR this station's peer must be inside right now, or undefined to accept any peer. */
-  function cidrFor(station) {
-    return isForced(station) ? (cfg.lan.cidr ?? undefined) : undefined;
   }
 
   /** Guard hook: is this station currently pinned to LAN-only? (cfg.lan.force is the global override.) */
@@ -155,5 +150,5 @@ export function createLanUpgrade(ctx) {
     return out;
   }
 
-  return { isForced, cidrFor, onPeer, start, tick, status };
+  return { isForced, onPeer, start, tick, status };
 }

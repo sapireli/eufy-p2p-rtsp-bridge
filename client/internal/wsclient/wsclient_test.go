@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,14 +33,13 @@ func TestEventURLDerivesTheChannelFromRtspBase(t *testing.T) {
 // A display is expected to outlive the bridge it talks to, so the interesting behaviour is that it
 // keeps following across a disconnect and re-seeds from the new connection's hello.
 func TestFollowsEventsAndReconnects(t *testing.T) {
-	var conns int
+	var conns atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
 		}
-		conns++
-		first := conns == 1
+		first := conns.Add(1) == 1
 		ctx := r.Context()
 		_ = c.Write(ctx, websocket.MessageText, []byte(`{"type":"hello","cameras":[{"sn":"YARD","mode":"on_motion","state":"idle"}]}`))
 		if first {
@@ -64,13 +64,13 @@ func TestFollowsEventsAndReconnects(t *testing.T) {
 		select {
 		case <-changes:
 			if store.IsLive("YARD") {
-				if conns < 2 {
-					t.Fatalf("should have reconnected, saw %d connections", conns)
+				if count := conns.Load(); count < 2 {
+					t.Fatalf("should have reconnected, saw %d connections", count)
 				}
 				return // reconnected and re-seeded
 			}
 		case <-deadline:
-			t.Fatalf("never saw YARD go live (connections=%d)", conns)
+			t.Fatalf("never saw YARD go live (connections=%d)", conns.Load())
 		}
 	}
 }

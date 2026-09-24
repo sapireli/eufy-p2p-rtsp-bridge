@@ -8,6 +8,7 @@ package wallstate
 
 import (
 	"sort"
+	"sync"
 	"time"
 
 	"eufy-wall/internal/config"
@@ -25,9 +26,9 @@ type Camera struct {
 	LastMotion time.Time
 }
 
-// Store is the client's view of the wall. Safe for one goroutine to mutate while the renderer reads
-// through Resolve; callers serialise via the owning loop rather than locking here.
+// Store is the client's view of the wall. Event updates and renderer reads may run concurrently.
 type Store struct {
+	mu   sync.RWMutex
 	cams map[string]*Camera
 	now  func() time.Time
 }
@@ -68,6 +69,9 @@ type Message struct {
 
 // Apply folds one message in. Returns whether anything a tile could notice changed.
 func (s *Store) Apply(m Message) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	switch m.Type {
 	case "hello":
 		// The snapshot a joining client is sent, so a wall that connects mid-event knows what is already
@@ -103,6 +107,12 @@ func (s *Store) Apply(m Message) bool {
 }
 
 func (s *Store) Camera(sn string) (Camera, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.camera(sn)
+}
+
+func (s *Store) camera(sn string) (Camera, bool) {
 	c, ok := s.cams[sn]
 	if !ok {
 		return Camera{}, false
@@ -111,12 +121,24 @@ func (s *Store) Camera(sn string) (Camera, bool) {
 }
 
 func (s *Store) IsLive(sn string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isLive(sn)
+}
+
+func (s *Store) isLive(sn string) bool {
 	c, ok := s.cams[sn]
 	return ok && c.Live
 }
 
 // Known lists every camera the server has mentioned, in a stable order.
 func (s *Store) Known() []Camera {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.known()
+}
+
+func (s *Store) known() []Camera {
 	out := make([]Camera, 0, len(s.cams))
 	for _, c := range s.cams {
 		out = append(out, *c)
@@ -163,6 +185,9 @@ func dwellUntil(since time.Time, t config.Tile) time.Time {
 // both are needed so a dwell time can hold a tile still rather than letting it strobe between two
 // cameras that fired together.
 func (s *Store) Resolve(tiles []config.Tile, current map[int]string, switchedAt map[int]time.Time) []Selection {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	now := s.now()
 	out := make([]Selection, 0, len(tiles))
 	for i, t := range tiles {
@@ -171,8 +196,8 @@ func (s *Store) Resolve(tiles []config.Tile, current map[int]string, switchedAt 
 			// therefore blanks while asleep instead of showing a dead RTSP URL, and lights up on its own
 			// when motion wakes it.
 			sel := Selection{TileIndex: i, Camera: t.Camera, Content: ContentLive}
-			if t.Camera != "" && !s.IsLive(t.Camera) {
-				if cam, ok := s.Camera(t.Camera); ok && cam.Mode != "always" {
+			if t.Camera != "" && !s.isLive(t.Camera) {
+				if cam, ok := s.camera(t.Camera); ok && cam.Mode != "always" {
 					// Its camera is asleep or waking: show the last still rather than nothing. An
 					// always-on camera is exempt — a brief idle there is a reconnect, and swapping to a
 					// still and back would be a visible flap.
@@ -190,7 +215,7 @@ func (s *Store) Resolve(tiles []config.Tile, current map[int]string, switchedAt 
 func (s *Store) resolveMotion(i int, t config.Tile, showing string, since time.Time, now time.Time) Selection {
 	watch := t.Watch
 	if len(watch) == 0 {
-		for _, c := range s.Known() {
+		for _, c := range s.known() {
 			watch = append(watch, c.SN)
 		}
 	}
@@ -227,7 +252,7 @@ func (s *Store) contentFor(sn string) string {
 	if sn == "" {
 		return ContentNone
 	}
-	if s.IsLive(sn) {
+	if s.isLive(sn) {
 		return ContentLive
 	}
 	if c, ok := s.cams[sn]; ok && c.HasStill {
@@ -249,6 +274,9 @@ func (s *Store) holdFor(sn string) bool {
 // StreamKeyFor is the RTSP path segment for a camera: the bridge's key when it has told us one, and the
 // serial otherwise — which is also what the bridge falls back to for a camera whose name it cannot use.
 func (s *Store) StreamKeyFor(sn string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if c, ok := s.cams[sn]; ok && c.StreamKey != "" {
 		return c.StreamKey
 	}

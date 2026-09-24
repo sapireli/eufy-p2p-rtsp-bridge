@@ -30,8 +30,9 @@ report as `Could not find ref with POC` / `Error constructing the frame RPS` —
 capture of the official app shows 414 ACKs against 662 data packets: it depends on those resends.
 
 Both are fixed in the pinned SDK fork and open upstream: [#211][211], [#212][212]. Also upstreamed:
-[#213][213] (warm-up options were silently dropped) and [#214][214] (`lanOnlyForStation`, which is how
-`lan.force` / P2P-only mode is enforced).
+[#213][213] (warm-up options were silently dropped) and [#214][214] (the per-station `lanOnly` callback,
+which rejects non-private IPv4 peers before connection). The bridge also checks its configured CIDR on
+connected control and media sessions.
 
 [211]: https://github.com/mega-yfue/eufy-sdk/pull/211
 [212]: https://github.com/mega-yfue/eufy-sdk/pull/212

@@ -1,6 +1,6 @@
 // The ONLY non-vendored file that imports @mega-yfue/eufy-sdk. Everything the bridge needs from the SDK
 // is re-exposed here with stable names, so an SDK API change is a one-file edit (+ the contract test).
-import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry } from "@mega-yfue/eufy-sdk";
+import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry, cameraPowerTier } from "@mega-yfue/eufy-sdk";
 
 /**
  * @param {object} o
@@ -8,6 +8,11 @@ import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSet
  *   invoked for every per-camera client as soon as it is constructed (server.mjs points it at the LAN guard).
  */
 export function createSdk({ cfg, DEBUG, hooks = {} }) {
+  const powerOverrides = Object.fromEntries(
+    Object.entries(cfg.cameras ?? {})
+      .filter(([, camera]) => camera.powerOverride && camera.powerOverride !== "auto")
+      .map(([sn, camera]) => [sn, camera.powerOverride]),
+  );
   const eufy = new EufyMega({
     email: cfg.email,
     password: cfg.password,
@@ -19,11 +24,11 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     // camera pre-warm races our own open and wins nothing. For any other mode it would spend a battery
     // camera's radio opening a session nothing is going to stream.
     prewarmEvents: [],
+    powerOverrides,
     localAddresses: Object.keys(cfg.lan.stationAddresses).length ? cfg.lan.stationAddresses : undefined,
-    // P2P-only enforcement, per station, asked fresh for every session (see lan-upgrade.mjs). Returning a
-    // CIDR makes the SDK refuse any peer outside it — END'ing the session the station opened — and keep
-    // looking for a local one; returning undefined accepts whichever peer answers first.
-    lanOnlyForStation: (stationSn) => hooks.lanOnlyForStation?.(stationSn),
+    // Queried for every station and media session. The SDK rejects non-private IPv4 peers while this
+    // station is pinned; lan-guard.mjs checks the configured CIDR on control and media sessions.
+    lanOnly: (stationSn) => Boolean(hooks.lanOnlyForStation?.(stationSn)),
     logger: DEBUG ? new ConsoleLogger("debug") : undefined,
   });
 
@@ -54,16 +59,8 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     },
     async closeStreamClients() { /* single client is owned by createSdk; disconnected on shutdown elsewhere */ },
 
-    /**
-     * Open the raw Annex-B Readable for a camera on the given client.
-     *
-     * `powered` (the bridge's evidence-based verdict from cameras.mjs) is forwarded as the SDK's live
-     * `powered` hint. The SDK otherwise infers it from the `battery` capability, which it grants to some
-     * mains models (Floodlight E340/2 Pro, doorbells), so it arms a ~45 s battery budget and tears the
-     * stream down mid-flight — an always-on wired camera then flaps every budget cycle. Telling it "wired"
-     * disables that budget; a real battery camera keeps the SDK default so its budget still applies.
-     */
-    async openFeed(client, sn, { powered, standalone } = {}) {
+    /** Open the raw Annex-B Readable for a camera on the given client. */
+    async openFeed(client, sn, { standalone } = {}) {
       const cam = (await client.getDevice(sn)).camera?.();
       if (!cam?.openReadable) throw new Error(`${sn}: no live video (not a camera or openReadable unavailable)`);
       // warmTimeoutMs: see cfg.stall.warmTimeoutMs — the app waits out long dead spots rather than rebuilding.
@@ -74,7 +71,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
         warmTimeoutMs: cfg.stall.warmTimeoutMs,
         warmRetryMs: standalone ? cfg.stall.standaloneWarmRetryMs : cfg.stall.warmRetryMs,
       };
-      return cam.openReadable(powered ? { powered: "wired", ...opts } : opts);
+      return cam.openReadable(opts);
     },
 
     /**
@@ -102,7 +99,8 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     async describe(sn) {
       const dev = await eufy.getDevice(sn);
       const m = dev.describe();
-      const props = dev.getProperties?.() ?? {};
+      const powerOverride = powerOverrides[sn] ?? "auto";
+      const automaticTier = cameraPowerTier(m.model, new Set(m.capabilities));
       return {
         sn: m.sn,
         name: m.name,
@@ -110,11 +108,8 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
         modelName: m.modelName,
         isCamera: m.capabilities.includes("camera") || m.capabilities.includes("video"),
         battery: dev.has("battery"),
-        // Evidence for cameras.mjs' power decision: `battery` above is only a *capability* flag (the SDK
-        // grants it to some mains models, e.g. Floodlight E340/2 Pro); a reported level + charging state
-        // tell the real story.
-        batteryLevel: props.battery?.value,
-        charging: props.charging?.value,
+        powerOverride,
+        powerTier: powerOverride === "auto" ? automaticTier : powerOverride === "always-on" ? "wired" : "battery",
       };
     },
 

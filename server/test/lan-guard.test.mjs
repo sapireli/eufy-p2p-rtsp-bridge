@@ -129,3 +129,59 @@ test("attachLanGuard judges sessions that connected before it was listening (pin
     console.error = origError;
   }
 });
+
+test("forced LAN checks a media session against the configured CIDR before serving its feed", async () => {
+  const ctx = ctxWith({ peer: undefined });
+  const peers = new Map([["STATION#live:1", "10.0.0.5"]]);
+  ctx.sdk.sessionPeerHost = (_client, key) => peers.get(key);
+  const client = { getP2pSessions: () => new Map([["STATION#live:1", {}]]) };
+  const guard = createLanGuard(ctx);
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(await guard.checkMediaSessions(client, "STATION", "CAM"), "blocked");
+    assert.deepEqual(ctx.closed, ["STATION#live:1"]);
+    assert.equal(guard.isBlocked("CAM"), true);
+    peers.set("STATION#live:1", "192.168.1.5");
+    assert.equal(await guard.checkMediaSessions(client, "STATION", "CAM"), "ok");
+    assert.equal(guard.isBlocked("CAM"), false);
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("a media session that connects after the feed opens is checked on connection", async () => {
+  const ctx = ctxWith({ peer: undefined });
+  const session = new EventEmitter();
+  let host;
+  ctx.sdk.sessionPeerHost = () => host;
+  const client = { getP2pSessions: () => new Map([["STATION#live:1", session]]) };
+  const guard = createLanGuard(ctx);
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(await guard.checkMediaSessions(client, "STATION", "CAM"), "unknown");
+    host = "10.0.0.5";
+    session.emit("connect");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(ctx.closed, ["STATION#live:1"]);
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("a media session present when the guard attaches is checked under its station key", async () => {
+  const ctx = ctxWith({ peer: undefined });
+  const client = new EventEmitter();
+  client.getP2pSessions = () => new Map([["STATION#live:1", {}]]);
+  ctx.sdk.sessionPeerHost = (_client, key) => key === "STATION#live:1" ? "10.0.0.5" : undefined;
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    createLanGuard(ctx).attachLanGuard(client, "CAM");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(ctx.closed, ["STATION#live:1"]);
+  } finally {
+    console.error = originalError;
+  }
+});
