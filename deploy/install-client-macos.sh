@@ -75,6 +75,14 @@ write_marker() {
   mv -fh "${1}.next.$$" "$1"
 }
 loaded() { launchctl print "$label" >/dev/null 2>&1; }
+enabled() {
+  local overrides state
+  overrides=$(launchctl print-disabled "$domain") || die 'could not inspect launchd enabled state'
+  state=$(printf '%s\n' "$overrides" | awk '$1 == "\"com.eufy.wall\"" && $2 == "=>" { print $3; exit }')
+  [[ $state == enabled || -z $state ]] && return 0
+  [[ $state == disabled ]] && return 1
+  die "unrecognized launchd enabled state: $state"
+}
 pid() { launchctl print "$label" 2>/dev/null | awk '/^[[:space:]]*pid = [0-9]+/ { print $3; exit }'; }
 wait_running() {
   local i last= now= steady=0
@@ -92,23 +100,30 @@ wait_running() {
   return 1
 }
 restart_loaded() {
+  local was_enabled=$1
+  if [[ $was_enabled == 0 ]]; then launchctl enable "$label" || return 1; fi
   if loaded; then launchctl bootout "$label" || return 1; fi
   launchctl bootstrap "$domain" "$plist" || return 1
   wait_running || return 1
-  "$current/eufy-wall" health >/dev/null
+  "$current/eufy-wall" health >/dev/null || return 1
+  if [[ $was_enabled == 0 ]]; then launchctl disable "$label" || return 1; fi
 }
 restore_previous() {
-  local target=$1 snapshot=$2 was_loaded=$3
+  local target=$1 snapshot=$2 was_loaded=$3 was_enabled=$4
   [[ -d $target && -f $snapshot ]] || die 'previous binary or launchd plist snapshot is missing'
   if loaded; then launchctl bootout "$label" || die 'could not unload the failed launchd job'; fi
   atomic_link "$target" "$current"
   atomic_copy "$snapshot" "$plist"
   if [[ $was_loaded == 1 ]]; then
+    launchctl enable "$label" || die 'could not enable the prior launchd job for bootstrap'
     launchctl bootstrap "$domain" "$plist" || die 'prior launchd job could not be restored'
     wait_running || die 'prior launchd job did not remain running'
     "$current/eufy-wall" health >/dev/null || die 'prior wall did not regain frame progress'
+  fi
+  if [[ $was_enabled == 1 ]]; then
+    launchctl enable "$label" || die 'could not restore the prior launchd enabled state'
   else
-    launchctl disable "$label" || die 'could not leave the restored launchd job disabled'
+    launchctl disable "$label" || die 'could not restore the prior launchd disabled state'
   fi
 }
 verify_archive() {
@@ -166,16 +181,18 @@ if ((rollback)); then
   if [[ -f $base/.upgrade-pending ]]; then
     target=$(cat "$base/.upgrade-pending")
     prior_loaded=$(cat "$base/.upgrade-loaded" 2>/dev/null || echo 1)
+    prior_enabled=$(cat "$base/.upgrade-enabled" 2>/dev/null || echo 1)
     [[ $target != none ]] || die 'first install has no prior binary to restore; rerun the installer'
-    restore_previous "$target" "$base/.upgrade-plist" "$prior_loaded"
+    restore_previous "$target" "$base/.upgrade-plist" "$prior_loaded" "$prior_enabled"
     atomic_link "$target" "$previous"
-    rm -f "$base/.upgrade-pending" "$base/.upgrade-loaded" "$base/.upgrade-plist"
+    rm -f "$base/.upgrade-pending" "$base/.upgrade-loaded" "$base/.upgrade-enabled" "$base/.upgrade-plist"
     say "rolled back interrupted upgrade to $(cat "$target/VERSION")"
   else
     [[ -L $previous ]] || die 'no previous release is available'
     target=$(readlink "$previous")
-    was_loaded=0; loaded && was_loaded=1
-    restore_previous "$target" "$base/previous-plist" "$was_loaded"
+    was_loaded=$(cat "$base/previous-loaded" 2>/dev/null || echo 0)
+    was_enabled=$(cat "$base/previous-enabled" 2>/dev/null || echo 1)
+    restore_previous "$target" "$base/previous-plist" "$was_loaded" "$was_enabled"
     say "rolled back to $(cat "$target/VERSION")"
   fi
   exit 0
@@ -216,14 +233,16 @@ else
 fi
 [[ -f $base/config.example.yaml ]] || cp "$release/config.example.yaml" "$base/config.example.yaml"
 
-old= was_loaded=0
+old= was_loaded=0 was_enabled=0
 [[ -L $current ]] && old=$(readlink "$current")
 loaded && was_loaded=1
+enabled && was_enabled=1
 if [[ -f $base/.upgrade-pending ]]; then
   old=$(cat "$base/.upgrade-pending")
   [[ $old == none || -d $old ]] || die 'pending upgrade refers to a missing release'
   [[ $old == none ]] && old=
   was_loaded=$(cat "$base/.upgrade-loaded" 2>/dev/null || echo 1)
+  was_enabled=$(cat "$base/.upgrade-enabled" 2>/dev/null || echo 1)
 fi
 
 # Generate a launchd job with stable paths, including Homebrew tool and library lookup.
@@ -258,6 +277,7 @@ fi
 if [[ ! -f $base/.upgrade-pending ]]; then
   if [[ -f $plist ]]; then cp -p "$plist" "$base/.upgrade-plist"; else rm -f "$base/.upgrade-plist"; fi
   write_marker "$base/.upgrade-loaded" "$was_loaded"
+  write_marker "$base/.upgrade-enabled" "$was_enabled"
   if [[ -n $old ]]; then write_marker "$base/.upgrade-pending" "$old"; else write_marker "$base/.upgrade-pending" none; fi
 fi
 if [[ -z $old && $was_loaded == 0 ]]; then
@@ -268,17 +288,21 @@ chmod 600 "$plist"
 atomic_link "$release" "$current"
 atomic_link "$current/eufy-wall" "$command_link"
 if [[ $was_loaded == 1 ]]; then
-  if ! restart_loaded; then
+  if ! restart_loaded "$was_enabled"; then
     say 'new release failed to stay running; restoring previous release'
     if [[ -n $old ]]; then
-      restore_previous "$old" "$base/.upgrade-plist" 1
-      rm -f "$base/.upgrade-pending" "$base/.upgrade-loaded" "$base/.upgrade-plist"
+      restore_previous "$old" "$base/.upgrade-plist" "$was_loaded" "$was_enabled"
+      rm -f "$base/.upgrade-pending" "$base/.upgrade-loaded" "$base/.upgrade-enabled" "$base/.upgrade-plist"
       die 'upgrade failed; previous release restored'
     fi
     die 'new launchd job failed and no previous release exists'
   fi
 fi
-if [[ -n $old ]]; then atomic_link "$old" "$previous"; fi
+if [[ -n $old ]]; then
+  atomic_link "$old" "$previous"
+  write_marker "$base/previous-loaded" "$was_loaded"
+  write_marker "$base/previous-enabled" "$was_enabled"
+fi
 if [[ -f $base/.upgrade-plist ]]; then atomic_copy "$base/.upgrade-plist" "$base/previous-plist"; fi
-rm -f "$base/.upgrade-pending" "$base/.upgrade-loaded" "$base/.upgrade-plist"
+rm -f "$base/.upgrade-pending" "$base/.upgrade-loaded" "$base/.upgrade-enabled" "$base/.upgrade-plist"
 say "installed $version for macOS $arch; run $command_link setup before starting the wall"

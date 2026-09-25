@@ -31,9 +31,20 @@ bash eufy-wall-client/deploy/install-client-macos.sh \
 
 The rootless installer stores versioned binaries under `~/Library/Application Support/eufy-wall/releases/`, points `current` to the active release, and links `~/.local/bin/eufy-wall` to `current/eufy-wall`. Add `~/.local/bin` to your shell `PATH`, or call the binary by its full path. It copies `config.example.yaml` for reference but leaves active `config.yaml` absent. It writes `~/Library/LaunchAgents/com.eufy.wall.plist` with stable paths, Homebrew binary and library lookup, and private logs under the application support directory. A fresh install disables the launchd label until a successful setup or config apply. Repeating the same archive and digest leaves the service alone.
 
-If the Mac cannot reach GitHub, verify the archive and attestation on a connected trusted machine, then transfer the archive, `SHA256SUMS`, installer, and verified SHA-256 through a separate trusted channel. On the Mac, use the two installer commands above with `--trusted-sha256 VERIFIED_DIGEST`; no network is needed once Homebrew GStreamer is present. The installer also supports a transferred `--attestation-bundle BUNDLE --trusted-root ROOT` pair for local `gh` verification. A checksum copied alongside an unverified archive is not a trust root.
+If the Mac cannot reach GitHub, verify the archive and attestation on a connected trusted machine, then transfer the archive, `SHA256SUMS`, installer, and verified SHA-256 through a separate trusted channel. On the Mac, use the two installer commands above with `--trusted-sha256 VERIFIED_DIGEST`; no network is needed once Homebrew GStreamer is present. A checksum copied alongside an unverified archive is not a trust root.
+
+For local attestation verification instead, obtain an offline bundle and trusted root on that connected machine with `gh attestation download "$FILE" -R sapireli/eufy-p2p-rtsp-bridge` and `gh attestation trusted-root > trusted_root.jsonl`, then transfer both through a trusted channel. On the Mac, use `--attestation-bundle 'sha256:ARTIFACT_DIGEST.jsonl' --trusted-root trusted_root.jsonl` in place of `--trusted-sha256 "$DIGEST"` for both installer commands. This path requires a GitHub CLI version with offline attestation support; the installer rejects a missing half of the pair. The bundle and trusted root must come from the connected trusted machine, since an attacker who supplies their own root can forge verification.
 
 These archives have GitHub workflow attestations but currently lack a configured Apple Developer ID signing and notarization step. [Apple requires Developer ID signing for Gatekeeper distribution](https://developer.apple.com/developer-id/). Treat the Mac archives as test artifacts until that release gate and clean-host Gatekeeper test are completed; do not instruct users to bypass Gatekeeper. Once signed artifacts are published as release assets, use the same verify-first sequence with the published `SHA256SUMS` instead of generating a local manifest.
+
+### Clean-host installer acceptance
+
+This remains unrun on both architectures. Use a fresh login user on each physical Mac, two independently verified tagged artifacts (A and B), and a reachable local test RTSP stream. Record OS/chip, artifact digests, installer exits, `current` target, plist hash, launchd enabled/loaded state, window frame progress, and any Gatekeeper prompt. The synthetic installer test uses a fake `launchctl` and does not satisfy this gate.
+
+1. Install verified A. Confirm `config.yaml` is absent, `config.example.yaml` is present, `current/VERSION` is A, the plist and `~/.local/bin/eufy-wall` use stable `current` paths, and `launchctl print-disabled "gui/$(id -u)"` reports `com.eufy.wall` disabled. Reinstall A and confirm the plist hash and launchd state do not change.
+2. Run setup or `config apply` with a valid local stream. Confirm the agent is enabled and loaded, a window opens, and its frame counter advances. Deliberately apply a config that fails its frame probe; confirm the previous YAML and running window return.
+3. Save the plist hash and install B while the window is running. Confirm B is active with advancing frames, then use B's installer `--rollback` and confirm A, the exact prior plist hash, and advancing frames. Repeat the upgrade while the agent is deliberately unloaded; it must remain unloaded.
+4. Repeat A on a separate clean user with network disconnected after transferring an independently verified artifact and digest. Run `--verify-only` first. A wrong digest must fail before creating a release or plist. Signing and notarization must be configured before a clean-host Gatekeeper installation can pass the public distribution gate.
 
 ## Setup and custom YAML
 
@@ -56,9 +67,11 @@ Inspect `~/Library/Application Support/eufy-wall/wall.err.log`, `eufy-wall statu
 
 ## Qualification evidence
 
+One bounded Intel window smoke was run locally on macOS 15.8 (24H23), x86_64, Intel Core i5-8500 3.00 GHz, GStreamer 1.28.7. MediaMTX 1.21.1 served a local FFmpeg H.264 `testsrc2` stream at 640×360 and 15 fps over TCP RTSP. A one-tile, 32×32 full-canvas config used `sink: window`, software decode, and a 320×180 window. The locally built client ran about four seconds, reported `output_frames=17`, `decoded_frames=15`, and `generation=1`, then exited cleanly after SIGTERM without a Cocoa warning. These are bounded frame counts, not a sustained FPS measurement, installer test, camera test, or soak result.
+
 No Intel or Apple Silicon 30-minute live run, sleep/wake result, source-loss recovery, codec-switch result, or Gatekeeper clean-host install has been recorded. Record OS and chip, GStreamer version, codecs and sizes, tile count, displayed FPS/drops, CPU and memory, source-loss/recovery times, and whether unaffected tiles continue rendering before marking either profile supported.
 
 | Mac / OS | Streams / codec / size | Window FPS / drops / CPU | Source loss and sleep/wake | Gatekeeper install |
 | --- | --- | --- | --- | --- |
-| Intel / unverified | | | | |
+| Intel / macOS 15.8, unverified | Local H.264 testsrc2, one tile, 640×360 at 15 fps source | Four-second window smoke: 17 output and 15 decoded frames; sustained FPS/drops/CPU unmeasured | Unmeasured | Unmeasured |
 | Apple Silicon / unverified | | | | |

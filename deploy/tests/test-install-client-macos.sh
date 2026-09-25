@@ -18,10 +18,17 @@ case $1 in
   print)
     [[ -f $LAUNCHCTL_TEST_DIR/loaded ]] || exit 3
     printf 'state = running\n    pid = 12345\n' ;;
+  print-disabled)
+    if [[ -f $LAUNCHCTL_TEST_DIR/disabled ]]; then
+      printf 'disabled services = {\n    "com.eufy.wall" => disabled\n}\n'
+    else
+      printf 'disabled services = {\n    "com.eufy.wall" => enabled\n}\n'
+    fi ;;
   disable) touch "$LAUNCHCTL_TEST_DIR/disabled" ;;
   enable) rm -f "$LAUNCHCTL_TEST_DIR/disabled" ;;
   bootout) rm -f "$LAUNCHCTL_TEST_DIR/loaded" ;;
   bootstrap)
+    [[ ! -f $LAUNCHCTL_TEST_DIR/disabled ]] || exit 4
     if [[ -f $LAUNCHCTL_TEST_DIR/fail-next ]]; then rm -f "$LAUNCHCTL_TEST_DIR/fail-next"; exit 1; fi
     touch "$LAUNCHCTL_TEST_DIR/loaded" ;;
   *) exit 2 ;;
@@ -134,4 +141,30 @@ reject install_release "$archive_d"
 [[ $(cat "$base/current/VERSION") == v1.2.3 && -f $LAUNCHCTL_TEST_DIR/loaded ]]
 grep -q '^v1.2.7$' "$LAUNCHCTL_TEST_DIR/health"
 [[ $(tail -n 1 "$LAUNCHCTL_TEST_DIR/health") == v1.2.3 ]]
+
+# Enabled but unloaded and disabled but unloaded are distinct launchd states.
+launchctl bootout "gui/$(id -u)/com.eufy.wall"
+[[ ! -f $LAUNCHCTL_TEST_DIR/disabled ]]
+archive_e=$(make_archive v1.2.8)
+install_release "$archive_e"
+[[ $(cat "$base/current/VERSION") == v1.2.8 && ! -f $LAUNCHCTL_TEST_DIR/loaded && ! -f $LAUNCHCTL_TEST_DIR/disabled ]]
+bash "$repo/deploy/install-client-macos.sh" --rollback
+[[ $(cat "$base/current/VERSION") == v1.2.3 && ! -f $LAUNCHCTL_TEST_DIR/loaded && ! -f $LAUNCHCTL_TEST_DIR/disabled ]]
+launchctl disable "gui/$(id -u)/com.eufy.wall"
+archive_f=$(make_archive v1.2.9)
+install_release "$archive_f"
+[[ $(cat "$base/current/VERSION") == v1.2.9 && ! -f $LAUNCHCTL_TEST_DIR/loaded && -f $LAUNCHCTL_TEST_DIR/disabled ]]
+bash "$repo/deploy/install-client-macos.sh" --rollback
+[[ $(cat "$base/current/VERSION") == v1.2.3 && ! -f $LAUNCHCTL_TEST_DIR/loaded && -f $LAUNCHCTL_TEST_DIR/disabled ]]
+
+# launchctl permits a loaded job to be disabled for future logins. Bootstrap
+# requires temporary enablement, then the disabled override must be restored.
+launchctl enable "gui/$(id -u)/com.eufy.wall"
+launchctl bootstrap "gui/$(id -u)" "$plist"
+launchctl disable "gui/$(id -u)/com.eufy.wall"
+archive_g=$(make_archive v1.2.10)
+install_release "$archive_g"
+[[ $(cat "$base/current/VERSION") == v1.2.10 && -f $LAUNCHCTL_TEST_DIR/loaded && -f $LAUNCHCTL_TEST_DIR/disabled ]]
+bash "$repo/deploy/install-client-macos.sh" --rollback
+[[ $(cat "$base/current/VERSION") == v1.2.3 && -f $LAUNCHCTL_TEST_DIR/loaded && -f $LAUNCHCTL_TEST_DIR/disabled ]]
 echo 'macOS installer tests passed'
