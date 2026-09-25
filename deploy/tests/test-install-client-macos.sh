@@ -171,14 +171,24 @@ bash "$repo/deploy/install-client-macos.sh" --rollback
 # Missing source relay and video processing elements fail preflight before changing the release.
 cat > "$scratch/bin/gst-inspect-1.0" <<'EOF'
 #!/bin/sh
-[ "$1" = --exists ] && [ "$2" != "${GST_MISSING_ELEMENT:-}" ]
+case $1 in
+  --version) printf 'gst-inspect-1.0 version %s\n' "${GST_TEST_VERSION:-1.28.7}" ;;
+  --exists) [ "$2" != "${GST_MISSING_ELEMENT:-}" ] ;;
+  *) exit 2 ;;
+esac
 EOF
 chmod +x "$scratch/bin/gst-inspect-1.0"
 before=$(shasum -a 256 "$plist")
+for version in 1.18.6 1.19.9 unknown; do
+  export GST_TEST_VERSION=$version
+  reject install_release "$archive_g"
+  [[ $(cat "$base/current/VERSION") == v1.2.3 && $(shasum -a 256 "$plist") == "$before" ]]
+done
+export GST_TEST_VERSION=1.20.0
 for element in appsink appsrc videoconvert videoscale videorate; do
   export GST_MISSING_ELEMENT=$element
   reject install_release "$archive_g"
   [[ $(cat "$base/current/VERSION") == v1.2.3 && $(shasum -a 256 "$plist") == "$before" ]]
 done
-unset GST_MISSING_ELEMENT
+unset GST_MISSING_ELEMENT GST_TEST_VERSION
 echo 'macOS installer tests passed'

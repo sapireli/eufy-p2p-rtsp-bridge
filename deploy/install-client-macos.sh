@@ -203,6 +203,13 @@ if ((verify_only)); then say "release $version is valid for this Mac"; exit 0; f
 [[ $EUID -ne 0 ]] || die 'run as the login user, never with sudo'
 need launchctl; need plutil; need mv; need cp
 for tool in gst-launch-1.0 gst-inspect-1.0; do need "$tool"; done
+gst_version_output=$(gst-inspect-1.0 --version) || die 'could not read GStreamer version'
+gst_version_line=${gst_version_output%%$'\n'*}
+gst_version_pattern='^gst-inspect-1\.0 version ([0-9]+)\.([0-9]+)(\.|$)'
+[[ $gst_version_line =~ $gst_version_pattern ]] || die 'could not parse GStreamer version from gst-inspect-1.0'
+gst_major=${BASH_REMATCH[1]}; gst_minor=${BASH_REMATCH[2]}
+((10#$gst_major > 1 || 10#$gst_major == 1 && 10#$gst_minor >= 20)) ||
+  die "GStreamer $gst_major.$gst_minor is too old; version 1.20 or later is required"
 for element in compositor autovideosink watchdog appsink appsrc videoconvert videoscale videorate; do
   gst-inspect-1.0 --exists "$element" >/dev/null 2>&1 || die "missing GStreamer element $element; run 'brew install gstreamer'"
 done

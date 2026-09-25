@@ -141,6 +141,17 @@ require_gstreamer_elements() {
   done
 }
 
+require_gstreamer_version() {
+  need gst-inspect-1.0
+  local output line pattern='^gst-inspect-1\.0 version ([0-9]+)\.([0-9]+)(\.|$)' major minor
+  output=$(gst-inspect-1.0 --version) || die 'could not read GStreamer version'
+  line=${output%%$'\n'*}
+  [[ $line =~ $pattern ]] || die 'could not parse GStreamer version from gst-inspect-1.0'
+  major=${BASH_REMATCH[1]}; minor=${BASH_REMATCH[2]}
+  ((10#$major > 1 || 10#$major == 1 && 10#$minor >= 20)) ||
+    die "GStreamer $major.$minor is too old; version 1.20 or later is required"
+}
+
 require_gstreamer_app_library() {
   need ldconfig
   ldconfig -p 2>/dev/null | awk '$1 == "libgstapp-1.0.so.0" { found=1 } END { exit !found }' ||

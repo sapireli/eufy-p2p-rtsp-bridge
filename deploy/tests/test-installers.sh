@@ -175,14 +175,26 @@ grep -Fq '/etc/eufy-wall-bridge.example.yaml' "$repo/deploy/install-server.sh"
 grep -Fq '/etc/eufy-wall.example.yaml' "$repo/deploy/install-client.sh"
 grep -Fq 'export BRIDGE_CONFIG=${BRIDGE_CONFIG:-/etc/eufy-wall-bridge.yaml}' "$repo/deploy/install-server.sh"
 grep -Fq 'require_gstreamer_elements appsink appsrc compositor watchdog videoconvert videoscale videorate' "$repo/deploy/install-client.sh"
+grep -Fq 'require_gstreamer_version' "$repo/deploy/install-client.sh"
 grep -Fq 'require_gstreamer_app_library' "$repo/deploy/install-client.sh"
 cat > "$scratch/bin/gst-inspect-1.0" <<'EOF'
 #!/bin/sh
-[ "$1" = --exists ] || exit 2
-[ "$2" != "${GST_MISSING_ELEMENT:-}" ]
+case $1 in
+  --version) printf 'gst-inspect-1.0 version %s\n' "${GST_TEST_VERSION:-1.28.7}" ;;
+  --exists) [ "$2" != "${GST_MISSING_ELEMENT:-}" ] ;;
+  *) exit 2 ;;
+esac
 EOF
 chmod +x "$scratch/bin/gst-inspect-1.0"
 source "$repo/deploy/install-common.sh"
+require_gstreamer_version
+for version in 1.18.6 1.19.9 unknown; do
+  export GST_TEST_VERSION=$version
+  reject "unsupported GStreamer $version" bash -c 'source "$1"; require_gstreamer_version' bash "$repo/deploy/install-common.sh"
+done
+export GST_TEST_VERSION=1.20.0
+require_gstreamer_version
+unset GST_TEST_VERSION
 require_gstreamer_elements appsink appsrc compositor watchdog videoconvert videoscale videorate
 for element in appsink appsrc compositor watchdog videoconvert videoscale videorate; do
   export GST_MISSING_ELEMENT=$element
