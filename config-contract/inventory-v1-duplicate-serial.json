@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "exported_at": "2026-09-25T00:00:00.000Z",
+  "bridge_url": "http://bridge.local:3000",
+  "cameras": [{"sn": "A"}, {"sn": "A"}]
+}
