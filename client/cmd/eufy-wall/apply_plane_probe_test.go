@@ -83,6 +83,21 @@ func TestPlaneHealthRejectsStaleConfiguredCodec(t *testing.T) {
 	}
 }
 
+func TestPlaneHealthReportsHoldReleaseFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+	defer server.Close()
+	c := planeProbeConfig(server.URL)
+	c.Tiles = c.Tiles[:1]
+	err := probePlaneSources(context.Background(), c, "software", []setupCamera{{SN: "DEMAND", Mode: "on_demand", StreamKey: "key"}}, func(context.Context, []string) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "hold release failed") {
+		t.Fatalf("release failure was silently accepted: %v", err)
+	}
+}
+
 func planeProbeConfig(bridgeURL string) *config.Config {
 	return &config.Config{BridgeURL: bridgeURL, RTSPBase: "rtsp://bridge", Latency: 200, Tiles: []config.Tile{
 		{ID: "demand", Camera: "DEMAND", Codec: "h265"},

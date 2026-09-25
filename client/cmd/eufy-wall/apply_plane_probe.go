@@ -77,7 +77,7 @@ func probePlaneSources(ctx context.Context, c *config.Config, decoder string, ca
 	return ctx.Err()
 }
 
-func probePlaneSource(ctx context.Context, c *config.Config, tile config.Tile, camera setupCamera, hasCamera bool, decoder string, run func(context.Context, []string) error) error {
+func probePlaneSource(ctx context.Context, c *config.Config, tile config.Tile, camera setupCamera, hasCamera bool, decoder string, run func(context.Context, []string) error) (err error) {
 	codec := tile.Codec
 	if codec == "" {
 		codec = "h264" // The plane pipeline uses the same default.
@@ -97,7 +97,9 @@ func probePlaneSource(ctx context.Context, c *config.Config, tile config.Tile, c
 			defer func() {
 				release, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
-				_ = probeHold(release, "DELETE", endpoint) // The server also expires this bounded hold.
+				if releaseErr := probeHold(release, "DELETE", endpoint); releaseErr != nil && err == nil {
+					err = fmt.Errorf("decoded frames, but hold release failed: %w (server hold expires after 20 seconds)", releaseErr)
+				}
 			}()
 		}
 	}
