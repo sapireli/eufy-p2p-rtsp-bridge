@@ -8,6 +8,8 @@ After installing the server release, run `sudo eufy-bridge setup`. It lists loca
 
 For noninteractive setup, create an answer file with mode `0600`. Keep it private and remove it after use. Do not type passwords into command arguments; they can remain in shell history.
 
+Setup rejects unknown answer keys and invalid value types before changing the service. The answer file is limited to 1 MiB; quote 2FA codes and captcha answers so YAML keeps them as strings.
+
 ```yaml
 email: wall@example.com
 password: your-password

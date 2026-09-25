@@ -16,6 +16,7 @@ import { explainConfigField } from "./src/config-explain.mjs";
 import { migrateLegacyConfig } from "./src/config-migrate.mjs";
 import { applyConfig, applyStatus, recoverInterruptedApply } from "./src/config-apply.mjs";
 import { chooseCameraPolicies } from "./src/setup-cameras.mjs";
+import { validateSetupAnswers } from "./src/setup-answers.mjs";
 import { bridgeBase } from "./src/cli-host.mjs";
 import { urlHost } from "./src/url-host.mjs";
 import { validateSetupNetwork, bootstrapConfig, localProbeHost, probeCameraRtsp } from "./src/setup-network.mjs";
@@ -34,7 +35,7 @@ function fail(message, asJson, diagnostic) {
   stderr.write(asJson ? `${JSON.stringify({ ok: false, code: diagnostic?.code ?? "ERROR", error: diagnostic?.message ?? message, diagnostics: diagnostic ? [diagnostic] : [] })}\n` : `eufy-bridge: ${diagnostic?.message ?? message}${diagnostic ? `\n${diagnostic.remedy}` : ""}\n`);
   process.exitCode = 1;
 }
-async function input(path) {
+async function input(path, label = "config") {
   if (!path) throw new Error("provide a YAML file or '-' for stdin");
   const source = path === "-" ? stdin : createReadStream(path);
   const chunks = [];
@@ -42,7 +43,7 @@ async function input(path) {
   try {
     for await (const chunk of source) {
       bytes += Buffer.byteLength(chunk);
-      if (bytes > 1024 * 1024) throw new Error("config exceeds 1 MiB");
+      if (bytes > 1024 * 1024) throw new Error(`${label} exceeds 1 MiB`);
       chunks.push(chunk);
     }
   } finally {
@@ -172,10 +173,7 @@ async function answerChallenge(rl, base, state, answers) {
 async function setup(args, asJson) {
   const answerIndex = args.indexOf("--answers");
   if (answerIndex >= 0 && !args[answerIndex + 1]) throw new Error("--answers requires a YAML file");
-  const answers = answerIndex >= 0 ? parse(await fs.readFile(args[answerIndex + 1], "utf8")) ?? {} : {};
-  if (!answers || typeof answers !== "object" || Array.isArray(answers)) throw new Error("setup answers must be a YAML mapping");
-  if (answers.probe_streams != null && typeof answers.probe_streams !== "boolean" && (!Array.isArray(answers.probe_streams) || answers.probe_streams.some((sn) => typeof sn !== "string")))
-    throw new Error("probe_streams must be true, false, or a list of camera serials");
+  const answers = answerIndex >= 0 ? validateSetupAnswers(parse(await input(args[answerIndex + 1], "setup answers")) ?? {}) : {};
   const interactive = stdin.isTTY && stdout.isTTY;
   if (!interactive && answerIndex < 0) throw new Error("setup needs a terminal or --answers <file>");
   let rl = createInterface({ input: stdin, output: stdout });

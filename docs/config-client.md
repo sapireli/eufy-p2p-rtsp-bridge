@@ -64,6 +64,72 @@ Each tile must have a stable, unique `id` in v2 (1–64 ASCII letters, digits, `
 
 With `layout: custom`, every tile needs `rect: {x, y, w, h}`. Coordinates start at zero. The rectangle must fit the canvas and must not overlap another tile; gaps are permitted and appear black. The renderer converts each rectangle edge to pixels independently, so 32×32 arrangements cover odd-size displays without cumulative rounding gaps. See [layouts.md](layouts.md) for editor commands and previews.
 
+## Battery, mixed-codec, and independent RTSP examples
+
+This two-tile file combines a fixed H.264 camera with a motion tile that can switch between H.264 and H.265 cameras. Replace the sample serials and addresses. The bridge inventory's active codec takes precedence over a tile's offline `codec` fallback. Configure battery power modes in the [server YAML](config-server.md); the client file only chooses where to show cameras.
+
+```yaml
+schema_version: 2
+bridge_url: http://192.168.1.10:3000
+rtsp_base: rtsp://192.168.1.10:8554
+output: HDMI-A-1
+sink: compositor
+decoder: auto
+layout: custom
+canvas: {cols: 32, rows: 32}
+tiles:
+  - id: wired-front
+    camera: T8214XXXXXXXXXXX
+    codec: h264
+    rect: {x: 0, y: 0, w: 20, h: 32}
+  - id: battery-events
+    motion: latest
+    watch: [T81A0XXXXXXXXXXX, T8425XXXXXXXXXXX]
+    blank_after_seconds: 90
+    dwell_seconds: 10
+    rect: {x: 20, y: 0, w: 12, h: 32}
+```
+
+On macOS, omit `output` from the example above and choose `sink: window` for the main desktop window.
+
+On Linux, the example above can be the default instance on `HDMI-A-1`. To drive a second connector, save this complete file as `right.yaml`:
+
+```yaml
+schema_version: 2
+bridge_url: http://192.168.1.10:3000
+rtsp_base: rtsp://192.168.1.10:8554
+output: HDMI-A-2
+sink: compositor
+layout: custom
+canvas: {cols: 32, rows: 32}
+tiles:
+  - id: garage-right
+    camera: T8425XXXXXXXXXXX
+    rect: {x: 0, y: 0, w: 32, h: 32}
+```
+
+Apply the first file normally and target the second by name. The installed `eufy-wall@.service` template runs the named client with its own `/etc/eufy-wall-right.yaml`, `/run/eufy-wall-right/status.json`, apply lock, backup, and rollback record. A named instance requires an explicit `output`; check both connectors and decoder capacity on the target hardware. The default and named instances can run together, but multi-display performance still needs measured qualification.
+
+```sh
+sudo eufy-wall config apply left.yaml
+sudo eufy-wall config apply right.yaml --instance right
+eufy-wall status --instance right
+sudo eufy-wall health --instance right
+eufy-wall layout edit right.yaml --instance right
+```
+
+An independent RTSP source can run without a bridge using the legacy URL-only format. This example intentionally omits `schema_version`, `bridge_url`, and `rtsp_base`; v2 requires the bridge origins. Use an actual reachable RTSP URL and watch the display for frame progress after starting the wall. The `probe` subcommand requires a bridge camera serial, so it cannot probe a URL-only tile. Motion events, bridge inventory, and on-demand holds are unavailable in this mode.
+
+```yaml
+layout: 1
+sink: compositor
+tiles:
+  - url: rtsp://192.168.1.20:8554/live
+    codec: h264
+```
+
+Save that file as `offline.yaml`, then run `eufy-wall config validate offline.yaml` and `eufy-wall -config offline.yaml -dry-run` before starting the renderer with `eufy-wall -config offline.yaml`. On macOS, use `sink: window`.
+
 ## Setup and offline inventory
 
 `sudo eufy-wall setup` asks for the bridge HTTP and RTSP addresses, display output, camera serials, and a starter template. It shows a summary before applying. To prepare a draft without restarting the service, pass `--output wall.draft.yaml`. On a headless host, use an answer file:

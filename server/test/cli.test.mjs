@@ -119,10 +119,21 @@ test("setup rejects malformed answer files before touching config", async (t) =>
   const dir = await mkdtemp(join(tmpdir(), "ewb-answers-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const answers = join(dir, "answers.yaml");
-  await writeFile(answers, "probe_streams: yes\n");
-  const result = await run(["setup", "--answers", answers, "--json"], { env: { BRIDGE_CONFIG: join(dir, "bridge.yaml") } });
-  assert.equal(result.code, 1);
-  assert.match(JSON.parse(result.err).error, /probe_streams/);
+  const config = join(dir, "bridge.yaml");
+  for (const [text, error] of [
+    ["probe_streams: yes\n", /probe_streams/],
+    ["lan_frce: true\n", /unknown setup answer: lan_frce/],
+    ["lan_force: 1\n", /lan_force/],
+    ["port: 99999\n", /port/],
+    ["cameras: [DOOR]\n", /cameras/],
+    [`#${"x".repeat(1024 * 1024)}\n`, /setup answers exceeds 1 MiB/],
+  ]) {
+    await writeFile(answers, text);
+    const result = await run(["setup", "--answers", answers, "--json"], { env: { BRIDGE_CONFIG: config } });
+    assert.equal(result.code, 1);
+    assert.match(JSON.parse(result.err).error, error);
+    await assert.rejects(readFile(config), { code: "ENOENT" });
+  }
 });
 
 test("status redacts captcha data; doctor reports bad host dependencies", async (t) => {

@@ -44,7 +44,11 @@ func (s *layoutScreen) render(out io.Writer) error {
 		mode = "resize"
 	}
 	lines := make([]string, 0, s.height)
-	lines = append(lines, trimTerminal(fmt.Sprintf("EUFY WALL  |  %dx%d canvas  |  %d tiles  |  %s by %d", c.Canvas.Cols, c.Canvas.Rows, len(c.Tiles), mode, s.step), s.width-1))
+	output := c.Output
+	if output == "" {
+		output = "automatic"
+	}
+	lines = append(lines, trimTerminal(fmt.Sprintf("EUFY WALL  |  %dx%d canvas  |  %d tiles  |  %s by %d  |  output %s", c.Canvas.Cols, c.Canvas.Rows, len(c.Tiles), mode, s.step, output), s.width-1))
 	lines = append(lines, strings.Repeat("-", min(s.width-1, 79)))
 	for row := 0; row < contentH; row++ {
 		canvas := strings.Repeat(" ", canvasW)
@@ -71,7 +75,7 @@ func (s *layoutScreen) render(out io.Writer) error {
 	} else {
 		lines = append(lines, "Tab select | arrows move | r resize | 1/4/8 step | e exact | c camera | w watch")
 	}
-	lines = append(lines, "u undo | y redo | i inventory | s save | A apply | ? help | q quit")
+	lines = append(lines, "u undo | y redo | i inventory | o output | s save | A apply | ? help | q quit")
 	_, err = io.WriteString(out, "\x1b[H\x1b[2J"+strings.Join(lines, "\r\n"))
 	return err
 }
@@ -102,7 +106,7 @@ func (s *layoutScreen) panelLines(c *config.Config, height, width int) []string 
 	if s.help {
 		copy(panel, []string{
 			"KEYBOARD HELP", "Tab/Shift-Tab: select tile", "Arrows: move or resize selection", "r: toggle move/resize; 1,4,8: step",
-			"e: exact x y w h", "c: fixed camera; w: motion watch", "i: load live or exported inventory", "t: template; a: add; d: delete",
+			"e: exact x y w h", "c: fixed camera; w: motion watch", "i: load inventory; o: output", "t: template; a: add; d: delete",
 			"u/y: undo/redo; P: save PNG", "s: save draft; A: apply", "q: quit (asks if draft is unsaved)", "Ctrl-G: cancel prompt or picker", "?: close help",
 		})
 		return panel
@@ -219,6 +223,8 @@ func (s *layoutScreen) pickerLines(height int) []string {
 
 func (s *layoutScreen) promptLabel() string {
 	switch s.prompt {
+	case "output":
+		return "Linux DRM output (for example HDMI-A-2)"
 	case "rect":
 		return "Exact rectangle x y w h"
 	case "camera":

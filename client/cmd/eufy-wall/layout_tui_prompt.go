@@ -50,6 +50,11 @@ func (s *layoutScreen) handlePrompt(key screenKey) (bool, error) {
 
 func (s *layoutScreen) executePrompt(kind, value string) error {
 	switch kind {
+	case "output":
+		if value == "" || strings.ContainsAny(value, " \t\r\n") {
+			return errors.New("enter one DRM connector name")
+		}
+		return s.edit("output", value)
 	case "rect":
 		t, err := s.tile()
 		if err != nil {

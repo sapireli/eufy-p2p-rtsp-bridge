@@ -35,7 +35,7 @@ Rectangles use integer half-open bounds. `x` and `y` start at zero; `w` and `h` 
 
 `eufy-wall layout edit [file]` opens a full-screen keyboard editor on an interactive terminal at least 80×24. It shows a canvas scaled to the configured screen aspect ratio, a tile list, the selected tile's exact grid and pixel rectangles, and any loaded camera information. If `screen` is omitted, the preview uses 1920×1080; the renderer still detects the actual output. Omit the file to start from the built-in v2 example. No mouse is needed. Terminal resizing redraws the editor; when the window becomes too small, enlarge it again or press `q`.
 
-Use Tab or Shift-Tab to select a tile. Arrow keys move it; `r` changes the arrows to resize it. Press `1`, `4`, or `8` to set the number of grid cells per arrow press. Press `e` for exact `x y w h` coordinates, `c` for a fixed camera, or `w` for a motion tile and its watch list. After `i` loads a live or exported inventory, `c` and `w` open camera pickers: arrows select, Space toggles watch cameras, `a` watches all, and Enter accepts. Without an inventory, type a serial or comma-separated watch list. Ctrl-U clears a prompt and Ctrl-G cancels it or a picker. `u` and `y` undo and redo validated edits; `s` saves a draft; capital `A` asks for `APPLY` before activating it. Press `?` for all keys.
+Use Tab or Shift-Tab to select a tile. Arrow keys move it; `r` changes the arrows to resize it. Press `1`, `4`, or `8` to set the number of grid cells per arrow press. Press `e` for exact `x y w h` coordinates, `c` for a fixed camera, `w` for a motion tile and its watch list, or `o` for a Linux DRM output. After `i` loads a live or exported inventory, `c` and `w` open camera pickers: arrows select, Space toggles watch cameras, `a` watches all, and Enter accepts. Without an inventory, type a serial or comma-separated watch list. Ctrl-U clears a prompt and Ctrl-G cancels it or a picker. `u` and `y` undo and redo validated edits; `s` saves a draft; capital `A` asks for `APPLY` before activating it. Press `?` for all keys.
 
 The existing line editor is used for non-TTY input, terminals smaller than 80×24, and `TERM=dumb`. Set `EUFY_WALL_EDITOR=line` to use it on a large terminal, including with a screen reader. In line mode, type `help` to see commands. The text view uses one character per tile and `.` for empty space, followed by exact grid and pixel coordinates. It is scaled to the configured display aspect ratio and does not require an 80×32 terminal.
 
@@ -43,6 +43,7 @@ Useful commands:
 
 ```text
 template split                     # one | split | four | one-plus-five | motion
+output HDMI-A-2                    # required for a named Linux display instance
 add driveway T8425XXXXXXXXXXX 0 0 16 32
 rect driveway 0 0 20 32
 move driveway 1 0                 # signed offset in grid cells
@@ -81,4 +82,4 @@ For hand-written YAML, run `eufy-wall config validate file.yaml`, then `eufy-wal
 
 ## Legacy preset layouts
 
-Unversioned configs keep `layout: 1`, `1+5`, and `<cols>x<rows>` with sides 1–6. Tiles are placed by first fit in row order; `1+5` reserves a 2×2 primary tile, and `span` or `aspect: tall` can change a tile's cell use. The legacy format remains valid for runtime and `config validate`. New designs should use v2 custom rectangles so a saved placement is explicit. A layout is per display: run a separate client instance and config per output rather than spanning DRM planes across monitors.
+Unversioned configs keep `layout: 1`, `1+5`, and `<cols>x<rows>` with sides 1–6. Tiles are placed by first fit in row order; `1+5` reserves a 2×2 primary tile, and `span` or `aspect: tall` can change a tile's cell use. The legacy format remains valid for runtime and `config validate`. New designs should use v2 custom rectangles so a saved placement is explicit. A layout is per display: on Linux, use `--instance right` with `setup`, `layout edit`, `config apply`, `config recover`, `doctor`, `health`, or `status` to target a second output. It uses the `eufy-wall@right` service, `/etc/eufy-wall-right.yaml` config, and `/run/eufy-wall-right/status.json`; its apply backups and rollback state are separate from the default instance. Named instances require an explicit `output` connector. See the [two-monitor example](config-client.md#battery-mixed-codec-and-independent-rtsp-examples). macOS currently supports one main-display window instance.

@@ -151,6 +151,8 @@ func (s *layoutScreen) handle(key screenKey) (bool, error) {
 		s.prompt = "apply"
 	case 'i':
 		s.prompt = "inventory"
+	case 'o':
+		s.prompt = "output"
 	case 't':
 		s.prompt = "template"
 	case 'a':
