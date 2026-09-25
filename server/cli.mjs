@@ -13,6 +13,7 @@ import { parse, stringify } from "yaml";
 import { loadConfig, parseConfigText } from "./src/config.mjs";
 import { configDiagnostic } from "./src/config-diagnostic.mjs";
 import { explainConfigField } from "./src/config-explain.mjs";
+import { supportedNode } from "./src/node-version.mjs";
 import { migrateLegacyConfig } from "./src/config-migrate.mjs";
 import { applyConfig, applyStatus, recoverInterruptedApply } from "./src/config-apply.mjs";
 import { chooseCameraPolicies } from "./src/setup-cameras.mjs";
@@ -288,7 +289,7 @@ async function main() {
   }
   if (verb === "doctor") {
     const checks = [];
-    checks.push({ code: "NODE_VERSION", ok: Number(process.versions.node.split(".")[0]) >= 24, detail: process.version });
+    checks.push({ code: "NODE_VERSION", ok: supportedNode(process.versions.node), detail: process.version });
     checks.push({ code: "CONFIG_FILE", ok: existsSync(target), detail: target });
     try { const { cfg } = loadConfig(); checks.push({ code: "CONFIG_VALID", ok: true });
       const binary = await executablePath(cfg.go2rtcBin);
