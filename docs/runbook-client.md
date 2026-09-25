@@ -95,7 +95,7 @@ For `sink: planes`, each active tile needs a usable DRM plane for the chosen out
 
 Two physical outputs should run separate wall instances with separate config files and output selectors; each output has its own DRM CRTC and plane routing. The service unit starts the default `/etc/eufy-wall.yaml` only. Additional instances need separate units.
 
-On macOS, the Go binary can preview layouts with GStreamer installed through Homebrew and `sink: window`, `decoder: software`, and an explicit screen size. The Linux release installer and KMS sinks do not apply there.
+For Intel and Apple Silicon, follow the separate [macOS client runbook](runbook-client-macos.md) for the user-level launchd installer, Homebrew GStreamer, and window sink. The Linux installer and KMS commands on this page do not apply there.
 
 ## Repeatable hardware qualification
 
