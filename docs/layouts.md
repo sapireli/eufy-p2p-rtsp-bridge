@@ -33,7 +33,7 @@ Rectangles use integer half-open bounds. `x` and `y` start at zero; `w` and `h` 
 
 ## Edit with the terminal
 
-`eufy-wall layout edit [file]` opens a full-screen keyboard editor on an interactive terminal at least 80×24. It shows a scaled canvas, a tile list, the selected tile's exact grid rectangle, and any loaded camera information. Omit the file to start from the built-in v2 example. No mouse is needed. Terminal resizing redraws the editor; when the window becomes too small, enlarge it again or press `q`.
+`eufy-wall layout edit [file]` opens a full-screen keyboard editor on an interactive terminal at least 80×24. It shows a canvas scaled to the configured screen aspect ratio, a tile list, the selected tile's exact grid and pixel rectangles, and any loaded camera information. If `screen` is omitted, the preview uses 1920×1080; the renderer still detects the actual output. Omit the file to start from the built-in v2 example. No mouse is needed. Terminal resizing redraws the editor; when the window becomes too small, enlarge it again or press `q`.
 
 Use Tab or Shift-Tab to select a tile. Arrow keys move it; `r` changes the arrows to resize it. Press `1`, `4`, or `8` to set the number of grid cells per arrow press. Press `e` for exact `x y w h` coordinates, `c` for a fixed camera, or `w` for a motion tile and its watch list. After `i` loads a live or exported inventory, `c` and `w` open camera pickers: arrows select, Space toggles watch cameras, `a` watches all, and Enter accepts. Without an inventory, type a serial or comma-separated watch list. Ctrl-U clears a prompt and Ctrl-G cancels it or a picker. `u` and `y` undo and redo validated edits; `s` saves a draft; capital `A` asks for `APPLY` before activating it. Press `?` for all keys.
 

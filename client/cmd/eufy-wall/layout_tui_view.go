@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"unicode"
 
@@ -35,6 +36,9 @@ func (s *layoutScreen) render(out io.Writer) error {
 	if canvasW > 32 {
 		canvasW = 32
 	}
+	screen := previewScreen(c)
+	canvasH := int(math.Round(float64(canvasW) * float64(screen.Height) / float64(screen.Width) / 2))
+	canvasH = max(1, min(contentH, canvasH))
 	panelW := s.width - canvasW - 5
 	panel := s.panelLines(c, contentH, panelW)
 	mode := "move"
@@ -45,7 +49,10 @@ func (s *layoutScreen) render(out io.Writer) error {
 	lines = append(lines, trimTerminal(fmt.Sprintf("EUFY WALL  |  %dx%d canvas  |  %d tiles  |  %s by %d", c.Canvas.Cols, c.Canvas.Rows, len(c.Tiles), mode, s.step), s.width-1))
 	lines = append(lines, strings.Repeat("-", min(s.width-1, 79)))
 	for row := 0; row < contentH; row++ {
-		canvas := s.canvasLine(c, row, contentH, canvasW)
+		canvas := strings.Repeat(" ", canvasW)
+		if row < canvasH {
+			canvas = s.canvasLine(c, row, canvasH, canvasW)
+		}
 		lines = append(lines, trimTerminal("|"+canvas+"| "+padTerminal(panel[row], panelW), s.width-1))
 	}
 	lines = append(lines, strings.Repeat("-", min(s.width-1, 79)))
@@ -120,22 +127,29 @@ func (s *layoutScreen) panelLines(c *config.Config, height, width int) []string 
 	}
 	if t.Rect != nil {
 		panel[2] = fmt.Sprintf("Grid: x=%d y=%d w=%d h=%d", t.Rect.X, t.Rect.Y, t.Rect.W, t.Rect.H)
+		screen := previewScreen(c)
+		cols, rows := c.GridDims()
+		left := t.Rect.X * screen.Width / cols
+		top := t.Rect.Y * screen.Height / rows
+		right := (t.Rect.X + t.Rect.W) * screen.Width / cols
+		bottom := (t.Rect.Y + t.Rect.H) * screen.Height / rows
+		panel[3] = fmt.Sprintf("Pixels: x=%d y=%d w=%d h=%d", left, top, right-left, bottom-top)
 	}
 	if t.Motion != "" {
 		watch := strings.Join(t.Watch, ",")
 		if watch == "" {
 			watch = "all"
 		}
-		panel[3] = "Watch: " + watch
-		panel[4] = fmt.Sprintf("Blank: %ds  Dwell: %ds", t.BlankAfterSeconds, t.DwellSeconds)
+		panel[4] = "Watch: " + watch
+		panel[5] = fmt.Sprintf("Blank: %ds  Dwell: %ds", t.BlankAfterSeconds, t.DwellSeconds)
 	} else if s.editor.inventory != nil {
 		if camera, ok := s.editor.inventory[t.Camera]; ok {
-			panel[3] = "Name: " + camera.Name
-			panel[4] = "Codec: " + camera.Codec + "  Mode: " + camera.Mode
+			panel[4] = "Name: " + camera.Name
+			panel[5] = "Codec: " + camera.Codec + "  Mode: " + camera.Mode
 		}
 	}
-	panel[5] = fmt.Sprintf("TILES (%d)", len(c.Tiles))
-	visible := height - 6
+	panel[6] = fmt.Sprintf("TILES (%d)", len(c.Tiles))
+	visible := height - 7
 	if visible < 1 {
 		return panel
 	}
@@ -149,7 +163,7 @@ func (s *layoutScreen) panelLines(c *config.Config, height, width int) []string 
 	if start < 0 {
 		start = 0
 	}
-	for row, index := 6, start; row < height && index < len(c.Tiles); row, index = row+1, index+1 {
+	for row, index := 7, start; row < height && index < len(c.Tiles); row, index = row+1, index+1 {
 		marker := " "
 		if index == s.selected {
 			marker = ">"
@@ -157,6 +171,13 @@ func (s *layoutScreen) panelLines(c *config.Config, height, width int) []string 
 		panel[row] = fmt.Sprintf("%s%c %s", marker, tileSymbol(index), c.Tiles[index].ID)
 	}
 	return panel
+}
+
+func previewScreen(c *config.Config) config.Screen {
+	if c.Screen.Width > 0 && c.Screen.Height > 0 {
+		return c.Screen
+	}
+	return config.Screen{Width: 1920, Height: 1080}
 }
 
 func (s *layoutScreen) pickerLines(height int) []string {

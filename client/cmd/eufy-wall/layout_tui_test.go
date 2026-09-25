@@ -26,6 +26,27 @@ func screenFixture(t *testing.T) *layoutScreen {
 	return &layoutScreen{editor: e, step: 1, width: 80, height: 24, saved: bytes.Clone(e.history[e.at])}
 }
 
+func TestFullScreenCanvasKeepsDisplayAspectAndShowsPixelEdges(t *testing.T) {
+	s := screenFixture(t)
+	if err := s.editor.change(func(c *config.Config) error {
+		c.Screen = config.Screen{Width: 1919, Height: 1079}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := s.render(&out); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(out.String(), "\r\n")
+	if !strings.HasPrefix(lines[10], "|................................|") || !strings.HasPrefix(lines[11], "|                                |") {
+		t.Fatalf("16:9 canvas should use nine terminal rows: %q / %q", lines[10], lines[11])
+	}
+	if !strings.Contains(out.String(), "Pixels: x=0 y=0 w=479 h=269") {
+		t.Fatal("panel omits renderer's odd-screen pixel bounds")
+	}
+}
+
 func press(t *testing.T, s *layoutScreen, key screenKey) bool {
 	t.Helper()
 	quit, err := s.handle(key)
