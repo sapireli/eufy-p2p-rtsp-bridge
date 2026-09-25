@@ -111,7 +111,7 @@ func validateClientConfig(b []byte, host bool) error {
 		return err
 	}
 	if host && (c.Screen.Width == 0 || c.Screen.Height == 0) {
-		screen, ok := detect.ScreenFor("/", c.Output)
+		screen, ok := detect.HostScreen("/", c.Output)
 		if !ok {
 			return fmt.Errorf("no connected screen mode found for output %q; set screen dimensions after verifying the output", c.Output)
 		}

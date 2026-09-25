@@ -4,11 +4,15 @@ package detect
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/pipeline"
@@ -16,7 +20,68 @@ import (
 
 // Screen reads the preferred mode of the first connected HDMI output.
 func Screen(fsRoot string) (config.Screen, bool) {
-	return ScreenFor(fsRoot, "")
+	return HostScreen(fsRoot, "")
+}
+
+// HostScreen uses the display API appropriate for this host. A macOS window uses logical
+// points rather than the Retina framebuffer's physical pixels.
+func HostScreen(fsRoot, output string) (config.Screen, bool) {
+	if runtime.GOOS == "darwin" {
+		return macScreen(output)
+	}
+	return ScreenFor(fsRoot, output)
+}
+
+func macScreen(output string) (config.Screen, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	b, err := exec.CommandContext(ctx, "system_profiler", "SPDisplaysDataType", "-json").Output()
+	if err != nil || len(b) > 4<<20 {
+		return config.Screen{}, false
+	}
+	return parseMacDisplays(b, output)
+}
+
+func parseMacDisplays(b []byte, output string) (config.Screen, bool) {
+	var report struct {
+		Displays []struct {
+			Drivers []struct {
+				Name       string `json:"_name"`
+				ID         string `json:"_spdisplays_displayID"`
+				Resolution string `json:"_spdisplays_resolution"`
+				Pixels     string `json:"_spdisplays_pixels"`
+				Main       string `json:"spdisplays_main"`
+				Online     string `json:"spdisplays_online"`
+			} `json:"spdisplays_ndrvs"`
+		} `json:"SPDisplaysDataType"`
+	}
+	if err := json.Unmarshal(b, &report); err != nil {
+		return config.Screen{}, false
+	}
+	var fallback config.Screen
+	for _, gpu := range report.Displays {
+		for _, d := range gpu.Drivers {
+			if d.Online == "spdisplays_no" || output != "" && output != d.Name && output != d.ID {
+				continue
+			}
+			mode := d.Resolution
+			if mode == "" {
+				mode = d.Pixels
+			}
+			var w, h int
+			if _, err := fmt.Sscanf(mode, "%d x %d", &w, &h); err != nil || w <= 0 || h <= 0 {
+				continue
+			}
+			screen := config.Screen{Width: w, Height: h}
+			if output != "" || d.Main == "spdisplays_yes" {
+				return screen, true
+			}
+			if fallback.Width == 0 {
+				fallback = screen
+			}
+		}
+	}
+	return fallback, fallback.Width > 0
 }
 
 // ScreenFor reads the preferred mode of a named DRM connector ("HDMI-A-2", "DP-1"); an empty name means
@@ -58,6 +123,10 @@ func FileExists(p string) bool {
 
 // Resolve turns auto decoder/sink into concrete choices. `has`/`fileExists` are injectable for tests.
 func Resolve(c *config.Config, has func(string) bool, fileExists func(string) bool) (pipeline.Caps, error) {
+	return resolveForOS(c, has, fileExists, runtime.GOOS)
+}
+
+func resolveForOS(c *config.Config, has func(string) bool, fileExists func(string) bool, goos string) (pipeline.Caps, error) {
 	caps := pipeline.Caps{Decoder: c.Decoder, Sink: c.Sink, Screen: c.Screen}
 	if caps.Decoder == "auto" {
 		switch {
@@ -73,6 +142,10 @@ func Resolve(c *config.Config, has func(string) bool, fileExists func(string) bo
 	}
 	if caps.Sink == "auto" {
 		switch {
+		case goos == "darwin" && has("autovideosink"):
+			caps.Sink = "window"
+		case goos == "darwin":
+			return caps, fmt.Errorf("detect: autovideosink is missing (install Homebrew GStreamer plugins-base)")
 		case caps.Decoder == "v4l2" && len(c.Planes) > 0:
 			caps.Sink = "planes"
 		case has("compositor"):

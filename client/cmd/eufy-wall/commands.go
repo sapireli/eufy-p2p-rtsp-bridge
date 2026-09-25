@@ -226,10 +226,10 @@ func clientDoctor(jsonOutput bool, out io.Writer) error {
 
 func clientDoctorAt(path string, jsonOutput bool, out io.Writer) error {
 	report := doctorReport{Problems: []string{}}
-	if s, ok := detect.Screen("/"); ok {
+	if s, ok := detect.HostScreen("/", ""); ok {
 		report.Screen = s
 	} else {
-		report.Problems = append(report.Problems, "no connected HDMI output found")
+		report.Problems = append(report.Problems, "no connected display found")
 	}
 	report.Watchdog = detect.HasElement("watchdog")
 	if !report.Watchdog {

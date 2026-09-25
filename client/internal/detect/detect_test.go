@@ -13,11 +13,11 @@ func TestScreenFromSysfs(t *testing.T) {
 	dir := filepath.Join(root, "sys/class/drm/card1-HDMI-A-1")
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, "modes"), []byte("1920x1080\n1280x720\n"), 0o644)
-	s, ok := Screen(root)
+	s, ok := ScreenFor(root, "")
 	if !ok || s != (config.Screen{Width: 1920, Height: 1080}) {
 		t.Fatalf("%v %+v", ok, s)
 	}
-	if _, ok := Screen(t.TempDir()); ok {
+	if _, ok := ScreenFor(t.TempDir(), ""); ok {
 		t.Fatal("expected not ok without drm")
 	}
 }
@@ -41,31 +41,59 @@ func TestResolve(t *testing.T) {
 		}
 	}
 	pi := &config.Config{Decoder: "auto", Sink: "auto", Planes: []int{31}, Screen: config.Screen{Width: 1920, Height: 1080}}
-	caps, err := Resolve(pi, has("v4l2h264dec", "compositor"), exists("/dev/video10"))
+	caps, err := resolveForOS(pi, has("v4l2h264dec", "compositor"), exists("/dev/video10"), "linux")
 	if err != nil || caps.Decoder != "v4l2" || caps.Sink != "planes" {
 		t.Fatalf("pi: %v %+v", err, caps)
 	}
 	pi.Planes = nil
-	caps, _ = Resolve(pi, has("v4l2h264dec", "compositor"), exists("/dev/video10"))
+	caps, _ = resolveForOS(pi, has("v4l2h264dec", "compositor"), exists("/dev/video10"), "linux")
 	if caps.Sink != "compositor" {
 		t.Fatalf("pi no planes: %+v", caps)
 	}
 	x86 := &config.Config{Decoder: "auto", Sink: "auto", Screen: config.Screen{Width: 1920, Height: 1080}}
-	caps, _ = Resolve(x86, has("vah264dec", "avdec_h264", "compositor"), exists())
+	caps, _ = resolveForOS(x86, has("vah264dec", "avdec_h264", "compositor"), exists(), "linux")
 	if caps.Decoder != "va" || caps.Sink != "compositor" {
 		t.Fatalf("x86: %+v", caps)
 	}
-	caps, _ = Resolve(x86, has("avdec_h264", "compositor"), exists())
+	caps, _ = resolveForOS(x86, has("avdec_h264", "compositor"), exists(), "linux")
 	if caps.Decoder != "software" {
 		t.Fatalf("sw: %+v", caps)
 	}
-	if _, err := Resolve(x86, has(), exists()); err == nil {
+	if _, err := resolveForOS(x86, has(), exists(), "linux"); err == nil {
 		t.Fatal("expected error with no decoders")
 	}
 	forced := &config.Config{Decoder: "software", Sink: "window", Screen: config.Screen{Width: 800, Height: 600}}
 	caps, err = Resolve(forced, has(), exists())
 	if err != nil || caps.Decoder != "software" || caps.Sink != "window" || caps.Screen.Width != 800 {
 		t.Fatalf("forced: %v %+v", err, caps)
+	}
+}
+
+func TestDarwinAutoSink(t *testing.T) {
+	c := &config.Config{Decoder: "auto", Sink: "auto", Screen: config.Screen{Width: 1920, Height: 1080}}
+	has := func(name string) bool { return name == "avdec_h264" || name == "autovideosink" }
+	caps, err := resolveForOS(c, has, func(string) bool { return false }, "darwin")
+	if err != nil || caps.Decoder != "software" || caps.Sink != "window" {
+		t.Fatalf("mac auto: %+v, %v", caps, err)
+	}
+	if _, err := resolveForOS(c, func(name string) bool { return name == "avdec_h264" }, func(string) bool { return false }, "darwin"); err == nil {
+		t.Fatal("missing window sink should fail")
+	}
+}
+
+func TestParseMacDisplays(t *testing.T) {
+	b := []byte(`{"SPDisplaysDataType":[{"spdisplays_ndrvs":[{"_name":"secondary","_spdisplays_displayID":"ab2","_spdisplays_resolution":"1280 x 720","spdisplays_online":"spdisplays_yes"},{"_name":"main","_spdisplays_displayID":"cd1","_spdisplays_resolution":"2048 x 1152","_spdisplays_pixels":"4096 x 2304","spdisplays_main":"spdisplays_yes"}]}]}`)
+	if s, ok := parseMacDisplays(b, ""); !ok || s != (config.Screen{Width: 2048, Height: 1152}) {
+		t.Fatalf("main logical mode: %+v, %v", s, ok)
+	}
+	if s, ok := parseMacDisplays(b, "ab2"); !ok || s != (config.Screen{Width: 1280, Height: 720}) {
+		t.Fatalf("explicit display: %+v, %v", s, ok)
+	}
+	if _, ok := parseMacDisplays(b, "unknown"); ok {
+		t.Fatal("unknown display should fail")
+	}
+	if _, ok := parseMacDisplays([]byte(`{`), ""); ok {
+		t.Fatal("malformed profiler data should fail")
 	}
 }
 
