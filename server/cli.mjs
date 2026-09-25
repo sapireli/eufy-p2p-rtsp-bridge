@@ -14,6 +14,7 @@ import { loadConfig } from "./src/config.mjs";
 import { applyConfig, applyStatus, recoverInterruptedApply } from "./src/config-apply.mjs";
 import { chooseCameraPolicies } from "./src/setup-cameras.mjs";
 import { bridgeBase } from "./src/cli-host.mjs";
+import { validateSetupNetwork, bootstrapConfig, localProbeHost, probeCameraRtsp } from "./src/setup-network.mjs";
 
 const exec = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,11 @@ async function input(path) {
   return fs.readFile(path, "utf8");
 }
 async function restart() { await exec("systemctl", ["restart", service], { timeout: 30_000 }); }
+async function enableService() { await exec("systemctl", ["enable", service], { timeout: 30_000 }); }
+async function isServiceEnabled() {
+  try { await exec("systemctl", ["is-enabled", "--quiet", service], { timeout: 5_000 }); return true; }
+  catch { return false; }
+}
 async function health(cfg, { allowChallenge = false } = {}) {
   const base = bridgeBase(cfg);
   const deadline = Date.now() + 30_000;
@@ -146,7 +152,11 @@ async function answerChallenge(rl, base, state, answers) {
 }
 async function setup(args, asJson) {
   const answerIndex = args.indexOf("--answers");
+  if (answerIndex >= 0 && !args[answerIndex + 1]) throw new Error("--answers requires a YAML file");
   const answers = answerIndex >= 0 ? parse(await fs.readFile(args[answerIndex + 1], "utf8")) ?? {} : {};
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) throw new Error("setup answers must be a YAML mapping");
+  if (answers.probe_streams != null && typeof answers.probe_streams !== "boolean" && (!Array.isArray(answers.probe_streams) || answers.probe_streams.some((sn) => typeof sn !== "string")))
+    throw new Error("probe_streams must be true, false, or a list of camera serials");
   const interactive = stdin.isTTY && stdout.isTTY;
   if (!interactive && answerIndex < 0) throw new Error("setup needs a terminal or --answers <file>");
   let rl = createInterface({ input: stdin, output: stdout });
@@ -158,40 +168,59 @@ async function setup(args, asJson) {
     let password = answers.password ?? process.env.EUFY_PASSWORD;
     if (!password && interactive) { rl.close(); password = await secret("Eufy password"); rl = createInterface({ input: stdin, output: stdout }); }
     if (!email || !password) throw new Error("email and password are required; set EUFY_PASSWORD for noninteractive setup");
-    const lanCidr = answers.lan_cidr ?? (interactive ? await question(rl, "LAN CIDR", nics[0]?.cidr) : nics[0]?.cidr);
-    const force = answers.lan_force ?? Boolean(lanCidr);
+    const lanCidr = Object.hasOwn(answers, "lan_cidr") ? answers.lan_cidr : (interactive ? await question(rl, "LAN CIDR", nics[0]?.cidr) : nics[0]?.cidr);
+    const forceAnswer = answers.lan_force ?? (interactive ? await question(rl, "Require LAN-only camera peers? (yes/no)", lanCidr ? "yes" : "no") : Boolean(lanCidr));
+    if (typeof forceAnswer === "string" && !["yes", "no"].includes(forceAnswer.toLowerCase())) throw new Error("LAN-only choice must be yes or no");
+    const force = typeof forceAnswer === "string" ? forceAnswer.toLowerCase() === "yes" : forceAnswer;
     const port = answers.port ?? 3000;
-    const raw = { schema_version: 2, host: answers.host ?? "0.0.0.0", port, lan: { cidr: lanCidr ?? null, force }, cameras: answers.cameras ?? {} };
+    const host = answers.host ?? (interactive ? await question(rl, "Bridge bind address for clients", nics[0]?.address ?? "127.0.0.1") : nics[0]?.address ?? "127.0.0.1");
+    const publicHost = answers.client_host ?? (interactive ? await question(rl, "Address clients should use", host === "0.0.0.0" ? nics[0]?.address : host) : host === "0.0.0.0" ? nics[0]?.address : host);
+    const lanPolicy = validateSetupNetwork({ lanCidr, force, host, publicHost, interfaces: nics });
+    const raw = { schema_version: 2, host, port, lan: { cidr: lanCidr ?? null, force }, cameras: answers.cameras ?? {} };
     const yamlText = stringify(raw);
+    const bootstrapText = stringify(bootstrapConfig(raw));
     loadConfig({ env: { EUFY_EMAIL: email, EUFY_PASSWORD: password, EUFY_COUNTRY: country }, rawText: yamlText });
     if (interactive) {
-      emit(`Config: ${target}\nSecrets: ${envPath}\nHTTP port: ${port}\nLAN: ${lanCidr ?? "not pinned"} (force=${force})`);
+      emit(`Config: ${target}\nSecrets: ${envPath}\nLogin listener: 127.0.0.1:${port}\nClient listener after login: ${host}:${port}\nClient address: ${publicHost}\nCamera LAN: ${lanCidr ?? "not pinned"} (force=${force})`);
       if ((await question(rl, "Apply these settings? (yes/no)", "no")).toLowerCase() !== "yes") throw new Error("setup cancelled");
     }
     const originalYaml = existsSync(target) ? await fs.readFile(target, "utf8") : null;
+    const enabledBefore = await isServiceEnabled();
     const saved = await saveSecrets({ email, password, country });
     let applied;
     try {
-      applied = await applyConfig({ target, yamlText, restart, health: (cfg) => health(cfg, { allowChallenge: true }) });
+      applied = await applyConfig({ target, yamlText: bootstrapText, restart, health: (cfg) => health(cfg, { allowChallenge: true }) });
       if (!applied.changed) { await restart(); await health(loadConfig().cfg, { allowChallenge: true }); }
-      const base = bridgeBase({ host: raw.host, port });
+      const base = bridgeBase({ host: "127.0.0.1", port });
       rl = await answerChallenge(rl, base, (await local("/auth/status")), answers);
       let cams = await local("/api/cameras");
       if (interactive) {
         raw.cameras = await chooseCameraPolicies(cams, raw.cameras, { question: (label, fallback) => question(rl, label, fallback), emit });
         emit(`Camera policy:\n${stringify({ cameras: raw.cameras })}`);
         if ((await question(rl, "Apply camera choices? (yes/no)", "no")).toLowerCase() !== "yes") throw new Error("camera choices cancelled");
-        await applyConfig({ target, yamlText: stringify(raw), restart, health });
-        cams = await local("/api/cameras");
       }
-      const inventory = cams.map((c) => ({ sn: c.sn, name: c.name, mode: c.mode, powered: c.powered, codec: c.codec, streamKey: c.streamKey }));
-      emit({ ok: true, applied, bridgeUrl: base, cameras: inventory, inventoryCommand: "eufy-bridge inventory export cameras.json" }, asJson);
+      const finalApply = await applyConfig({ target, yamlText: stringify(raw), restart, health });
+      cams = await local("/api/cameras");
+      const publicBridgeUrl = `http://${publicHost}:${port}`;
+      const probes = [];
+      for (const cam of cams.filter((c) => c.enabled)) {
+        const selection = answers.probe_streams;
+        const selected = Array.isArray(selection) ? selection.includes(cam.sn) : typeof selection === "boolean" ? selection : interactive ? (await question(rl, `Probe RTSP for ${cam.name} (${cam.sn})? (yes/no)`, cam.powered ? "yes" : "no")).toLowerCase() === "yes" : false;
+        if (!selected) continue;
+        emit(`Probing RTSP path and live bytes for ${cam.name} (${cam.sn}) for up to 12 seconds...`);
+        const result = await probeCameraRtsp(cam, { bridgeUrl: bridgeBase(raw), host: localProbeHost(host, nics) });
+        probes.push({ sn: cam.sn, ...result });
+      }
+      await enableService();
+      const inventory = cams.map((c) => ({ sn: c.sn, name: c.name, mode: c.mode, powered: c.powered, codec: c.codec, streamKey: c.streamKey, rtsp: `rtsp://${publicHost}:8554/${encodeURIComponent(c.streamKey)}` }));
+      emit({ ok: true, serviceEnabled: true, applied: finalApply, bootstrapApply: applied, bridgeUrl: publicBridgeUrl, lanPolicy, cameras: inventory, probes, inventoryCommand: `eufy-bridge inventory export cameras.json --host ${publicHost}` }, asJson);
     } catch (error) {
       await restoreSecrets(saved);
       if (originalYaml != null) {
         await applyConfig({ target, yamlText: originalYaml, restart, health: async () => {} }).catch(() => {});
         await restart().catch(() => {});
       } else { await fs.unlink(target).catch(() => {}); await restart().catch(() => {}); }
+      if (!enabledBefore) await exec("systemctl", ["disable", service], { timeout: 30_000 }).catch(() => {});
       throw error;
     }
   } finally { rl.close(); }
