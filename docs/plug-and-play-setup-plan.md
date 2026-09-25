@@ -1,6 +1,6 @@
 # Plug-and-play setup and terminal layout plan
 
-Status: implementation in progress on `plan/plug-and-play-setup`, 2026-09-25. The acceptance criteria below remain the release gates. Node and Go CI now require more than 80% overall line or statement coverage with adversarial and unit tests. The integrated setup commands, config transactions, inventory contract, full-screen and line-mode layout editors, and verified Linux installers are implemented on this branch. Independent recovery of compositor tiles, macOS installation and display support, full hardware qualification, and clean-host usability/soak evidence remain open; the runbooks mark unmeasured profiles unverified.
+Status: implementation in progress on `plan/plug-and-play-setup`, 2026-09-25. The acceptance criteria below remain the release gates. Node and Go CI require more than 80% overall line or statement coverage with adversarial and unit tests. The integrated setup commands, config transactions, inventory contract, full-screen and line-mode layout editors, verified Linux installers, native per-tile compositor recovery, and macOS window/launchd test artifacts are implemented on this branch. Local H.264/H.265 switching, publisher-loss recovery, and Intel macOS window smoke passed. Full Pi/Debian/macOS hardware qualification, clean-host usability/soak evidence, and Apple signing/notarization remain open; the runbooks mark unmeasured profiles unverified.
 
 ## Outcome
 
