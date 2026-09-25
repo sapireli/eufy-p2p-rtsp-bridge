@@ -69,6 +69,34 @@ func TestResolve(t *testing.T) {
 	}
 }
 
+func TestCheckNativeElements(t *testing.T) {
+	required := map[string]bool{
+		"compositor": true, "intervideosrc": true, "intervideosink": true,
+		"videoconvert": true, "videoscale": true, "videorate": true,
+		"autovideosink": true,
+	}
+	has := func(name string) bool { return required[name] }
+	for _, sink := range []string{"compositor", "window"} {
+		if err := CheckNativeElements(sink, has); err != nil {
+			t.Fatalf("complete %s host: %v", sink, err)
+		}
+	}
+	for _, missing := range []string{"intervideosrc", "intervideosink", "videoconvert", "videoscale", "videorate"} {
+		required[missing] = false
+		if err := CheckNativeElements("compositor", has); err == nil {
+			t.Fatalf("missing %s was accepted", missing)
+		}
+		required[missing] = true
+	}
+	required["autovideosink"] = false
+	if err := CheckNativeElements("window", has); err == nil {
+		t.Fatal("window sink without autovideosink was accepted")
+	}
+	if err := CheckNativeElements("planes", func(string) bool { return false }); err != nil {
+		t.Fatalf("planes must not require compositor plugins: %v", err)
+	}
+}
+
 func TestDarwinAutoSink(t *testing.T) {
 	c := &config.Config{Decoder: "auto", Sink: "auto", Screen: config.Screen{Width: 1920, Height: 1080}}
 	has := func(name string) bool { return name == "avdec_h264" || name == "autovideosink" }

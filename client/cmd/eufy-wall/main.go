@@ -124,6 +124,9 @@ func runWall(cfgPath string, dryRun, printLayout bool) {
 		}
 		return
 	}
+	if err := detect.CheckNativeElements(caps.Sink, detect.HasElement); err != nil {
+		log.Fatalf("[wall] %v", err)
+	}
 	if os.Getenv("GST_DEBUG") == "" {
 		os.Setenv("GST_DEBUG", "2")
 	}

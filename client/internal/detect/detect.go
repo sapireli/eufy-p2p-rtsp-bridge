@@ -119,6 +119,23 @@ func HasElement(name string) bool {
 	return exec.Command("gst-inspect-1.0", "--exists", name).Run() == nil
 }
 
+// CheckNativeElements verifies the plugins used by the in-process compositor.
+// A planes wall and offline layout commands do not need these elements.
+func CheckNativeElements(sink string, has func(string) bool) error {
+	if sink != "compositor" && sink != "window" {
+		return nil
+	}
+	for _, element := range []string{"compositor", "intervideosrc", "intervideosink", "videoconvert", "videoscale", "videorate"} {
+		if !has(element) {
+			return fmt.Errorf("GStreamer %s is missing (install gstreamer1.0-plugins-base/bad or Homebrew GStreamer)", element)
+		}
+	}
+	if sink == "window" && !has("autovideosink") {
+		return fmt.Errorf("GStreamer autovideosink is missing (install gstreamer1.0-plugins-base or Homebrew GStreamer)")
+	}
+	return nil
+}
+
 func FileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil

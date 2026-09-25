@@ -257,6 +257,9 @@ func clientDoctorAtWithScreen(path string, jsonOutput bool, out io.Writer, scree
 				report.Problems = append(report.Problems, resolveErr.Error())
 			} else {
 				report.Decoder, report.Sink = caps.Decoder, caps.Sink
+				if err := detect.CheckNativeElements(caps.Sink, detect.HasElement); err != nil {
+					report.Problems = append(report.Problems, err.Error())
+				}
 				if caps.Sink == "planes" {
 					if len(c.Planes) < len(c.Tiles) {
 						report.Problems = append(report.Problems, fmt.Sprintf("sink=planes needs %d plane IDs, one per tile", len(c.Tiles)))

@@ -136,6 +136,9 @@ func validateClientConfig(b []byte, host bool) error {
 		if err != nil {
 			return err
 		}
+		if err := detect.CheckNativeElements(caps.Sink, detect.HasElement); err != nil {
+			return err
+		}
 		if !detect.HasElement("watchdog") {
 			return errors.New("GStreamer watchdog is missing (install gstreamer1.0-plugins-bad)")
 		}
