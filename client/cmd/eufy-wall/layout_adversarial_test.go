@@ -140,7 +140,7 @@ func TestPreviewDisplayUsesBoundedExternalCommand(t *testing.T) {
 	if err := previewLayout("-", bytes.NewReader(config.Example()), &out, PreviewOptions{Display: true, Width: 64, Height: 36}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "HDMI preview is running") {
+	if !strings.Contains(out.String(), "Display preview is running") {
 		t.Fatalf("missing preview message: %s", out.String())
 	}
 	if err := displayLayoutPNG("/unused.png", "NONEXISTENT-DRM-OUTPUT", &out); err == nil {
@@ -151,6 +151,34 @@ func TestPreviewDisplayUsesBoundedExternalCommand(t *testing.T) {
 	}
 	if err := displayLayoutPNG("/unused.png", "", &out); err == nil {
 		t.Fatal("GStreamer failure hidden")
+	}
+}
+
+func TestDisplayPreviewChoosesHostSink(t *testing.T) {
+	connectorCalls := 0
+	connector := func(name string) (int, bool) {
+		connectorCalls++
+		return 42, name == "HDMI-A-1"
+	}
+	mac, err := displayPreviewArgs("darwin", "/tmp/preview.png", "", connector)
+	if err != nil || strings.Join(mac, " ") != "-e filesrc location=/tmp/preview.png ! pngdec ! imagefreeze ! videoconvert ! autovideosink sync=false" {
+		t.Fatalf("macOS preview args %q, %v", mac, err)
+	}
+	if _, err := displayPreviewArgs("darwin", "/tmp/preview.png", "HDMI-A-1", connector); err == nil {
+		t.Fatal("macOS accepted a DRM output")
+	}
+	if connectorCalls != 0 {
+		t.Fatal("macOS attempted DRM connector lookup")
+	}
+	linux, err := displayPreviewArgs("linux", "/tmp/preview.png", "HDMI-A-1", connector)
+	if err != nil || strings.Join(linux, " ") != "-e filesrc location=/tmp/preview.png ! pngdec ! imagefreeze ! videoconvert ! kmssink sync=false connector-id=42" {
+		t.Fatalf("Linux preview args %q, %v", linux, err)
+	}
+	if connectorCalls != 1 {
+		t.Fatalf("expected one Linux connector lookup, got %d", connectorCalls)
+	}
+	if _, err := displayPreviewArgs("linux", "/tmp/preview.png", "missing", connector); err == nil {
+		t.Fatal("invalid Linux connector accepted")
 	}
 }
 

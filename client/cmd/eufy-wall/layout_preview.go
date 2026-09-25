@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -239,26 +240,43 @@ func drawNumber(img *image.RGBA, rect image.Rectangle, n int) {
 
 func displayLayoutPNG(path, output string, out io.Writer) error {
 	if _, err := exec.LookPath("gst-launch-1.0"); err != nil {
-		return errors.New("gst-launch-1.0 is required for HDMI preview")
+		return errors.New("gst-launch-1.0 is required for display preview")
 	}
-	args := []string{"-e", "filesrc", "location=" + path, "!", "pngdec", "!", "imagefreeze", "!", "videoconvert", "!", "kmssink", "sync=false"}
-	if output != "" {
-		id, ok := detect.ConnectorID("/", output)
-		if !ok {
-			return fmt.Errorf("cannot identify DRM connector %q for HDMI preview", output)
-		}
-		args = append(args, fmt.Sprintf("connector-id=%d", id))
+	args, err := displayPreviewArgs(runtime.GOOS, path, output, func(name string) (int, bool) {
+		return detect.ConnectorID("/", name)
+	})
+	if err != nil {
+		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if _, err := io.WriteString(out, "HDMI preview is running; press Ctrl-C to return.\n"); err != nil {
+	if _, err := io.WriteString(out, "Display preview is running; press Ctrl-C to return.\n"); err != nil {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "gst-launch-1.0", args...)
 	cmd.Stdout, cmd.Stderr = out, out
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() != nil {
 		return nil
 	}
 	return err
+}
+
+func displayPreviewArgs(goos, path, output string, connectorID func(string) (int, bool)) ([]string, error) {
+	args := []string{"-e", "filesrc", "location=" + path, "!", "pngdec", "!", "imagefreeze", "!", "videoconvert", "!"}
+	if goos == "darwin" {
+		if output != "" {
+			return nil, errors.New("macOS display preview opens a window on the main display; leave output empty")
+		}
+		return append(args, "autovideosink", "sync=false"), nil
+	}
+	args = append(args, "kmssink", "sync=false")
+	if output != "" {
+		id, ok := connectorID(output)
+		if !ok {
+			return nil, fmt.Errorf("cannot identify DRM connector %q for HDMI preview", output)
+		}
+		args = append(args, fmt.Sprintf("connector-id=%d", id))
+	}
+	return args, nil
 }

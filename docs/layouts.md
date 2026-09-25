@@ -75,7 +75,7 @@ eufy-wall layout preview eufy-wall.yaml --width 1919 --height 1079 --png odd-siz
 eufy-wall layout preview eufy-wall.yaml --display
 ```
 
-The text and PNG previews use the same placement engine as the runtime. The PNG shows colored, numbered rectangles, gaps in dark gray, and an inset border on legacy letterboxed tiles. `--display` shows the same PNG on the selected DRM connector through GStreamer until Ctrl-C; it opens no camera streams. This verifies geometry and output selection, not codec or RTSP reachability. Run `eufy-wall doctor` and check the live display before trusting an unmeasured hardware profile.
+The text and PNG previews use the same placement engine as the runtime. The PNG shows colored, numbered rectangles, gaps in dark gray, and an inset border on legacy letterboxed tiles. On Linux, `--display` shows the PNG on the selected DRM connector through `kmssink` until Ctrl-C. On macOS, it opens a desktop window through `autovideosink`; leave `output` empty. It opens no camera streams. This verifies geometry and display access, not codec or RTSP reachability. Run `eufy-wall doctor` and check the live display before trusting an unmeasured hardware profile.
 
 For hand-written YAML, run `eufy-wall config validate file.yaml`, then `eufy-wall config apply file.yaml`. To send a file over SSH without an HTTP endpoint, use `ssh host 'sudo eufy-wall config apply -' < file.yaml`. The CLI reads stdin once and uses the same safe apply transaction as an editor-generated file.
 
