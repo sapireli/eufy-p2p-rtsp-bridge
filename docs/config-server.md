@@ -96,13 +96,13 @@ Omitting `schema_version` keeps the legacy format. New files should set `schema_
 | `lan.station_addresses` | `{}` | Optional station serial to LAN address hints. |
 | `lan.upgrade.*` | enabled, timed defaults | Relay-to-LAN attempt timing; see template for each interval. |
 | `defaults.quality`, `defaults.dual_view` | unset | Only set when you deliberately want the bridge to write these camera settings. |
-| `defaults.hold_seconds` | `60` | Motion hold lifetime; later motion extends it. |
+| `defaults.hold_seconds` | `60` | Motion hold lifetime, 1–3600 seconds; later motion extends it. |
 | `defaults.motion_events` | motion, personDetected, doorbellPress | Events that can take a motion hold. |
 | `cameras.<serial>.enabled` | `true` | Exclude a discovered camera when false. |
 | `cameras.<serial>.mode` | wired: always; battery: on_motion | `always`, `on_motion`, or `on_demand`. Continuous battery service requires `power_override: always-on`. |
 | `cameras.<serial>.power_override` | `auto` | SDK budget claim: `auto`, `battery`, or `always-on`. This does not change device power. |
 | `cameras.<serial>.codec` | learned live | `h264` or `h265`; helps the client choose a decoder before live metadata arrives. |
-| `cameras.<serial>.name`, `.quality`, `.dual_view`, `.hold_seconds` | device/default | Per-camera overrides; dual view accepts `split`, four `pip-*` corners, or `single`. |
+| `cameras.<serial>.name`, `.quality`, `.dual_view`, `.hold_seconds` | device/default | Per-camera overrides; `hold_seconds` is 1–3600 seconds. Dual view accepts `split`, four `pip-*` corners, or `single`. |
 | `go2rtc.transcode` | `never` | `never`, `auto`, or `always`; hardware-only transcoding when enabled. |
 | `stall.stall_ms`, `.gap_ms`, `.exit_after_ms`, `.recreate_client_after`, `.backoff_ms` | 30000, 45000, 300000, 8, `[1000,2000,4000,8000]` | Feed recovery timers and retry schedule. |
 

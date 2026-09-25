@@ -103,7 +103,7 @@ func clientFramesHealthyAt(data []byte, pid int, statusPath string, resolveSink 
 		return err
 	}
 	if sink == "planes" {
-		return nil // Planes still use independently supervised gst-launch processes.
+		return probePlaneFrames(c)
 	}
 	ids := make([]string, 0, len(c.Tiles))
 	for _, tile := range c.Tiles {

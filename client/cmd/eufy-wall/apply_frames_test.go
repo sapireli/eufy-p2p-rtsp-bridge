@@ -63,9 +63,6 @@ func TestClientFramesHealthyRequiresFixedURLVideo(t *testing.T) {
 			t.Fatalf("expected_live=%v, health=%v", expected, err)
 		}
 	}
-	if err := clientFramesHealthyAt([]byte(yaml), 77, path, func(*config.Config) (string, error) { return "planes", nil }); err != nil {
-		t.Fatalf("plane service should use its own supervisor: %v", err)
-	}
 }
 
 func TestClientHealthRequiresServiceAndFrameProgress(t *testing.T) {
