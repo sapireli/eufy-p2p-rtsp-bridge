@@ -84,9 +84,10 @@ export function withNamedStreams(text, cameras) {
   return doc.toString();
 }
 
-export function createGo2rtc(ctx) {
+export function createGo2rtc(ctx, { spawnImpl = spawn, retryDelayMs = 3000, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const { cfg, state } = ctx;
   let stopping = false;
+  let retryTimer;
 
   /** Codec we currently believe a camera speaks (learned from its live feed, else whatever /api reported). */
   const codecOf = (sn) => state.slots.get(sn)?.codec ?? ctx.getCamera?.(sn)?.codec;
@@ -133,23 +134,35 @@ export function createGo2rtc(ctx) {
 
   function startGo2rtc() {
     if (state.flags.go2rtcProc || stopping) return;
-    const proc = spawn(cfg.go2rtcBin, ["-config", cfg.go2rtcConfig], { stdio: ["ignore", "inherit", "inherit"] });
+    if (retryTimer) { clearTimer(retryTimer); retryTimer = undefined; }
+    let proc;
+    try { proc = spawnImpl(cfg.go2rtcBin, ["-config", cfg.go2rtcConfig], { stdio: ["ignore", "inherit", "inherit"] }); }
+    catch (error) { console.error(`[bridge] go2rtc failed to start (${error.message}) — retrying in ${retryDelayMs} ms`); scheduleRetry(); return; }
     state.flags.go2rtcProc = proc;
-    proc.on("error", (e) => {
-      console.error(`[bridge] go2rtc failed to start (${e.message}) — RTSP unavailable; HTTP /stream still works`);
-      state.flags.go2rtcProc = undefined;
-    });
-    proc.on("exit", (code, sig) => {
-      state.flags.go2rtcProc = undefined;
+    let ended = false;
+    const onEnd = (reason) => {
+      if (ended) return; // spawn failures emit error then close; schedule only one retry.
+      ended = true;
+      if (state.flags.go2rtcProc === proc) state.flags.go2rtcProc = undefined;
       if (stopping) return;
-      console.error(`[bridge] go2rtc exited (${code ?? sig}) — restarting in 3 s`);
-      setTimeout(startGo2rtc, 3000);
-    });
-    console.log(`[bridge] go2rtc started (${cfg.go2rtcBin}) — RTSP on :8554`);
+      console.error(`[bridge] go2rtc ${reason} — RTSP unavailable; retrying in ${retryDelayMs} ms`);
+      scheduleRetry();
+    };
+    proc.on("error", (error) => onEnd(`failed to start (${error.message})`));
+    proc.once("exit", (code, sig) => onEnd(`exited (${code ?? sig})`));
+    proc.once("close", (code, sig) => onEnd(`closed (${code ?? sig})`));
+    proc.once("spawn", () => console.log(`[bridge] go2rtc started (${cfg.go2rtcBin}) — RTSP on :8554`));
+  }
+
+  function scheduleRetry() {
+    if (stopping || retryTimer) return;
+    retryTimer = setTimer(() => { retryTimer = undefined; startGo2rtc(); }, retryDelayMs);
+    retryTimer?.unref?.();
   }
 
   function stopGo2rtc() {
     stopping = true;
+    if (retryTimer) { clearTimer(retryTimer); retryTimer = undefined; }
     state.flags.go2rtcProc?.kill();
   }
 

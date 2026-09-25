@@ -71,6 +71,7 @@ test("RTSP deadline is absolute even when a peer trickles bytes", async (t) => {
   const port = await withRtsp(t, (socket) => {
     const trickle = setInterval(() => socket.write("x"), 5);
     socket.on("close", () => clearInterval(trickle));
+    socket.on("error", () => clearInterval(trickle));
   });
   const started = Date.now();
   await assert.rejects(probeRtsp({ host: "127.0.0.1", streamKey: "sleeping", port, timeoutMs: 35 }), /timed out/);

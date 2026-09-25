@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { EventEmitter } from "node:events";
+import { randomUUID } from "node:crypto";
 import { parse } from "yaml";
 import { createGo2rtc, hardenGo2rtcYaml, withNamedStreams, streamKeys, streamSlug } from "../src/go2rtc.mjs";
 import { createState } from "../src/state.mjs";
@@ -90,4 +92,49 @@ test("streamSlug makes URL-safe keys", () => {
   assert.equal(streamSlug("Solar Wall Light Cam"), "solar_wall_light_cam");
   assert.equal(streamSlug("  Garage – Interior/Door  "), "garage_interior_door");
   assert.equal(streamSlug(""), "");
+});
+
+test("a real missing go2rtc binary schedules a retry after error and close", async () => {
+  const state = createState();
+  const timers = [];
+  const cfg = { go2rtcBin: join(tmpdir(), `no-go2rtc-${randomUUID()}`), go2rtcConfig: "/tmp/unused-go2rtc.yaml" };
+  const runner = createGo2rtc({ cfg, state }, { setTimer: (fn) => { const timer = { fn }; timers.push(timer); return timer; }, clearTimer: () => {} });
+  runner.startGo2rtc();
+  const child = state.flags.go2rtcProc;
+  await new Promise((resolve) => child.once("close", resolve));
+  assert.equal(state.flags.go2rtcProc, undefined);
+  assert.equal(timers.length, 1, "spawn error and close must produce one retry");
+  runner.stopGo2rtc();
+});
+
+test("go2rtc recovers after a launch failure and stop cancels pending restarts", () => {
+  const state = createState();
+  const children = [];
+  const timers = [];
+  const runner = createGo2rtc({ cfg: { go2rtcBin: "go2rtc", go2rtcConfig: "/tmp/unused-go2rtc.yaml" }, state }, {
+    retryDelayMs: 50,
+    spawnImpl: () => {
+      const child = new EventEmitter();
+      child.kill = () => { child.emit("exit", 0, "SIGTERM"); return true; };
+      children.push(child);
+      return child;
+    },
+    setTimer: (fn, ms) => { const timer = { fn, ms, cleared: false }; timers.push(timer); return timer; },
+    clearTimer: (timer) => { timer.cleared = true; },
+  });
+  runner.startGo2rtc();
+  children[0].emit("error", new Error("ENOENT"));
+  children[0].emit("error", new Error("late duplicate"));
+  children[0].emit("close", -2);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].ms, 50);
+  timers[0].fn();
+  assert.equal(children.length, 2);
+  assert.equal(state.flags.go2rtcProc, children[1]);
+  children[1].emit("exit", 1);
+  children[1].emit("close", 1);
+  assert.equal(timers.length, 2, "exit and close must produce one retry");
+  runner.stopGo2rtc();
+  assert.equal(timers[1].cleared, true);
+  assert.equal(state.flags.go2rtcProc, undefined);
 });
