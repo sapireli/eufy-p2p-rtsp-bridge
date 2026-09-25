@@ -106,6 +106,16 @@ func TestEditorSaveIsDraftAndValid(t *testing.T) {
 	}
 }
 
+func TestEditorRejectsOversizedImportedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.yaml")
+	if err := os.WriteFile(path, bytes.Repeat([]byte{' '}, (4<<20)+1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newLayoutEditor(path); err == nil || !strings.Contains(err.Error(), "4 MiB") {
+		t.Fatalf("oversized editor import was accepted: %v", err)
+	}
+}
+
 func TestEditorScriptKeepsRunningAfterRejectedCommand(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "draft.yaml")
 	var output bytes.Buffer

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -42,7 +41,7 @@ func newLayoutEditorForTarget(path string, target clientTarget) (*layoutEditor, 
 	} else if path == "-" {
 		return nil, errors.New("layout edit needs a file path; stdin is reserved for editor commands")
 	} else {
-		data, err = os.ReadFile(path)
+		data, err = readClientInput(path, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +119,7 @@ func editLayoutForTarget(path string, in io.Reader, out io.Writer, target client
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	e, err := newLayoutEditorForTarget(path, target)
 	if errors.Is(err, errLegacyLayout) {
-		data, readErr := os.ReadFile(path)
+		data, readErr := readClientInput(path, nil)
 		if readErr != nil {
 			return readErr
 		}
