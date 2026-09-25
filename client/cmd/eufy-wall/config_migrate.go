@@ -20,6 +20,8 @@ type clientMigrationReport struct {
 	Next                string `json:"next"`
 }
 
+var errClientJSONReported = errors.New("JSON diagnostic already emitted")
+
 func migrateClientCommand(args []string, in io.Reader, out io.Writer, target clientTarget) error {
 	if len(args) == 0 {
 		return errors.New("usage: eufy-wall config migrate <legacy-file|-> [--output candidate.yaml] [--json]")
@@ -82,7 +84,7 @@ func migrationError(out io.Writer, jsonOutput bool, cause error) error {
 	if err := emitClientJSON(out, false, &d); err != nil {
 		return err
 	}
-	return cause
+	return errClientJSONReported
 }
 
 // A hard link publishes a fully synced draft only if the requested name does not already exist.

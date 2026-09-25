@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -22,7 +23,9 @@ import (
 func main() {
 	if handled, err := runCommand(os.Args[1:], os.Stdin, os.Stdout); handled {
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "eufy-wall:", err)
+			if !errors.Is(err, errClientJSONReported) {
+				fmt.Fprintln(os.Stderr, "eufy-wall:", err)
+			}
 			os.Exit(1)
 		}
 		return

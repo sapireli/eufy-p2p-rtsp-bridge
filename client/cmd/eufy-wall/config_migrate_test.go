@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,36 @@ func TestClientMigrationPreviewsThenWritesOnlyNewCandidate(t *testing.T) {
 	unchanged, _ := os.ReadFile(source)
 	if string(unchanged) != legacy {
 		t.Fatal("migration changed the legacy source")
+	}
+}
+
+func TestMigrationRejectsCredentialBearingDerivedBridgeWithoutPrintingSecret(t *testing.T) {
+	legacy := "rtsp_base: rtsp://user:secret@bridge:8554\nlayout: 1\ntiles: [{camera: A}]\n"
+	target, _ := targetForPlatform("linux", "", "")
+	for _, args := range [][]string{{"-"}, {"-", "--json"}} {
+		var out bytes.Buffer
+		err := migrateClientCommand(args, strings.NewReader(legacy), &out, target)
+		if err == nil || strings.Contains(out.String(), "secret") || strings.Contains(err.Error(), "secret") {
+			t.Fatalf("credential-bearing derived bridge was accepted or leaked: args=%v err=%v output=%q", args, err, out.String())
+		}
+		if len(args) == 2 && !errors.Is(err, errClientJSONReported) {
+			t.Fatalf("JSON diagnostic will be followed by a plain stderr error: %v", err)
+		}
+	}
+	// An explicit credential-free control origin permits migration while preserving the RTSP source
+	// credentials privately in the candidate file.
+	legacy = "bridge_url: http://bridge:3000\n" + legacy
+	output := filepath.Join(t.TempDir(), "candidate.yaml")
+	if err := migrateClientCommand([]string{"-", "--output", output}, strings.NewReader(legacy), &bytes.Buffer{}, target); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Parse(b)
+	if err != nil || c.BridgeURL != "http://bridge:3000" || c.RTSPBase != "rtsp://user:secret@bridge:8554" {
+		t.Fatalf("private candidate changed source URLs: %+v, %v", c, err)
 	}
 }
 
