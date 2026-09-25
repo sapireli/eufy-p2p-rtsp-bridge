@@ -15,11 +15,14 @@ func TestRendererRestartsSilentCompositorBeforeOpeningSources(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
+	// Recovery needs the production window because the second PLAYING transition
+	// is real and can take longer than 500ms under load.
 	for _, tc := range []struct {
-		name       string
-		silentRuns int
-		wantError  bool
-	}{{"recovers", 1, false}, {"fails closed", 2, true}} {
+		name        string
+		silentRuns  int
+		outputAfter time.Duration
+		wantError   bool
+	}{{"recovers", 1, 5 * time.Second, false}, {"fails closed", 2, 500 * time.Millisecond, true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			mock := *a
 			var compositor uintptr
@@ -43,7 +46,7 @@ func TestRendererRestartsSilentCompositorBeforeOpeningSources(t *testing.T) {
 			}
 			opts := syntheticOptions(t)
 			opts.api = &mock
-			opts.startupOutputAfter = 500 * time.Millisecond
+			opts.startupOutputAfter = tc.outputAfter
 			opts.source = func(_ layout.Placed) (string, error) {
 				sources++
 				return "videotestsrc is-live=true pattern=ball ! videoconvert", nil
