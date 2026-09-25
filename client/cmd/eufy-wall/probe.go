@@ -67,10 +67,6 @@ func probeClientCamera(ctx context.Context, c *config.Config, serial string, cam
 	if codec == "" {
 		codec = "h264"
 	}
-	args, err := pipeline.ProbeArgs(c, decoder, codec, c.TileURL(config.Tile{Camera: camera.StreamKey}))
-	if err != nil {
-		return "", err
-	}
 	if camera.Mode != "always" {
 		owner := fmt.Sprintf("wall-probe-%d", os.Getpid())
 		endpoint := strings.TrimRight(c.BridgeURL, "/") + "/hold/" + url.PathEscape(serial) + "?" + url.Values{"owner": {owner}, "seconds": {"20"}}.Encode()
@@ -85,10 +81,35 @@ func probeClientCamera(ctx context.Context, c *config.Config, serial string, cam
 			}
 		}()
 	}
-	if err := run(ctx, args); err != nil {
-		return "", fmt.Errorf("%s: no decoded frame progress: %w", serial, err)
+	// Inventory may be cold or stale when a camera changed codec. Give each codec a share of the
+	// caller's deadline; otherwise the first stalled attempt could consume the entire probe window.
+	candidates := []string{codec}
+	if codec == "h264" {
+		candidates = append(candidates, "h265")
+	} else if codec == "h265" {
+		candidates = append(candidates, "h264")
 	}
-	return codec, nil
+	var failures []string
+	for i, candidate := range candidates {
+		args, buildErr := pipeline.ProbeArgs(c, decoder, candidate, c.TileURL(config.Tile{Camera: camera.StreamKey}))
+		if buildErr != nil {
+			failures = append(failures, candidate+": "+buildErr.Error())
+			continue
+		}
+		attemptCtx := ctx
+		cancel := func() {}
+		if deadline, ok := ctx.Deadline(); ok && i+1 < len(candidates) {
+			remaining := time.Until(deadline)
+			attemptCtx, cancel = context.WithTimeout(ctx, remaining/time.Duration(len(candidates)-i))
+		}
+		runErr := run(attemptCtx, args)
+		cancel()
+		if runErr == nil {
+			return candidate, nil
+		}
+		failures = append(failures, candidate+": "+runErr.Error())
+	}
+	return "", fmt.Errorf("%s: no decoded frame progress (%s)", serial, strings.Join(failures, "; "))
 }
 
 func probeHold(ctx context.Context, method, endpoint string) error {
@@ -128,7 +149,7 @@ func runDecodedProbe(ctx context.Context, args []string) error {
 	cmd.Stdout, cmd.Stderr = output, output
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("timed out after %s; check camera wake, RTSP, codec, and decoder", frameProbeTimeout)
+			return fmt.Errorf("probe deadline expired; check camera wake, RTSP, codec, and decoder: %w", ctx.Err())
 		}
 		return fmt.Errorf("gst-launch-1.0: %w: %s", err, strings.TrimSpace(output.buf.String()))
 	}

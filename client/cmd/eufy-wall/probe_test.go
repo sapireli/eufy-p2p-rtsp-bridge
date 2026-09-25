@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/pipeline"
@@ -88,6 +89,35 @@ func TestFrameProbeRejectsFailedHoldBeforeOpeningRTSP(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "HTTP 503") || called {
 		t.Fatalf("failed hold launched a stream: called=%v err=%v", called, err)
+	}
+}
+
+func TestFrameProbeRecoversFromUnknownOrStaleInventoryCodec(t *testing.T) {
+	for _, reported := range []string{"", "h264"} {
+		t.Run("reported="+reported, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+			defer srv.Close()
+			c := &config.Config{BridgeURL: srv.URL, RTSPBase: "rtsp://bridge:8554", Latency: 200}
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			var tried []string
+			codec, err := probeClientCamera(ctx, c, "BAT", []setupCamera{{SN: "BAT", Mode: "on_demand", Codec: reported, StreamKey: "door"}}, "software", func(attempt context.Context, args []string) error {
+				command := pipeline.String(args)
+				if strings.Contains(command, "rtph264depay") {
+					tried = append(tried, "h264")
+					<-attempt.Done() // a frozen first attempt must leave time for the other codec
+					return attempt.Err()
+				}
+				tried = append(tried, "h265")
+				if err := attempt.Err(); err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil || codec != "h265" || strings.Join(tried, ",") != "h264,h265" {
+				t.Fatalf("codec=%q tried=%v err=%v", codec, tried, err)
+			}
+		})
 	}
 }
 
