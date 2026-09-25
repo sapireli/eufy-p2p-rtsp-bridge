@@ -24,6 +24,7 @@ export function createWsHub(ctx, { heartbeatMs = HEARTBEAT_MS } = {}) {
   /** @type {Set<import("ws").WebSocket>} */
   const clients = new Set();
   const pending = new Map(); // events received while a client's async hello snapshot is being built
+  const lastMotion = new Map(); // serial -> last motion event time, for clients joining mid-event
   let wss;
   let heartbeat;
 
@@ -40,6 +41,7 @@ export function createWsHub(ctx, { heartbeatMs = HEARTBEAT_MS } = {}) {
           // The go2rtc stream key (the camera's name, slugged). The wall builds its RTSP URL from this
           // rather than from the serial, so renaming a camera moves its stream without a client change.
           streamKey: ctx.streamKeyFor?.(c.sn) ?? c.sn,
+          ...(lastMotion.has(c.sn) ? { lastMotionAt: lastMotion.get(c.sn) } : {}),
           state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
           // Whether GET /snapshot/<sn> has a thumbnail. A wall that renders a still for a camera with
           // none would be pointing a pipeline at a 404 and restarting it forever.
@@ -61,6 +63,7 @@ export function createWsHub(ctx, { heartbeatMs = HEARTBEAT_MS } = {}) {
   /** Fan one event out to every connected client. Never throws: a broken client must not break a stream. */
   function broadcast(event) {
     const msg = { at: Date.now(), ...event };
+    if (msg.type === "motion" && msg.sn && Number.isFinite(msg.at)) lastMotion.set(msg.sn, msg.at);
     for (const ws of clients) {
       const queue = pending.get(ws);
       if (queue) {
@@ -128,6 +131,7 @@ export function createWsHub(ctx, { heartbeatMs = HEARTBEAT_MS } = {}) {
     }
     clients.clear();
     pending.clear();
+    lastMotion.clear();
     wss?.close();
     wss = undefined;
   }

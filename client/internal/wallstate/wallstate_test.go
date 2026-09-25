@@ -340,3 +340,18 @@ func TestBridgeCodecSurvivesHelloAndUpdatesWithoutStateChange(t *testing.T) {
 		t.Fatalf("codec should survive a reconnect when omitted: %q", got)
 	}
 }
+
+func TestHelloRestoresRecentMotionUsingAgeDespiteClockSkew(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	s := NewAt(func() time.Time { return now })
+	serverNow := int64(3_000_000_000_000) // intentionally far from the display clock
+	s.Apply(Message{Type: "hello", At: serverNow, Cameras: []HelloCamera{{SN: "A", Mode: "on_motion", State: "live", LastMotionAt: serverNow - 10_000}}})
+	tile := config.Tile{Motion: "latest", Watch: []string{"A"}, BlankAfterSeconds: 30}
+	if got := s.Resolve([]config.Tile{tile}, nil, nil)[0]; got.Camera != "A" || got.Content != ContentLive {
+		t.Fatalf("a wall joining mid-motion should select A: %+v", got)
+	}
+	now = now.Add(21 * time.Second)
+	if got := s.Resolve([]config.Tile{tile}, nil, nil)[0]; got.Camera != "" || got.Hold {
+		t.Fatalf("replayed motion should expire on the display clock: %+v", got)
+	}
+}

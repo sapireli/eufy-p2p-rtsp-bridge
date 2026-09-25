@@ -50,18 +50,20 @@ func (s *Store) get(sn string) *Camera {
 
 // HelloCamera is one camera in the server's hello snapshot.
 type HelloCamera struct {
-	SN        string `json:"sn"`
-	Name      string `json:"name"`
-	Mode      string `json:"mode"`
-	State     string `json:"state"`
-	Still     bool   `json:"still"`
-	StreamKey string `json:"streamKey"`
-	Codec     string `json:"codec"`
+	SN           string `json:"sn"`
+	Name         string `json:"name"`
+	Mode         string `json:"mode"`
+	State        string `json:"state"`
+	Still        bool   `json:"still"`
+	StreamKey    string `json:"streamKey"`
+	Codec        string `json:"codec"`
+	LastMotionAt int64  `json:"lastMotionAt"`
 }
 
 // Message is one /ws frame. Only the fields the wall acts on are decoded.
 type Message struct {
 	Type    string        `json:"type"`
+	At      int64         `json:"at"`
 	SN      string        `json:"sn"`
 	State   string        `json:"state"`
 	Event   string        `json:"event"`
@@ -83,8 +85,16 @@ func (s *Store) Apply(m Message) bool {
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
 			cam := &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, Codec: c.Codec}
+			if c.LastMotionAt > 0 && m.At >= c.LastMotionAt {
+				// Use the age in the server snapshot, not its wall clock, so skew between the bridge and
+				// display cannot extend a battery camera's motion window indefinitely.
+				ageMs := min(m.At-c.LastMotionAt, int64((7*24*time.Hour)/time.Millisecond))
+				cam.LastMotion = s.now().Add(-time.Duration(ageMs) * time.Millisecond)
+			}
 			if old := previous[c.SN]; old != nil {
-				cam.LastMotion = old.LastMotion
+				if cam.LastMotion.IsZero() {
+					cam.LastMotion = old.LastMotion
+				}
 				if cam.Codec == "" {
 					cam.Codec = old.Codec
 				}

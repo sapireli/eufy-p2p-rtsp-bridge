@@ -106,6 +106,14 @@ test("broadcasting with nobody connected is harmless", async (t) => {
   assert.ok(msg.at > 0);
 });
 
+test("a reconnecting motion wall receives the last motion in hello", async (t) => {
+  const { ctx, url } = await withHub(t, [battery]);
+  const event = ctx.broadcastEvent({ type: "motion", sn: "BATT", event: "motion" });
+  const [hello] = await collect(url, 1);
+  assert.equal(hello.cameras[0].lastMotionAt, event.at);
+  assert.ok(hello.at >= event.at);
+});
+
 // A wall renders a still only where one exists; without this it would point a pipeline at a 404 and the
 // supervisor would restart it forever.
 test("hello says which cameras have a retained thumbnail", async (t) => {
