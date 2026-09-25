@@ -140,7 +140,7 @@ tiles:
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, screen := range []config.Screen{{1920, 1080}, {1919, 1079}} {
+	for _, screen := range []config.Screen{{Width: 1920, Height: 1080}, {Width: 1919, Height: 1079}} {
 		p, err := Place(c, screen)
 		if err != nil {
 			t.Fatal(err)
