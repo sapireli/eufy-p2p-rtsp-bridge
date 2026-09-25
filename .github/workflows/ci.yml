@@ -12,6 +12,11 @@ jobs:
         with: { node-version: "24", cache: npm, cache-dependency-path: server/package-lock.json }
       - run: npm ci
       - run: npm test
+      # Node 26 can include unexecuted first-party source files in the denominator.
+      # The release workflow still tests the packaged Node 24.5 runtime.
+      - uses: actions/setup-node@v4
+        with: { node-version: '26' }
+      - run: node --experimental-test-coverage --test --test-coverage-include='server.mjs' --test-coverage-include='cli.mjs' --test-coverage-include='src/**/*.mjs' --test-coverage-exclude='src/vendor/**' --test-coverage-include-all --test-coverage-lines=80.01 test/*.test.mjs
       - run: bash -n scripts/sync-upstream.sh
   client:
     runs-on: ubuntu-latest
@@ -22,7 +27,8 @@ jobs:
         with: { go-version-file: client/go.mod, cache-dependency-path: client/go.sum }
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
-      - run: go test ./... -race
+      - run: go test ./... -race -coverprofile=coverage.out
+      - run: go tool cover -func=coverage.out | awk '$1 == "total:" { seen=1; value=$3; sub(/%/, "", value); print "Go coverage:", value "%"; if (value <= 80) exit 1 } END { if (!seen) exit 1 }'
       - run: make all
       - uses: actions/upload-artifact@v7
         with: { name: eufy-wall-binaries, path: client/bin/, retention-days: 7 }
@@ -30,4 +36,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: bash -n deploy/install-server.sh deploy/install-client.sh client/spikes/spike-b.sh
+      - run: bash -n deploy/install-common.sh deploy/install-server.sh deploy/install-client.sh deploy/package-release.sh client/spikes/spike-b.sh
+      - run: bash deploy/tests/test-installers.sh
