@@ -5,6 +5,7 @@
   "type": "module",
   "description": "eufy P2P → RTSP bridge for the camera wall (wired, always-on)",
   "main": "server.mjs",
+  "bin": { "eufy-bridge": "./cli.mjs" },
   "engines": {
     "node": ">=24.5.0"
   },
