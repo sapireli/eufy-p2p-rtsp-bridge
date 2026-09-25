@@ -14,10 +14,10 @@ func healthyRuntimePair(now time.Time) (runtimeWallStatus, runtimeWallStatus) {
 	before := runtimeWallStatus{
 		SchemaVersion: 1, PID: 1234, StartedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-2 * time.Second),
 		Sink: "compositor", ConfigSHA256: "candidate", OutputFrames: 100, OutputLastFrameAt: now.Add(-2 * time.Second),
-		Tiles: map[string]runtimeTileStatus{"live": {ExpectedLive: true, DecodedFrames: 10, LastDecodedFrameAt: now.Add(-2 * time.Second), Generation: 3, State: "live"}},
+		Tiles: map[string]runtimeTileStatus{"live": {ExpectedLive: true, DecodedFrames: 10, LastDecodedFrameAt: now.Add(-2 * time.Second), Generation: 3, State: "playing"}},
 	}
 	after := before
-	after.Tiles = map[string]runtimeTileStatus{"live": {ExpectedLive: true, DecodedFrames: 12, LastDecodedFrameAt: now.Add(-time.Second), Generation: 3, State: "live"}}
+	after.Tiles = map[string]runtimeTileStatus{"live": {ExpectedLive: true, DecodedFrames: 12, LastDecodedFrameAt: now.Add(-time.Second), Generation: 3, State: "playing"}}
 	after.UpdatedAt = now.Add(-time.Second)
 	after.OutputFrames = 120
 	after.OutputLastFrameAt = now.Add(-time.Second)
@@ -47,6 +47,16 @@ func TestRuntimeProgressRejectsStaleAndFrozenStatus(t *testing.T) {
 			tile.Error = "decoder died"
 			s.Tiles["live"] = tile
 		},
+		"retrying old source": func(s *runtimeWallStatus) {
+			tile := s.Tiles["live"]
+			tile.State = "retrying"
+			s.Tiles["live"] = tile
+		},
+		"unexpected live state": func(s *runtimeWallStatus) {
+			tile := s.Tiles["live"]
+			tile.State = "idle"
+			s.Tiles["live"] = tile
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			bad := after
@@ -66,6 +76,16 @@ func TestRuntimeProgressAcceptsIdleTilesOnlyWithLiveOutput(t *testing.T) {
 	after.Tiles = before.Tiles
 	if err := runtimeProgress(before, after, 1234, "candidate", "compositor", []string{"idle"}, now); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRuntimeProgressRejectsFailedSnapshotTile(t *testing.T) {
+	now := time.Now()
+	before, after := healthyRuntimePair(now)
+	before.Tiles = map[string]runtimeTileStatus{"still": {State: "retrying"}}
+	after.Tiles = before.Tiles
+	if err := runtimeProgress(before, after, 1234, "candidate", "compositor", []string{"still"}, now); err == nil {
+		t.Fatal("failed still source passed apply health")
 	}
 }
 

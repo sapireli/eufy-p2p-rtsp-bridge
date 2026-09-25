@@ -76,11 +76,14 @@ func runtimeProgress(before, after runtimeWallStatus, pid int, hash, sink string
 		if !ok {
 			return fmt.Errorf("tile %s is absent from runtime status", id)
 		}
-		if tile.State == "error" {
-			return fmt.Errorf("tile %s reports an error: %s", id, tile.Error)
+		if tile.State == "error" || tile.State == "retrying" || tile.State == "stalled" {
+			return fmt.Errorf("tile %s is %s: %s", id, tile.State, tile.Error)
 		}
 		if !tile.ExpectedLive {
 			continue
+		}
+		if tile.State != "playing" {
+			return fmt.Errorf("tile %s is not playing (state=%s)", id, tile.State)
 		}
 		previous, ok := before.Tiles[id]
 		if !ok || !previous.ExpectedLive || previous.Generation != tile.Generation || tile.DecodedFrames <= previous.DecodedFrames {
