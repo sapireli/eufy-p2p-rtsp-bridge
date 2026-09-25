@@ -58,15 +58,15 @@ func TestStatusRejectsInvalidAndPreservesPrior(t *testing.T) {
 	}
 	base := validStatus()
 	cases := map[string]func(*Status){
-		"schema": func(s *Status) { s.SchemaVersion = 2 },
-		"pid": func(s *Status) { s.PID = 0 },
-		"sink": func(s *Status) { s.Sink = "" },
+		"schema":      func(s *Status) { s.SchemaVersion = 2 },
+		"pid":         func(s *Status) { s.PID = 0 },
+		"sink":        func(s *Status) { s.Sink = "" },
 		"hash length": func(s *Status) { s.ConfigSHA256 = "a" },
-		"hash hex": func(s *Status) { s.ConfigSHA256 = strings.Repeat("z", 64) },
-		"start": func(s *Status) { s.StartedAt = time.Time{} },
-		"update": func(s *Status) { s.UpdatedAt = time.Time{} },
-		"tiles": func(s *Status) { s.Tiles = nil },
-		"size": func(s *Status) { s.Tiles["front"] = TileStatus{Error: strings.Repeat("x", 1<<20)} },
+		"hash hex":    func(s *Status) { s.ConfigSHA256 = strings.Repeat("z", 64) },
+		"start":       func(s *Status) { s.StartedAt = time.Time{} },
+		"update":      func(s *Status) { s.UpdatedAt = time.Time{} },
+		"tiles":       func(s *Status) { s.Tiles = nil },
+		"size":        func(s *Status) { s.Tiles["front"] = TileStatus{Error: strings.Repeat("x", 1<<20)} },
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
