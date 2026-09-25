@@ -139,8 +139,8 @@ func validateClientConfig(b []byte, host bool) error {
 		if err := detect.CheckNativeElements(caps.Sink, detect.HasElement); err != nil {
 			return err
 		}
-		if !detect.HasElement("watchdog") {
-			return errors.New("GStreamer watchdog is missing (install gstreamer1.0-plugins-bad)")
+		if err := detect.CheckNativeVersion(caps.Sink); err != nil {
+			return err
 		}
 		if caps.Sink == "planes" || caps.Sink == "compositor" {
 			if !detect.HasElement("kmssink") {

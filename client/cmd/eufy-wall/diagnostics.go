@@ -52,6 +52,8 @@ func diagnosticForClient(message string, operation string) clientDiagnostic {
 		d.Code, d.Path, d.Remedy = "DRM_PLANE_UNUSABLE", "planes", "Choose plane IDs that reach the selected output, or use sink: compositor."
 	case strings.Contains(message, "output") && strings.Contains(message, "DRM"):
 		d.Code, d.Path, d.Remedy = "DRM_OUTPUT_UNAVAILABLE", "output", "Check the connected output name and DRM connector ID."
+	case strings.Contains(message, "GStreamer version"):
+		d.Code, d.Remedy = "GSTREAMER_VERSION_UNSUPPORTED", "Install GStreamer 1.20 or newer and rerun eufy-wall doctor."
 	case strings.Contains(message, "GStreamer ") && strings.Contains(message, "is missing") || strings.Contains(message, "gst-launch"):
 		d.Code, d.Remedy = "GSTREAMER_ELEMENT_MISSING", "Install the required GStreamer package and rerun eufy-wall doctor."
 	case strings.Contains(message, "decoder") || strings.Contains(message, "GStreamer"):

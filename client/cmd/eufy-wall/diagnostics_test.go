@@ -46,3 +46,10 @@ func TestClientApplyJSONFailureIsStructuredAndSafe(t *testing.T) {
 		t.Fatalf("apply error was not structured safely: %v %q", err, out.String())
 	}
 }
+
+func TestOldGStreamerVersionHasActionableDiagnostic(t *testing.T) {
+	d := diagnosticForClient("GStreamer version 1.18 is unsupported for the native compositor", "doctor")
+	if d.Code != "GSTREAMER_VERSION_UNSUPPORTED" || !strings.Contains(d.Remedy, "1.20") {
+		t.Fatalf("old GStreamer version diagnostic: %+v", d)
+	}
+}

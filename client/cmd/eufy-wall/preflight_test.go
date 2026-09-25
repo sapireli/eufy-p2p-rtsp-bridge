@@ -84,7 +84,7 @@ func TestPreflightRejectsUnknownMotionWatchCodec(t *testing.T) {
 
 func TestHostValidationUsesActualBridgeAndDecoderBeforeMutation(t *testing.T) {
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "gst-inspect-1.0"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "gst-inspect-1.0"), []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'gst-inspect-1.0 version 1.22.0'; fi\nexit 0\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
