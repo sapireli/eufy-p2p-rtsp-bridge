@@ -1,6 +1,6 @@
 # Plug-and-play setup and terminal layout plan
 
-Status: proposed specification, 2026-09-25. This document describes the next product work; it does not describe features already shipped.
+Status: implementation in progress on `plan/plug-and-play-setup`, 2026-09-25. The acceptance criteria below remain the release gates. Node and Go CI now require more than 80% overall line coverage with adversarial and unit tests. The integrated setup commands, config transactions, inventory contract, line-mode layout editor, and verified installers are implemented on this branch. Independent recovery of compositor tiles, the specified full-screen editor, full hardware qualification, and clean-host usability/soak evidence remain open; the runbooks mark unmeasured profiles unverified.
 
 ## Outcome
 
@@ -21,9 +21,9 @@ Each existing program owns its own setup and config experience. The Node bridge 
 | Existing config | Keep current presets and YAML valid; add `schema_version: 2` for new features | Current deployments must upgrade without an immediate migration. |
 | Apply | Validate, stage, activate, health-check, and roll back | A bad edit should not leave a display black or a bridge unable to start. |
 
-## What exists and what this plan adds
+## Baseline when this plan started
 
-The bridge already has YAML config, `/api/cameras`, `/healthz`, `/auth/*`, RTSP via go2rtc, and motion events. The client already has presets, first-fit placement, hardware detection, `-dry-run`, and per-tile processes on the planes sink. Both have install scripts and systemd units. The scripts still copy example configs and ask for manual edits. The client currently accepts grids no larger than 6×6, places tiles in order, and requires explicit plane IDs for the planes sink. The runbooks have unfilled device and performance tables.
+The bridge had YAML config, `/api/cameras`, `/healthz`, `/auth/*`, RTSP via go2rtc, and motion events. The client had presets, first-fit placement, hardware detection, `-dry-run`, and per-tile processes on the planes sink. Both had install scripts and systemd units. The scripts copied example configs and asked for manual edits. The client accepted preset grids no larger than 6×6, placed tiles in order, and required explicit plane IDs for the planes sink. The runbooks had unfilled device and performance tables.
 
 Before calling setup complete, fix these existing edge cases as part of the work:
 
@@ -44,7 +44,7 @@ Before calling setup complete, fix these existing edge cases as part of the work
 5. The wizard tests the chosen LAN policy and RTSP path, asks which address the clients should use, and offers an optional bounded stream probe for each selected camera. It shows a summary of changes before applying them.
 6. On success it prints the bridge URL, RTSP URL, health result, and the command to export a sanitized camera inventory for an offline client. On failure it restores the previous config and service state, with an actionable error.
 
-Commands: `eufy-bridge setup`, `eufy-bridge doctor`, `eufy-bridge config validate <file|->`, `eufy-bridge config apply <file|->`, `eufy-bridge config example`, `eufy-bridge inventory export <file>`, `eufy-bridge status`, and `eufy-bridge upgrade`. The same Node modules that run the bridge validate its config; a thin installed command dispatches the subcommands. Noninteractive commands accept `--json`; `setup --answers <file>` supports reproducible installs without putting secrets in command arguments.
+Commands: `eufy-bridge setup`, `eufy-bridge doctor`, `eufy-bridge config validate <file|->`, `eufy-bridge config apply <file|->`, `eufy-bridge config example`, `eufy-bridge inventory export <file>`, and `eufy-bridge status`. The versioned, verified release installer performs upgrades and binary rollback. The same Node modules that run the bridge validate its config; a thin installed command dispatches the subcommands. Noninteractive commands accept `--json`; `setup --answers <file>` supports reproducible installs without putting secrets in command arguments.
 
 ### New client
 
@@ -54,7 +54,7 @@ Commands: `eufy-bridge setup`, `eufy-bridge doctor`, `eufy-bridge config validat
 4. Choose a starter template (one camera, split screen, 2×2, 1+5, motion screen), open the terminal layout editor, or import an existing YAML file. The CLI shows a text preview and lists every warning.
 5. The CLI checks layout fit, decoder/codec match, usable planes, stream count budget, network reachability, and a short render probe. It applies the config only after validation and reports the service's live status.
 
-Commands: `eufy-wall setup`, `eufy-wall doctor`, `eufy-wall layout edit [file]`, `eufy-wall layout preview <file>`, `eufy-wall config validate <file|->`, `eufy-wall config apply <file|->`, `eufy-wall config example`, `eufy-wall status`, and `eufy-wall upgrade`. These are subcommands of the existing Go binary. Keep `-config`, `-dry-run`, and `-print-layout` working for existing scripts.
+Commands: `eufy-wall setup`, `eufy-wall doctor`, `eufy-wall layout edit [file]`, `eufy-wall layout preview <file>`, `eufy-wall config validate <file|->`, `eufy-wall config apply <file|->`, `eufy-wall config example`, and `eufy-wall status`. The versioned, verified release installer performs upgrades and binary rollback. These are subcommands of the existing Go binary. Keep `-config`, `-dry-run`, and `-print-layout` working for existing scripts.
 
 ### Terminal layout editor and previews
 
@@ -207,11 +207,12 @@ The server setup flow must stage credentials separately from nonsecret YAML. The
 - The documented supported hardware profiles pass the soak/recovery matrix with measured frame progress and bounded recovery time.
 - Network, camera, and process failures recover within the documented bounds without disrupting unaffected tiles; both CI coverage reports exceed 80% overall and the adversarial and unit tests pass.
 
-## Decisions to confirm before implementation
+## Hardware target and remaining decisions
 
-1. Which hardware is a release target: Pi 1, Pi 3, Pi 4/5, Debian x86, or a smaller subset? The benchmark and package matrix should match actual deployment intent.
-2. Should a local HDMI preview be mandatory before apply on a headless SSH session, or optional when the PNG and render probe pass? This plan makes it optional.
-3. Should deliberate overlapping tiles/overlays be a later feature? This plan rejects overlap in v2 so the render result is predictable.
+The requested display targets are Raspberry Pi 1, 3, 4, and 5, plus Debian amd64. Architecture builds are available for these families; actual rendering and recovery support is conditional on the measurements in the client runbook. A Pi 1 is a display-client target, not a bridge-server target.
+
+1. Should a local HDMI preview be mandatory before apply on a headless SSH session, or optional when the PNG and render probe pass? This plan makes it optional.
+2. Should deliberate overlapping tiles/overlays be a later feature? This plan rejects overlap in v2 so the render result is predictable.
 
 ## References
 
