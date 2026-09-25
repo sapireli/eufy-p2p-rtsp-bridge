@@ -159,6 +159,10 @@ func applyClientData(dest string, data []byte, service clientService) error {
 	if hadPrevious && string(old) == string(data) {
 		return nil
 	}
+	previousStatus, err := readClientStatus(dest)
+	if err != nil {
+		return err
+	}
 	mode := os.FileMode(0644)
 	var owner *syscall.Stat_t
 	if info, err := os.Stat(dest); err == nil {
@@ -187,6 +191,12 @@ func applyClientData(dest string, data []byte, service clientService) error {
 	if err := service.Healthy(); err != nil {
 		return rollbackClientConfig(dest, service, err)
 	}
+	previousStatus.SHA256 = clientSHA256(data)
+	previousStatus.AppliedAt = time.Now().UTC()
+	previousStatus.Backup = backup
+	if err := writeClientStatus(dest, previousStatus); err != nil {
+		return rollbackClientConfig(dest, service, fmt.Errorf("record apply status: %w", err))
+	}
 	if err := os.Remove(dest + ".pending"); err != nil {
 		return fmt.Errorf("applied, but could not clear pending marker: %w", err)
 	}
@@ -196,6 +206,9 @@ func applyClientData(dest string, data []byte, service clientService) error {
 func rollbackClientConfig(dest string, service clientService, cause error) error {
 	if err := recoverClientConfigLocked(dest); err != nil {
 		return fmt.Errorf("new config failed (%v), rollback failed: %w", cause, err)
+	}
+	if err := recordClientRollback(dest, cause.Error()); err != nil {
+		return fmt.Errorf("new config failed (%v), previous config restored but rollback status failed: %w", cause, err)
 	}
 	if _, err := os.Stat(dest); errors.Is(err, os.ErrNotExist) {
 		if stopErr := service.Stop(); stopErr != nil {
@@ -262,7 +275,10 @@ func recoverClientConfigLocked(dest string) error {
 	if err := os.Remove(dest + ".pending"); err != nil {
 		return err
 	}
-	return syncClientDir(filepath.Dir(dest))
+	if err := syncClientDir(filepath.Dir(dest)); err != nil {
+		return err
+	}
+	return recordClientRollback(dest, "interrupted apply restored on service start")
 }
 
 func lockClientConfig(dest string) (func(), error) {

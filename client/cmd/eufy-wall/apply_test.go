@@ -69,6 +69,10 @@ func TestApplyClientDataAndNoop(t *testing.T) {
 	if _, err := os.Stat(dest + ".pending"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("pending marker remains: %v", err)
 	}
+	status, err := readClientStatus(dest)
+	if err != nil || status.SHA256 != clientSHA256([]byte(otherWallYAML)) || status.AppliedAt.IsZero() {
+		t.Fatalf("missing applied status: %+v, %v", status, err)
+	}
 	backups, err := filepath.Glob(dest + ".bak.*")
 	if err != nil || len(backups) != 1 {
 		t.Fatalf("backups=%v err=%v", backups, err)
@@ -109,6 +113,10 @@ func TestApplyClientDataRejectsBeforeMutationAndRollsBackOnHealthFailure(t *test
 	}
 	if _, err := os.Stat(dest + ".pending"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("pending marker remains: %v", err)
+	}
+	status, err := readClientStatus(dest)
+	if err != nil || status.LastRollback == "" || status.SHA256 != clientSHA256([]byte(validWallYAML)) {
+		t.Fatalf("rollback not recorded: %+v, %v", status, err)
 	}
 }
 

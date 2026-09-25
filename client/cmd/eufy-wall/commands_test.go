@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -164,5 +166,49 @@ func TestLayoutPreviewCommandFlagsAndEditDispatch(t *testing.T) {
 	out.Reset()
 	if handled, err := runCommand([]string{"layout", "edit"}, strings.NewReader("quit\n"), &out); !handled || err != nil {
 		t.Fatalf("editor command handled=%v err=%v", handled, err)
+	}
+}
+
+func TestConfigExplainNamesBridgeAndCodecConstraints(t *testing.T) {
+	var out bytes.Buffer
+	if handled, err := runCommand([]string{"config", "explain"}, strings.NewReader(""), &out); !handled || err != nil || !strings.Contains(out.String(), "bridge_url") || !strings.Contains(out.String(), "decoder") {
+		t.Fatalf("explain handled=%v err=%v out=%q", handled, err, out.String())
+	}
+	out.Reset()
+	if handled, err := runCommand([]string{"config", "explain", "tiles"}, strings.NewReader(""), &out); !handled || err != nil || !strings.Contains(out.String(), "stable id") {
+		t.Fatalf("field explain handled=%v err=%v out=%q", handled, err, out.String())
+	}
+	if handled, err := runCommand([]string{"config", "explain", "invented"}, strings.NewReader(""), &out); !handled || err == nil {
+		t.Fatal("unknown field was accepted")
+	}
+}
+
+func TestDoctorReportsBridgeAuthFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			_, _ = w.Write([]byte(`{"ok":true,"auth":{"state":"pending"},"go2rtc":"running"}`))
+		}
+	}))
+	defer srv.Close()
+	path := filepath.Join(t.TempDir(), "wall.yaml")
+	data := "schema_version: 2\nbridge_url: " + srv.URL + "\nrtsp_base: rtsp://127.0.0.1:8554\nscreen: {width: 640, height: 480}\ndecoder: software\nsink: window\nlayout: 1\ntiles:\n  - {id: door, camera: A}\n"
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "gst-inspect-1.0"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var out bytes.Buffer
+	if err := clientDoctorAt(path, true, &out); err == nil {
+		t.Fatal("pending auth was reported healthy")
+	}
+	var report doctorReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.BridgeReady || !strings.Contains(strings.Join(report.Problems, " "), "auth=pending") {
+		t.Fatalf("doctor failed to explain bridge auth: %+v", report)
 	}
 }

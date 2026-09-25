@@ -11,7 +11,7 @@ sudo eufy-wall config apply wall.yaml
 cat wall.yaml | ssh pi 'sudo eufy-wall config apply -'
 ```
 
-The `-` input means stdin. `config apply` stages validated YAML, backs up the active file, restarts the wall, checks that the service stays active, and restores the previous config on failure. `config recover` is run by systemd before the service starts after an interrupted apply. Keep the backup until the new layout has run on the intended hardware. The client file contains no Eufy password or token.
+The `-` input means stdin. `config apply` stages validated YAML, checks bridge health, camera inventory, RTSP socket reachability, installed decoder elements, and the local layout, then backs up the active file. It restarts the wall, checks that the service stays active, and restores the previous config on failure. `config recover` is run by systemd before the service starts after an interrupted apply. `eufy-wall status --json` reports the active hash, most recent backup, and last rollback reason. Keep the backup until the new layout has run on the intended hardware. The client file contains no Eufy password or token.
 
 ## Complete custom layout
 
@@ -83,6 +83,6 @@ Without `inventory_file`, setup reads `/api/cameras` from the bridge. It sends n
 
 ## Diagnostics and recovery
 
-`eufy-wall doctor --json` reports the detected screen, decoder, sink, watchdog element, renderer binary, and config errors. `eufy-wall -config wall.yaml -dry-run` prints the resolved GStreamer plans. A config can pass schema checks but still fail on a host with missing DRM planes, unsupported H.265 decoding, a disconnected display, or unreachable RTSP streams. Use the target host for final checks. `journalctl -u eufy-wall -f` shows stream and pipeline recovery. If an apply fails, the command restores the prior bytes and restarts the old service; inspect the dated `.bak.*` files before deleting them.
+`eufy-wall doctor --json` reports the detected screen, decoder, sink, watchdog element, renderer binary, bridge health, and config errors; it exits nonzero when a check fails. `eufy-wall -config wall.yaml -dry-run` prints the resolved GStreamer plans. A config can pass schema checks but still fail on a host with missing DRM planes, unsupported H.265 decoding, a disconnected display, or RTSP streams that accept a socket but deliver no frames. Use the target host for final checks. `journalctl -u eufy-wall -f` shows stream and pipeline recovery. If an apply fails, the command restores the prior bytes and restarts the old service; inspect the dated `.bak.*` files before deleting them.
 
 On a network outage, the wall reconnects its WebSocket and refreshes the camera snapshot. Pipeline restarts use bounded backoff. Fixed on-demand holds are bounded by the bridge and expire even if the display disappears. A compositor currently remains one process, so changing a tile restarts the entire compositor; use tested DRM planes when unaffected tiles must remain continuous. This limitation remains a release gate in the setup plan.

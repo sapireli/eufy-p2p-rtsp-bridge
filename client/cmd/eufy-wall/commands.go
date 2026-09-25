@@ -30,6 +30,31 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 			return true, errors.New("usage: eufy-wall config validate|apply|recover|example ...")
 		}
 		switch args[1] {
+		case "explain":
+			if len(args) > 3 {
+				return true, errors.New("usage: eufy-wall config explain [field]")
+			}
+			fields := map[string]string{
+				"schema_version": "2 uses strict field validation and stable tile IDs; omit for legacy YAML",
+				"bridge_url":     "HTTP(S) control origin for events, inventory, stills, and holds",
+				"rtsp_base":      "RTSP origin for camera video, separate from bridge_url",
+				"layout":         "custom needs explicit nonoverlapping rects on a 1..32 canvas; presets remain available",
+				"tiles":          "stable id, camera or motion source, and rect for custom layouts",
+				"decoder":        "auto, v4l2, va, or software; actual codec must be installed on this host",
+				"sink":           "auto, planes, compositor, or window; planes need one verified ID per tile",
+			}
+			if len(args) == 3 {
+				value, ok := fields[args[2]]
+				if !ok {
+					return true, fmt.Errorf("unknown config field %q; see docs/config-client.md", args[2])
+				}
+				_, err := fmt.Fprintf(out, "%s: %s\n", args[2], value)
+				return true, err
+			}
+			for _, key := range []string{"schema_version", "bridge_url", "rtsp_base", "layout", "tiles", "decoder", "sink"} {
+				_, _ = fmt.Fprintf(out, "%s: %s\n", key, fields[key])
+			}
+			return true, nil
 		case "validate":
 			if len(args) != 3 {
 				return true, errors.New("usage: eufy-wall config validate <file|->")
@@ -114,6 +139,11 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 			return true, errors.New("usage: eufy-wall doctor [--json]")
 		}
 		return true, clientDoctor(len(args) == 2, out)
+	case "status":
+		if len(args) > 2 || len(args) == 2 && args[1] != "--json" {
+			return true, errors.New("usage: eufy-wall status [--json]")
+		}
+		return true, showClientStatus(clientConfigPath, len(args) == 2, out, func() error { return systemctl("is-active", "--quiet", "eufy-wall") })
 	case "help":
 		_, _ = io.WriteString(out, clientHelp)
 		return true, nil
@@ -125,7 +155,7 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 	}
 }
 
-const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  config validate <file|->\n  config apply <file|->\n  config recover\n  config example\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
+const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  config validate <file|->\n  config apply <file|->\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  status [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
 
 func readClientInput(path string, in io.Reader) ([]byte, error) {
 	if path == "-" {
@@ -163,11 +193,16 @@ type doctorReport struct {
 	Sink        string        `json:"sink,omitempty"`
 	Watchdog    bool          `json:"watchdog"`
 	GstLaunch   bool          `json:"gstLaunch"`
+	BridgeReady bool          `json:"bridgeReady"`
 	ConfigValid bool          `json:"configValid"`
 	Problems    []string      `json:"problems"`
 }
 
 func clientDoctor(jsonOutput bool, out io.Writer) error {
+	return clientDoctorAt(clientConfigPath, jsonOutput, out)
+}
+
+func clientDoctorAt(path string, jsonOutput bool, out io.Writer) error {
 	report := doctorReport{Problems: []string{}}
 	if s, ok := detect.Screen("/"); ok {
 		report.Screen = s
@@ -178,9 +213,9 @@ func clientDoctor(jsonOutput bool, out io.Writer) error {
 	if !report.Watchdog {
 		report.Problems = append(report.Problems, "GStreamer watchdog is missing (install gstreamer1.0-plugins-bad)")
 	}
-	_, err := os.Stat("/etc/eufy-wall.yaml")
+	_, err := os.Stat(path)
 	if err == nil {
-		c, parseErr := config.Load("/etc/eufy-wall.yaml")
+		c, parseErr := config.Load(path)
 		if parseErr != nil {
 			report.Problems = append(report.Problems, parseErr.Error())
 		} else {
@@ -193,12 +228,19 @@ func clientDoctor(jsonOutput bool, out io.Writer) error {
 				report.Problems = append(report.Problems, resolveErr.Error())
 			} else {
 				report.Decoder, report.Sink = caps.Decoder, caps.Sink
+				if cameras, preflightErr := preflightClientRemote(context.Background(), c); preflightErr != nil {
+					report.Problems = append(report.Problems, preflightErr.Error())
+				} else if codecErr := codecPreflight(c, cameras, caps.Decoder, detect.HasElement); codecErr != nil {
+					report.Problems = append(report.Problems, codecErr.Error())
+				} else {
+					report.BridgeReady = true
+				}
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		report.Problems = append(report.Problems, err.Error())
 	} else {
-		report.Problems = append(report.Problems, "config not installed at /etc/eufy-wall.yaml")
+		report.Problems = append(report.Problems, "config not installed at "+path)
 	}
 	if _, err := exec.LookPath("gst-launch-1.0"); err == nil {
 		report.GstLaunch = true
@@ -206,9 +248,15 @@ func clientDoctor(jsonOutput bool, out io.Writer) error {
 		report.Problems = append(report.Problems, "gst-launch-1.0 is missing")
 	}
 	if jsonOutput {
-		return json.NewEncoder(out).Encode(report)
+		if err := json.NewEncoder(out).Encode(report); err != nil {
+			return err
+		}
+		if len(report.Problems) > 0 {
+			return errors.New("doctor found problems")
+		}
+		return nil
 	}
-	_, _ = fmt.Fprintf(out, "screen: %dx%d\ndecoder: %s\nsink: %s\nwatchdog: %v\ngst-launch: %v\nconfig valid: %v\n", report.Screen.Width, report.Screen.Height, report.Decoder, report.Sink, report.Watchdog, report.GstLaunch, report.ConfigValid)
+	_, _ = fmt.Fprintf(out, "screen: %dx%d\ndecoder: %s\nsink: %s\nwatchdog: %v\ngst-launch: %v\nconfig valid: %v\nbridge ready: %v\n", report.Screen.Width, report.Screen.Height, report.Decoder, report.Sink, report.Watchdog, report.GstLaunch, report.ConfigValid, report.BridgeReady)
 	for _, p := range report.Problems {
 		_, _ = fmt.Fprintf(out, "problem: %s\n", p)
 	}
