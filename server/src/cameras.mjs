@@ -127,6 +127,7 @@ export function createCameras(ctx, { describeAttempts = 3, describeRetryMs = 200
 
   function apiShape(cam, host) {
     const st = ctx.streamStatus?.(cam.sn) ?? {};
+    const streamKey = streamKeyFor(cam.sn);
     return {
       sn: cam.sn,
       name: cam.name,
@@ -151,8 +152,8 @@ export function createCameras(ctx, { describeAttempts = 3, describeRetryMs = 200
       blocked: ctx.state.blocked.get(cam.sn) ?? null,
       // The go2rtc stream is keyed by the camera's name, not its serial — see streamKeys(). Reported
       // here so a client uses the bridge's key rather than deriving its own and getting it subtly wrong.
-      streamKey: streamKeyFor(cam.sn),
-      rtsp: `rtsp://${urlHost(host)}:8554/${streamKeyFor(cam.sn)}`,
+      streamKey,
+      rtsp: `rtsp://${urlHost(host)}:8554/${encodeURIComponent(streamKey)}`,
       stream: `/stream/${cam.sn}`,
     };
   }

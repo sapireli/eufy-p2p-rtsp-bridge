@@ -64,6 +64,15 @@ test("apiShape merges stream status and rtsp url", async () => {
   assert.equal(c.apiShape(c.getCamera("T8410A"), "::1").rtsp, "rtsp://[::1]:8554/garage");
 });
 
+test("apiShape encodes a Unicode stream key as one RTSP path segment", async () => {
+  const camera = { ...wired, name: "庭" };
+  const c = createCameras(ctxWith([camera]));
+  await c.refreshCameras();
+  const api = c.apiShape(c.getCamera(camera.sn), "192.0.2.10");
+  assert.equal(api.streamKey, "庭");
+  assert.equal(api.rtsp, "rtsp://192.0.2.10:8554/%E5%BA%AD");
+});
+
 // A battery camera's whole behaviour is its mode and whether something is holding it right now; an API
 // that reports neither cannot explain why a camera is or is not streaming.
 test("apiShape reports the mode and live hold state", async () => {
