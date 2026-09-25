@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 import { loadConfig, parseConfigText } from "./src/config.mjs";
 import { configDiagnostic } from "./src/config-diagnostic.mjs";
+import { explainConfigField } from "./src/config-explain.mjs";
 import { migrateLegacyConfig } from "./src/config-migrate.mjs";
 import { applyConfig, applyStatus, recoverInterruptedApply } from "./src/config-apply.mjs";
 import { chooseCameraPolicies } from "./src/setup-cameras.mjs";
@@ -247,8 +248,8 @@ async function main() {
   const [verb, sub, path] = clean;
   if (verb === "config" && sub === "example") return emit(await fs.readFile(join(__dirname, "config.example.yaml"), "utf8"), false);
   if (verb === "config" && sub === "explain") {
-    const map = { schema_version: "2 for strict field checks; omitted for legacy YAML", eufy: "Credentials: EUFY_EMAIL/EUFY_PASSWORD environment variables take precedence", lan: "cidr is the camera LAN; force requires cidr and disallows public peer fallback", cameras: "Camera serial keys; mode is always, on_motion, or on_demand", go2rtc: "transcode is never, auto, or always" };
-    return emit(path ? { path, explanation: map[path] ?? "See docs/config-server.md for this field" } : map, asJson);
+    if (clean.length > 3) throw new Error("usage: eufy-bridge config explain [field]");
+    return emit(explainConfigField(path), asJson);
   }
   if (verb === "config" && sub === "validate") {
     const text = await input(path);

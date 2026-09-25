@@ -32,6 +32,8 @@ sudo eufy-bridge setup --answers ./answers.yaml
 
 For hand-edited config, use `eufy-bridge config example` to print the versioned template and `eufy-bridge config explain cameras` for short inline help. The runtime file is `/etc/eufy-wall-bridge.yaml` in a release install, overridable with `BRIDGE_CONFIG`. The environment file is `/etc/eufy-wall-bridge.env`, overridable with `BRIDGE_ENV`. Shell or systemd environment values take precedence over YAML credentials.
 
+`config explain` covers every strict v2 YAML field and its defaults or allowed values. For a camera entry, use its serial in the path, for example `eufy-bridge config explain cameras.T8214XXXXXXXXXXX.mode`; `eufy-bridge config explain lan.upgrade.window_ms` explains a nested timing field. An unknown path fails instead of returning generic help.
+
 ## Manual YAML path
 
 Save credentials separately:
