@@ -73,9 +73,8 @@ jobs:
         with:
           go-version-file: client/go.mod
           cache-dependency-path: client/go.sum
-      - run: go test ./...
-        working-directory: client
-      - run: go test ./... -coverprofile=coverage.out
+      - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgstreamer1.0-0 gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
+      - run: go test ./... -race -coverprofile=coverage.out
         working-directory: client
       - run: go tool cover -func=coverage.out | awk '$1 == "total:" { seen=1; value=$3; sub(/%/, "", value); print "Go coverage:", value "%"; if (value <= 80) exit 1 } END { if (!seen) exit 1 }'
         working-directory: client
