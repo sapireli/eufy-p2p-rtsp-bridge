@@ -54,8 +54,10 @@ func sourceDescription(tile layout.Placed, caps pipeline.Caps, latency int) (str
 		return "", fmt.Errorf("native compositor: decoder %q cannot decode %s (tile %s)", caps.Decoder, codec, tileID(tile))
 	}
 	depay, parse := "rtph264depay", "h264parse"
+	rtpCodec := "H264"
 	if codec == "h265" {
 		depay, parse = "rtph265depay", "h265parse"
+		rtpCodec = "H265"
 	}
 	quoted, err := quoteProperty(tile.URL)
 	if err != nil {
@@ -64,7 +66,7 @@ func sourceDescription(tile layout.Placed, caps pipeline.Caps, latency int) (str
 	if latency < 0 || latency > 10000 {
 		return "", errors.New("native compositor latency must be 0..10000 ms")
 	}
-	return fmt.Sprintf("rtspsrc location=%s latency=%d protocols=tcp ! %s ! %s ! %s ! watchdog timeout=15000 ! videoconvert", quoted, latency, depay, parse, family[codec]), nil
+	return fmt.Sprintf("rtspsrc location=%s latency=%d protocols=tcp ! application/x-rtp,media=video,encoding-name=%s ! %s ! %s ! %s ! watchdog timeout=15000 ! videoconvert", quoted, latency, rtpCodec, depay, parse, family[codec]), nil
 }
 
 func quoteProperty(value string) (string, error) {

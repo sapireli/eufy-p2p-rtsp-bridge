@@ -28,6 +28,8 @@ type gstAPI struct {
 	getState    func(uintptr, uintptr, uintptr, uint64) int32
 	byName      func(uintptr, string) uintptr
 	staticPad   func(uintptr, string) uintptr
+	ghostPad    func(string, uintptr) uintptr
+	addPad      func(uintptr, uintptr) int32
 	padUnlink   func(uintptr, uintptr) int32
 	padLink     func(uintptr, uintptr) int32
 	binAdd      func(uintptr, uintptr) int32
@@ -76,6 +78,7 @@ func openAPI() (*gstAPI, error) {
 		{"gst_parse_bin_from_description", &a.parseBin, core}, {"gst_element_set_state", &a.setState, core},
 		{"gst_element_get_state", &a.getState, core}, {"gst_bin_get_by_name", &a.byName, core},
 		{"gst_element_get_static_pad", &a.staticPad, core}, {"gst_pad_unlink", &a.padUnlink, core},
+		{"gst_ghost_pad_new", &a.ghostPad, core}, {"gst_element_add_pad", &a.addPad, core},
 		{"gst_pad_link", &a.padLink, core}, {"gst_bin_add", &a.binAdd, core},
 		{"gst_bin_remove", &a.binRemove, core}, {"gst_element_sync_state_with_parent", &a.syncState, core},
 		{"gst_object_ref", &a.objectRef, core}, {"gst_object_unref", &a.objectUnref, core},
@@ -134,10 +137,18 @@ func bind(lib uintptr, name string, fn any) (err error) {
 }
 
 func (a *gstAPI) parsed(description string, bin bool) (uintptr, error) {
+	return a.parseElement(description, bin, true)
+}
+
+func (a *gstAPI) parseElement(description string, bin, autoGhost bool) (uintptr, error) {
 	var parseError uintptr
 	var element uintptr
 	if bin {
-		element = a.parseBin(description, 1, uintptr(unsafe.Pointer(&parseError)))
+		ghost := int32(0)
+		if autoGhost {
+			ghost = 1
+		}
+		element = a.parseBin(description, ghost, uintptr(unsafe.Pointer(&parseError)))
 	} else {
 		element = a.parse(description, uintptr(unsafe.Pointer(&parseError)))
 	}
@@ -155,12 +166,43 @@ func (a *gstAPI) parsed(description string, bin bool) (uintptr, error) {
 	return element, nil
 }
 
+func (a *gstAPI) sourceBin(description string) (uintptr, error) {
+	bin, err := a.parseElement(description+" ! identity name=source_output", true, false)
+	if err != nil {
+		return 0, err
+	}
+	output := a.byName(bin, "source_output")
+	if output == 0 {
+		a.objectUnref(bin)
+		return 0, errors.New("native source has no output element")
+	}
+	pad := a.staticPad(output, "src")
+	a.objectUnref(output)
+	if pad == 0 {
+		a.objectUnref(bin)
+		return 0, errors.New("native source has no output pad")
+	}
+	ghost := a.ghostPad("src", pad)
+	a.objectUnref(pad)
+	if ghost == 0 {
+		a.objectUnref(bin)
+		return 0, errors.New("native source cannot create output ghost pad")
+	}
+	if a.addPad(bin, ghost) == 0 {
+		a.objectUnref(ghost)
+		a.objectUnref(bin)
+		return 0, errors.New("native source cannot add output ghost pad")
+	}
+	return bin, nil
+}
+
 type glibError struct {
 	Domain  uint32
 	Code    int32
 	Message uintptr
 }
 
+//go:nocheckptr
 func cString(pointer uintptr, limit int) string {
 	if pointer == 0 {
 		return "unknown error"
