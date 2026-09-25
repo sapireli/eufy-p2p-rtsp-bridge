@@ -48,6 +48,17 @@ Do not read `TRUSTED_SHA256` from the copied manifest. The offline host checks t
 
 The installer uses `/opt/eufy-wall/releases/VERSION-ARCH`, `/opt/eufy-wall/current`, and `/usr/local/bin/eufy-wall`. It preserves `/etc/eufy-wall.yaml` on upgrades. A fresh install stays stopped and disabled until setup succeeds. A repeat install of the same checksum leaves a running service alone. An upgrade preserves a stopped service's state; if it was running, the installer switches the symlink, restarts, checks it stays active, and restores the old binary and exact prior unit file on failure. Later run `sudo bash eufy-wall-client/deploy/install-client.sh --rollback` to choose the previous binary. A pre-release `/usr/local/bin/eufy-wall` is copied into a `legacy-*` release first.
 
+### Clean-host install acceptance
+
+Use a Debian amd64 systemd VM or host and two verified client archives (A then B). Record the OS image, artifact digests, active release, unit hash, service state, and command exit codes. This installer trial does not qualify a decoder or screen: the render and recovery trial below needs physical display hardware.
+
+1. Snapshot a clean VM. Install A using the verified command above. Confirm `/opt/eufy-wall/current/VERSION` is A, `/etc/eufy-wall.yaml` exists, and `systemctl is-active --quiet eufy-wall` and `systemctl is-enabled --quiet eufy-wall` both return nonzero. Repeat A and confirm the unit hash and service state stay unchanged.
+2. Validate a hand-written YAML with `eufy-wall config validate wall.yaml`. The `config apply` and `setup` health gates require a reachable bridge and fresh frames; exercise each with real LAN feeds and record whether rollback restores the prior YAML on a deliberately bad candidate. A VM without a bridge or display cannot pass the visual gate.
+3. Save `sha256sum /etc/systemd/system/eufy-wall.service`. On a host with a healthy running wall, install B and verify the active release, stable service, and fresh frames on screen. Run B's installer with `--rollback`; confirm A, the saved unit hash, and fresh frames. Repeat from a deliberately stopped service and confirm it stays stopped.
+4. Restore the VM snapshot for an offline trial. Preinstall GStreamer and DRM packages, transfer a separately verified archive and digest, disconnect external network, and run `--trusted-sha256 DIGEST --no-apt --verify-only` before installing. A wrong digest must fail before the release pointer or unit changes.
+
+No result from this clean-host sequence has been recorded yet. The existing synthetic installer tests cover integrity and rollback helpers, not a live Debian systemd install.
+
 ## First setup and manual YAML
 
 The binary owns local config commands. `sudo eufy-wall setup` applies a healthy configuration and enables the service. To provide a hand-authored YAML file, use the same validator and safe apply path:
