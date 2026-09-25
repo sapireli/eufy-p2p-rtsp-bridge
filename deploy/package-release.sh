@@ -56,7 +56,7 @@ elif [[ $kind == client ]]; then
   if [[ $platform == darwin ]]; then
     cp "$repo/deploy/install-client-macos.sh" "$root/deploy/"
   else
-    cp "$repo/deploy/eufy-wall.service" "$repo/deploy/install-client.sh" "$repo/deploy/install-common.sh" "$repo/deploy/qualify-client.py" "$root/deploy/"
+    cp "$repo/deploy/eufy-wall.service" "$repo/deploy/eufy-wall@.service" "$repo/deploy/install-client.sh" "$repo/deploy/install-common.sh" "$repo/deploy/qualify-client.py" "$root/deploy/"
   fi
   chmod 755 "$root/eufy-wall"
   name="eufy-wall-${version}-${platform}-${arch}.tar.gz"

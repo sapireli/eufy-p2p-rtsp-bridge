@@ -101,7 +101,18 @@ sudo journalctl -u eufy-wall -n 100 --no-pager
 
 For `sink: planes`, each active tile needs a usable DRM plane for the chosen output. Counting plane IDs alone is insufficient; run a render probe. The compositor now has per-tile source recovery in the native renderer, but its isolation and frame progress still need measurements on each Pi and Debian display profile. For an H.265 passthrough source, the display host must have an H.265 decoder. If it does not, configure server-side hardware transcode where supported or use a different display host. Do not assume every Pi model decodes H.265.
 
-Two physical outputs should run separate wall instances with separate config files and output selectors; each output has its own DRM CRTC and plane routing. The service unit starts the default `/etc/eufy-wall.yaml` only. Additional instances need separate units.
+Two physical outputs need separate wall instances, YAML files, and `output` selectors because each connector has its own DRM CRTC and plane routing. The installer provides `eufy-wall@.service` for named Linux instances. Names use ASCII letters, digits, underscores, or hyphens, up to 64 characters. An instance named `left` reads `/etc/eufy-wall-left.yaml`, writes runtime status under `/run/eufy-wall-left/`, and runs as `eufy-wall@left.service`. The default service still reads `/etc/eufy-wall.yaml`. Assign each instance a different connected output and verify usable planes on that output.
+
+```sh
+eufy-wall config validate left.yaml
+sudo eufy-wall config apply left.yaml --instance left
+sudo eufy-wall config apply right.yaml --instance right
+eufy-wall status --instance left --json
+eufy-wall health --instance right
+systemctl status eufy-wall@left.service eufy-wall@right.service
+```
+
+`config apply --instance` performs the same validation and rollback for that named service. The template runs `config recover --instance` before each start. A binary upgrade restarts and health-checks every active named instance, and rollback restores the prior template unit. Keep both displays in view during an upgrade: service and frame counters cannot prove that DRM planes are visible on the intended connector.
 
 For Intel and Apple Silicon, follow the separate [macOS client runbook](runbook-client-macos.md) for the user-level launchd installer, Homebrew GStreamer, and window sink. The Linux installer and KMS commands on this page do not apply there.
 

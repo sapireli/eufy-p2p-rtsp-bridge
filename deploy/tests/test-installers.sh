@@ -98,6 +98,8 @@ printf 'amd64\n' > "$scratch/eufy-wall-client/ARCH"
 printf '#!/bin/sh\n' > "$scratch/eufy-wall-client/eufy-wall"
 chmod +x "$scratch/eufy-wall-client/eufy-wall"
 printf 'layout: 1\n' > "$scratch/eufy-wall-client/config.example.yaml"
+mkdir -p "$scratch/eufy-wall-client/deploy"
+cp "$repo/deploy/eufy-wall.service" "$repo/deploy/eufy-wall@.service" "$scratch/eufy-wall-client/deploy/"
 client_archive="$scratch/eufy-wall-v1.2.3-linux-amd64.tar.gz"
 tar -czf "$client_archive" -C "$scratch" eufy-wall-client
 (cd "$scratch" && sha256sum "${client_archive##*/}" > CLIENTSUMS)
@@ -165,6 +167,10 @@ PY
 fi
 
 grep -q '^ExecStartPre=+/usr/local/bin/eufy-wall config recover$' "$repo/deploy/eufy-wall.service"
+grep -q '^ExecStartPre=+/usr/local/bin/eufy-wall config recover --instance %i$' "$repo/deploy/eufy-wall@.service"
+grep -q '^ExecStart=/usr/local/bin/eufy-wall -instance %i$' "$repo/deploy/eufy-wall@.service"
+grep -q '^RuntimeDirectory=eufy-wall-%i$' "$repo/deploy/eufy-wall@.service"
+grep -Fq 'eufy-wall@.service' "$repo/deploy/package-release.sh"
 grep -q '^ExecStartPre=+/usr/local/bin/eufy-bridge config recover$' "$repo/deploy/eufy-wall-bridge.service"
 if grep -q '^EUFY_PASSWORD=' "$repo/deploy/eufy-wall-bridge.env.example"; then echo 'sample password would be loaded as a real secret' >&2; exit 1; fi
 if grep -q 'systemctl enable' "$repo/deploy/install-server.sh" "$repo/deploy/install-client.sh"; then echo 'fresh installer would enable an unconfigured service' >&2; exit 1; fi

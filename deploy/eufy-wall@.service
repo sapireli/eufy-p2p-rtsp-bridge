@@ -1,0 +1,22 @@
+[Unit]
+Description=eufy-wall camera grid instance %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wall
+Group=wall
+SupplementaryGroups=video render
+RuntimeDirectory=eufy-wall-%i
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
+Environment=GST_DEBUG=2
+ExecStartPre=+/usr/local/bin/eufy-wall config recover --instance %i
+ExecStart=/usr/local/bin/eufy-wall -instance %i
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target
