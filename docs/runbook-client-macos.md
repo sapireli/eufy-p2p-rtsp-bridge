@@ -1,6 +1,6 @@
 # macOS client runbook
 
-The macOS client is a per-user windowed wall. It uses `sink: window`, Homebrew GStreamer, and a launchd agent in the logged-in user's GUI session. It does not use systemd, apt, DRM planes, or `sudo`. Intel (`amd64`) and Apple Silicon (`arm64`) archives are built. Intel has a bounded local H.264 window and recovery trial; neither display profile has a completed qualification run.
+The macOS client is a per-user windowed wall. It uses `sink: window`, Homebrew GStreamer, and a launchd agent in the logged-in user's GUI session. It does not use systemd, apt, DRM planes, or `sudo`. Intel (`amd64`) and Apple Silicon (`arm64`) archives are built. Intel has bounded local H.264 recovery trials and a 30-minute synthetic window soak; neither display profile has a completed release qualification run.
 
 ## Install a verified release
 
@@ -69,11 +69,11 @@ Inspect `~/Library/Application Support/eufy-wall/wall.err.log`, `eufy-wall statu
 
 An independent Intel window recovery trial ran locally on macOS 15.8 (24H23), x86_64, Intel Core i5-8500 3.00 GHz, and Homebrew GStreamer 1.28.7_1. MediaMTX 1.21.1 served an FFmpeg 9.0.2 H.264 `testsrc2` stream at 640×360 and 15 fps over TCP RTSP. A one-tile, 32×32 full-canvas config used `sink: window`, software decode, and a 320×180 window. Two publisher stop/restart cycles each held the source absent for 45 seconds through multiple failed reconnects. The pipeline output counter advanced 33→708 and 965→1637 during the outages, with worst sampled output-frame age 1.39 seconds. Decoded frames resumed on source generations 4 and 7, about 17 seconds after each publisher restart. The client and publisher exited cleanly. A prior four-second smoke also opened the window and reported 17 output and 15 decoded frames.
 
-The frame counter is upstream of the macOS display sink, so it proves pipeline progress rather than pixels on the screen. The local synthetic trial does not verify a real Eufy camera, a clean-host installer, sustained FPS/CPU, or a 30-minute soak.
+An independent 30-minute Intel window soak used the same host, local MediaMTX, and a 640×360, 15 fps H.264 `testsrc2` source with one 320×180 window tile. Across 180 ten-second samples, output frames advanced 33→27,033 and decoded frames 16→27,020. Minimum sampled output and decoded rates were 14.5 and 14.4 fps; maximum sampled output-frame age was 0.752 seconds. Peak client RSS was 70,232 KiB (68.6 MiB), maximum sampled CPU was 6.1%, and there were no source retries or health failures. The client exited cleanly after SIGTERM. The [committed result summary](evidence/macos-intel-2026-09-25-soak.json) records the exact measured fields and scope.
 
-No Intel or Apple Silicon 30-minute live run, sleep/wake result, real-camera source-loss recovery, codec-switch result, or Gatekeeper clean-host install has been recorded. Record OS and chip, GStreamer version, codecs and sizes, tile count, displayed FPS/drops, CPU and memory, source-loss/recovery times, and whether unaffected tiles continue rendering before marking either profile supported.
+The frame counter is upstream of the macOS display sink, so these trials prove pipeline progress rather than pixels on the screen. The synthetic soak does not verify a real Eufy camera, a clean-host installer, physical display continuity, or sleep/wake. No Apple Silicon 30-minute live run or Gatekeeper clean-host install has been recorded. Record OS and chip, GStreamer version, codecs and sizes, tile count, displayed FPS/drops, CPU and memory, source-loss/recovery times, and whether unaffected tiles continue rendering before marking either profile supported.
 
 | Mac / OS | Streams / codec / size | Window FPS / drops / CPU | Source loss and sleep/wake | Gatekeeper install |
 | --- | --- | --- | --- | --- |
-| Intel / macOS 15.8, unverified | Local H.264 testsrc2, one tile, 640×360 at 15 fps source | Two 45-second outages: output +675 and +672 frames; displayed FPS/drops/CPU unmeasured | Pipeline output stayed live; decode recovered about 17 seconds after each restart. Sleep/wake unmeasured | Unmeasured |
+| Intel / macOS 15.8, unverified | Local H.264 testsrc2, one tile, 640×360 at 15 fps source | 30-minute soak: output ≥14.5 fps, decode ≥14.4 fps, peak client CPU 6.1%, RSS 68.6 MiB; displayed FPS/drops unmeasured | Two 45-second outages: output +675 and +672 frames; decode recovered about 17 seconds after each restart. Sleep/wake unmeasured | Unmeasured |
 | Apple Silicon / unverified | | | | |
