@@ -12,9 +12,11 @@ sudo eufy-wall config apply wall.yaml
 cat wall.yaml | ssh pi 'sudo eufy-wall config apply -'
 ```
 
-Run `eufy-wall config explain` for a short installed field reference, or pass a YAML path such as `canvas.cols` or `tiles[0].rect.w` to explain one field. The detailed values and interactions are below.
+These `sudo` examples target a Linux service install. On macOS, apply from the logged-in desktop account without `sudo` so launchd can open the window.
 
-For an existing unversioned file, preview a lossless v2 conversion without changing the source or active config. The preview lists the derived bridge URL and each tile's explicit rectangle. Then write a private candidate, review it, and use the normal apply transaction, which backs up the previous active config and rolls back a failed change:
+Run `eufy-wall config explain` for a short installed field reference, or pass a YAML path such as `canvas.cols` or `tiles[0].rect.w` to explain one field. Quote paths with brackets in a shell: `eufy-wall config explain 'tiles[0].rect.w'`. The detailed values and interactions are below.
+
+For an existing unversioned bridge-backed file with `rtsp_base`, preview a lossless v2 conversion without changing the source or active config. The preview lists the derived bridge URL and each tile's explicit rectangle. URL-only offline configs cannot be converted to v2 because v2 requires bridge origins; keep those files in the supported legacy format. Then write a private candidate, review it, and use the normal apply transaction, which backs up the previous active config and rolls back a failed change:
 
 ```sh
 eufy-wall config migrate legacy.yaml
