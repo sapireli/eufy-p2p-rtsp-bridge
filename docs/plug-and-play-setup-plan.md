@@ -1,6 +1,6 @@
 # Plug-and-play setup and terminal layout plan
 
-Status: implementation in progress on `plan/plug-and-play-setup`, 2026-09-25. The acceptance criteria below remain the release gates. Node and Go CI now require more than 80% overall line coverage with adversarial and unit tests. The integrated setup commands, config transactions, inventory contract, line-mode layout editor, and verified installers are implemented on this branch. Independent recovery of compositor tiles, the specified full-screen editor, full hardware qualification, and clean-host usability/soak evidence remain open; the runbooks mark unmeasured profiles unverified.
+Status: implementation in progress on `plan/plug-and-play-setup`, 2026-09-25. The acceptance criteria below remain the release gates. Node and Go CI now require more than 80% overall line or statement coverage with adversarial and unit tests. The integrated setup commands, config transactions, inventory contract, full-screen and line-mode layout editors, and verified installers are implemented on this branch. Independent recovery of compositor tiles, full hardware qualification, and clean-host usability/soak evidence remain open; the runbooks mark unmeasured profiles unverified.
 
 ## Outcome
 
