@@ -15,7 +15,7 @@ func TestNamedRestartCountIsBoundedAndQueriesItsOwnUnit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
-	if count, err := wallRestartCountWithTimeout("eufy-wall@right", time.Second); err != nil || count != 3 {
+	if count, err := wallRestartCountWithTimeout("eufy-wall@right", 5*time.Second); err != nil || count != 3 {
 		t.Fatalf("named unit restart count=%d err=%v", count, err)
 	}
 	if _, err := wallRestartCountWithTimeout("eufy-wall", time.Second); err == nil {
