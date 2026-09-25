@@ -109,8 +109,9 @@ func wallRestartCountWithTimeout(name string, timeout time.Duration) (int, error
 }
 
 type pendingClientApply struct {
-	Backup      string `json:"backup"`
-	HadPrevious bool   `json:"hadPrevious"`
+	Backup       string `json:"backup"`
+	BackupSHA256 string `json:"backupSHA256,omitempty"`
+	HadPrevious  bool   `json:"hadPrevious"`
 }
 
 func applyClientConfig(path string, in io.Reader, out io.Writer) error {
@@ -264,6 +265,9 @@ func applyClientData(dest string, data []byte, service clientService) error {
 		}
 	}
 	marker := pendingClientApply{Backup: backup, HadPrevious: hadPrevious}
+	if hadPrevious {
+		marker.BackupSHA256 = clientSHA256(old)
+	}
 	markerData, _ := json.Marshal(marker)
 	if err := atomicClientWrite(dest+".pending", markerData, 0600, nil); err != nil {
 		return fmt.Errorf("write pending marker: %w", err)
@@ -342,6 +346,12 @@ func recoverClientConfig(dest string) error {
 }
 
 func recoverClientConfigLocked(dest string) error {
+	return recoverClientConfigLockedWithOps(dest, atomicClientWrite, os.Link, os.Rename)
+}
+
+type clientConfigWrite func(string, []byte, os.FileMode, *syscall.Stat_t) error
+
+func recoverClientConfigLockedWithOps(dest string, write clientConfigWrite, link, rename func(string, string) error) error {
 	markerData, err := os.ReadFile(dest + ".pending")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -354,21 +364,38 @@ func recoverClientConfigLocked(dest string) error {
 		return fmt.Errorf("invalid pending marker: %w", err)
 	}
 	if marker.HadPrevious {
-		if marker.Backup == "" || filepath.Dir(marker.Backup) != filepath.Dir(dest) {
+		if !strings.HasPrefix(marker.Backup, dest+".bak.") || filepath.Dir(marker.Backup) != filepath.Dir(dest) || filepath.Clean(marker.Backup) != marker.Backup {
 			return errors.New("pending marker has invalid backup path")
 		}
 		old, err := os.ReadFile(marker.Backup)
-		if err != nil {
-			return fmt.Errorf("read backup: %w", err)
-		}
-		mode := os.FileMode(0644)
-		var owner *syscall.Stat_t
-		if info, err := os.Stat(marker.Backup); err == nil {
-			mode = info.Mode().Perm()
-			owner, _ = info.Sys().(*syscall.Stat_t)
-		}
-		if err := atomicClientWrite(dest, old, mode, owner); err != nil {
-			return fmt.Errorf("restore backup: %w", err)
+		if errors.Is(err, os.ErrNotExist) && marker.BackupSHA256 != "" {
+			// A low-space fallback may have moved the backup over the candidate before a crash.
+			// The hash in the durable marker proves that retrying can finish without the backup name.
+			active, readErr := os.ReadFile(dest)
+			if readErr != nil || clientSHA256(active) != marker.BackupSHA256 {
+				return fmt.Errorf("backup is absent and active config does not match the pending backup hash: %w", err)
+			}
+		} else {
+			if err != nil {
+				return fmt.Errorf("read backup: %w", err)
+			}
+			if marker.BackupSHA256 != "" && clientSHA256(old) != marker.BackupSHA256 {
+				return errors.New("pending backup checksum does not match the original config")
+			}
+			info, err := os.Stat(marker.Backup)
+			if err != nil {
+				return fmt.Errorf("stat backup: %w", err)
+			}
+			mode := info.Mode().Perm()
+			owner, _ := info.Sys().(*syscall.Stat_t)
+			if err := write(dest, old, mode, owner); err != nil {
+				if !errors.Is(err, syscall.ENOSPC) && !errors.Is(err, syscall.EDQUOT) {
+					return fmt.Errorf("restore backup: %w", err)
+				}
+				if fallbackErr := restoreClientBackupWithoutCopy(dest, marker.Backup, link, rename); fallbackErr != nil {
+					return fmt.Errorf("restore backup after %v: %w", err, fallbackErr)
+				}
+			}
 		}
 	} else if err := os.Remove(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -380,6 +407,22 @@ func recoverClientConfigLocked(dest string) error {
 		return err
 	}
 	return recordClientRollback(dest, "interrupted apply restored on service start")
+}
+
+func restoreClientBackupWithoutCopy(dest, backup string, link, rename func(string, string) error) error {
+	// A hard link preserves the dated backup without allocating another copy of its contents.
+	// If even creating a directory entry fails, moving the backup itself restores the wall.
+	staged := fmt.Sprintf("%s.restore-%d-%d", dest, os.Getpid(), time.Now().UnixNano())
+	if err := link(backup, staged); err == nil {
+		defer os.Remove(staged)
+		if err := rename(staged, dest); err == nil {
+			return syncClientDir(filepath.Dir(dest))
+		}
+	}
+	if err := rename(backup, dest); err != nil {
+		return err
+	}
+	return syncClientDir(filepath.Dir(dest))
 }
 
 func lockClientConfig(dest string) (func(), error) {
