@@ -134,6 +134,41 @@ atomic_link() {
   mv -Tf "$next" "$link"
 }
 
+install_unit() {
+  local source=$1 destination=$2 next="${2}.next.$$"
+  install -m 644 "$source" "$next"
+  mv -Tf "$next" "$destination"
+}
+
+copy_unit_exact() {
+  local source=$1 destination=$2 next="${2}.next.$$"
+  cp -p "$source" "$next"
+  mv -Tf "$next" "$destination"
+}
+
+rollback_release_unit() {
+  local previous=$1 snapshot=$2 current_link=$3 unit_path=$4 service=$5 reactivate=${6:-1}
+  [[ -f $snapshot ]] || die "cannot restore $service: prior unit snapshot is missing"
+  if [[ -n $previous ]]; then
+    [[ -d $previous ]] || die "cannot restore $service: previous release is missing: $previous"
+    atomic_link "$previous" "$current_link"
+  fi
+  copy_unit_exact "$snapshot" "$unit_path"
+  systemctl daemon-reload
+  if [[ $reactivate == 1 ]]; then
+    systemctl restart "$service" || die "restored prior unit, but $service failed to restart"
+    wait_active "$service" || die "restored prior unit, but $service did not remain active"
+  else
+    systemctl stop "$service" || die "restored prior unit, but $service could not be stopped"
+  fi
+}
+
+write_marker() {
+  local target=$1 value=$2
+  printf '%s\n' "$value" > "${target}.next.$$"
+  mv -Tf "${target}.next.$$" "$target"
+}
+
 # A link may already point at the new release after power loss, while the service
 # still runs the old process. The pending marker keeps retries from treating it
 # as a finished install.

@@ -122,8 +122,52 @@ if mv --help 2>&1 | grep -q -- --no-target-directory; then
   atomic_link "$scratch/new" "$scratch/current"
   atomic_link "$scratch/old" "$scratch/current"
   [[ $(readlink "$scratch/current") == "$scratch/old" ]] || { echo 'rollback pointer failed' >&2; exit 1; }
+
+  cat > "$scratch/bin/systemctl" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$SYSTEMCTL_TEST_LOG"
+exit 0
+EOF
+  chmod +x "$scratch/bin/systemctl"
+  export SYSTEMCTL_TEST_LOG="$scratch/systemctl.log"
+  printf 'old unit with local setting\n' > "$scratch/unit.service"
+  chmod 640 "$scratch/unit.service"
+  cp -p "$scratch/unit.service" "$scratch/prior-unit.service"
+  printf 'new packaged unit\n' > "$scratch/new-unit.service"
+  install_unit "$scratch/new-unit.service" "$scratch/unit.service"
+  atomic_link "$scratch/new" "$scratch/current"
+  wait_active() { return 0; } # service ordering is checked via the mocked systemctl log
+  rollback_release_unit "$scratch/old" "$scratch/prior-unit.service" "$scratch/current" "$scratch/unit.service" test-service
+  cmp "$scratch/unit.service" "$scratch/prior-unit.service"
+  [[ $(readlink "$scratch/current") == "$scratch/old" ]] || { echo 'live rollback did not restore the binary' >&2; exit 1; }
+  python3 - "$scratch/unit.service" "$scratch/prior-unit.service" <<'PY'
+import os, sys
+active, prior = os.stat(sys.argv[1]), os.stat(sys.argv[2])
+assert active.st_mode & 0o777 == 0o640, 'prior unit mode was not restored'
+assert (active.st_uid, active.st_gid) == (prior.st_uid, prior.st_gid), 'prior unit ownership was not restored'
+PY
+  grep -q '^daemon-reload$' "$SYSTEMCTL_TEST_LOG"
+  grep -q '^restart test-service$' "$SYSTEMCTL_TEST_LOG"
+  # Rolling back a deliberately stopped service must restore files without starting it.
+  : > "$SYSTEMCTL_TEST_LOG"
+  install_unit "$scratch/new-unit.service" "$scratch/unit.service"
+  atomic_link "$scratch/new" "$scratch/current"
+  rollback_release_unit "$scratch/old" "$scratch/prior-unit.service" "$scratch/current" "$scratch/unit.service" test-service 0
+  cmp "$scratch/unit.service" "$scratch/prior-unit.service"
+  [[ $(readlink "$scratch/current") == "$scratch/old" ]] || { echo 'stopped rollback did not restore the binary' >&2; exit 1; }
+  if grep -Eq '^(restart|start) ' "$SYSTEMCTL_TEST_LOG"; then echo 'stopped rollback started the service' >&2; exit 1; fi
+  write_marker "$scratch/.upgrade-active" 0
+  [[ $(cat "$scratch/.upgrade-active") == 0 ]] || { echo 'stopped state marker was not saved' >&2; exit 1; }
+  write_marker "$scratch/.upgrade-active" 1
+  [[ $(cat "$scratch/.upgrade-active") == 1 ]] || { echo 'running state marker was not replaced' >&2; exit 1; }
+  reject 'rollback without a prior unit snapshot' bash -c 'source "$1"; rollback_release_unit "$2" "$3" "$4" "$5" test-service' \
+    bash "$repo/deploy/install-common.sh" "$scratch/new" "$scratch/missing-unit.service" "$scratch/current" "$scratch/unit.service"
 fi
 
 grep -q '^ExecStartPre=+/usr/local/bin/eufy-wall config recover$' "$repo/deploy/eufy-wall.service"
 grep -q '^ExecStartPre=+/usr/local/bin/eufy-bridge config recover$' "$repo/deploy/eufy-wall-bridge.service"
+if grep -q '^EUFY_PASSWORD=' "$repo/deploy/eufy-wall-bridge.env.example"; then echo 'sample password would be loaded as a real secret' >&2; exit 1; fi
+if grep -q 'systemctl enable' "$repo/deploy/install-server.sh" "$repo/deploy/install-client.sh"; then echo 'fresh installer would enable an unconfigured service' >&2; exit 1; fi
+grep -q 'if ((upgrade_active || old_active)); then' "$repo/deploy/install-server.sh"
+grep -q 'if ((upgrade_active || old_active)); then' "$repo/deploy/install-client.sh"
 echo 'installer verification tests passed'
