@@ -33,10 +33,26 @@ jobs:
       - run: make all
       - uses: actions/upload-artifact@v7
         with: { name: eufy-wall-binaries, path: client/bin/, retention-days: 7 }
+  macos-client:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-15]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: client/go.mod, cache-dependency-path: client/go.sum }
+      - run: brew install gstreamer
+      - run: bash deploy/tests/test-install-client-macos.sh
+      - run: go test -race ./...
+        working-directory: client
+      - run: make darwin
+        working-directory: client
   scripts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: bash -n deploy/install-common.sh deploy/install-server.sh deploy/install-client.sh deploy/package-release.sh client/spikes/spike-b.sh
+      - run: bash -n deploy/install-common.sh deploy/install-server.sh deploy/install-client.sh deploy/install-client-macos.sh deploy/package-release.sh client/spikes/spike-b.sh
       - run: bash deploy/tests/test-installers.sh
       - run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/tests -p 'test_qualify_client.py'
