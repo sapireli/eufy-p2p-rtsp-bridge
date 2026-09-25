@@ -103,8 +103,54 @@ jobs:
           name: client
           path: dist/*.tar.gz
           if-no-files-found: error
+  macos-client:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+          cache-dependency-path: client/go.sum
+      - run: brew install gstreamer
+      - run: bash deploy/tests/test-install-client-macos.sh
+      - run: go test ./... -race
+        working-directory: client
+      - run: make darwin
+        working-directory: client
+      - run: deploy/package-release.sh client "$VERSION" "darwin-${{ matrix.arch }}" dist
+        env:
+          VERSION: ${{ github.ref_name }}
+      - run: |
+          cd dist
+          shasum -a 256 ./*.tar.gz > SHA256SUMS
+          archive=$(ls ./*.tar.gz)
+          digest=$(shasum -a 256 "$archive")
+          bash ../deploy/install-client-macos.sh --artifact "$archive" --checksums SHA256SUMS --trusted-sha256 "${digest%% *}" --verify-only
+      - uses: actions/attest@v4
+        with:
+          subject-path: dist/*.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-macos-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
   publish:
-    needs: [server, client]
+    needs: [server, client, macos-client]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -115,9 +161,11 @@ jobs:
           merge-multiple: true
       - run: |
           cd dist
-          sha256sum *.tar.gz > SHA256SUMS
+          # Mac artifacts remain Actions test artifacts until Developer ID signing,
+          # notarization, and clean-host qualification are configured.
+          sha256sum ./*-linux-*.tar.gz > SHA256SUMS
           sha256sum --check SHA256SUMS
-          gh release create "$VERSION" ./*.tar.gz SHA256SUMS --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          gh release create "$VERSION" ./*-linux-*.tar.gz SHA256SUMS --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.ref_name }}
