@@ -84,12 +84,14 @@ func (h *holdCoordinator) run(sn string, w *holdWorker) {
 	defer h.wg.Done()
 	attempted := false
 	for {
+		h.mu.Lock()
+		want, closed, ttl := w.desired, h.closed, w.ttl
+		// Consume the notification for this snapshot while Update cannot send another.
+		// Draining before the lock can leave a stale startup signal behind and POST twice.
 		select {
 		case <-w.changed:
 		default:
 		}
-		h.mu.Lock()
-		want, closed, ttl := w.desired, h.closed, w.ttl
 		h.mu.Unlock()
 		if h.ctx.Err() != nil || (closed && !want && !attempted) {
 			return
