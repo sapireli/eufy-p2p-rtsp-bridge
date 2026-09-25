@@ -19,18 +19,20 @@ jobs:
       - run: node --experimental-test-coverage --test --test-coverage-include='server.mjs' --test-coverage-include='cli.mjs' --test-coverage-include='src/**/*.mjs' --test-coverage-exclude='src/vendor/**' --test-coverage-include-all --test-coverage-lines=80.01 test/*.test.mjs
       - run: bash -n scripts/sync-upstream.sh
   client:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults: { run: { working-directory: client } }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with: { go-version-file: client/go.mod, cache-dependency-path: client/go.sum }
-      - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgstreamer1.0-0 gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
+      - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgstreamer1.0-0 gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libdrm-tests
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test ./... -race -coverprofile=coverage.out
       - run: go tool cover -func=coverage.out | awk '$1 == "total:" { seen=1; value=$3; sub(/%/, "", value); print "Go coverage:", value "%"; if (value <= 80) exit 1 } END { if (!seen) exit 1 }'
       - run: make all
+      - run: bash deploy/tests/test-linux-systemd-install.sh
+        working-directory: .
       - uses: actions/upload-artifact@v7
         with: { name: eufy-wall-binaries, path: client/bin/, retention-days: 7 }
   macos-client:
@@ -49,6 +51,7 @@ jobs:
         working-directory: client
       - run: make darwin
         working-directory: client
+      - run: bash deploy/tests/test-packaged-client-macos.sh
   scripts:
     runs-on: ubuntu-latest
     steps:
