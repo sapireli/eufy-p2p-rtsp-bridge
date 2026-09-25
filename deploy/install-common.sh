@@ -129,10 +129,15 @@ ensure_debian_packages() {
 
 require_gstreamer_elements() {
   need gst-inspect-1.0
-  local element
+  local element package
   for element in "$@"; do
+    case $element in
+      intervideosrc|intervideosink) package=gstreamer1.0-plugins-bad ;;
+      videoconvert|videoscale|videorate) package=gstreamer1.0-plugins-base ;;
+      *) package='the package providing it' ;;
+    esac
     gst-inspect-1.0 --exists "$element" >/dev/null 2>&1 ||
-      die "missing GStreamer element $element; install gstreamer1.0-plugins-bad and retry"
+      die "missing GStreamer element $element; install $package and retry"
   done
 }
 
