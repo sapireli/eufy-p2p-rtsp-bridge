@@ -88,7 +88,7 @@ curl -fsS http://127.0.0.1:3000/api/cameras
 ffplay rtsp://SERVER_IP:8554/STREAM_KEY
 ```
 
-The `healthz` endpoint answers before authentication; inspect `auth.state`, `stalled`, and `go2rtc` in its body. `api/cameras` requires successful authentication. The `STREAM_KEY` comes from camera inventory, not necessarily the serial. The bridge restarts stalled camera feeds and systemd restarts a failed process. If an upgrade is unstable, run the installer with `--rollback`, then inspect its journal. A config apply failure should restore the previous YAML; `eufy-bridge status` reports the apply result.
+The `healthz` endpoint answers before authentication; inspect `auth.state`, `stalled`, and `go2rtc` in its body. `api/cameras` requires successful authentication. The `STREAM_KEY` comes from camera inventory, not necessarily the serial. The bridge restarts stalled camera feeds and systemd restarts a failed process. A camera omitted because its SDK description failed at boot is retried every 30 seconds; when it recovers, the bridge adds its RTSP stream and refreshes connected clients' inventory without restarting healthy feeds. If an upgrade is unstable, run the installer with `--rollback`, then inspect its journal. A config apply failure should restore the previous YAML; `eufy-bridge status` reports the apply result.
 
 `lan.force: true` rejects nonprivate P2P peers and blocks peers outside `lan.cidr`. If a station stays on a WAN route, add its LAN IP under `lan.station_addresses`. The HTTP port (default `3000`) and RTSP port (`8554`) trust the LAN; never port-forward them. The go2rtc API binds to loopback and its WebRTC listener is disabled by the bridge.
 

@@ -89,7 +89,7 @@ Omitting `schema_version` keeps the legacy format. New files should set `schema_
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `host`, `port` | `0.0.0.0`, `3000` | HTTP listener. Port is 1–65535. |
-| `self_host` | `127.0.0.1` | Address go2rtc uses to pull the bridge stream. |
+| `self_host` | `127.0.0.1` for a wildcard `host`; otherwise the configured `host` | Address go2rtc uses to pull the bridge stream. Set it explicitly if the bridge's bind address is not reachable from go2rtc. |
 | `data_dir`, `go2rtc_bin` | `./data`, `go2rtc` | Session/generated config directory and go2rtc executable. The release service overrides both paths. |
 | `poll_ms` | SDK default | Cloud state poll interval in milliseconds. |
 | `lan.cidr`, `lan.force` | unset, `false` | IPv4 peer network; force requires a CIDR and refuses peers outside it. |
