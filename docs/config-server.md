@@ -108,4 +108,6 @@ Omitting `schema_version` keeps the legacy format. New files should set `schema_
 
 Client `POST /hold/<serial>` requests also require a finite `seconds` value from 1 to 3600; the server rejects zero, nonnumeric, and longer holds.
 
+`eufy-bridge config validate <file|-> --json`, `config apply <file|-> --json`, and `doctor --json` emit a `diagnostics` array. A failed check includes a stable `code`, `severity`, YAML `path` when known, `message`, and actionable `remedy`; YAML syntax errors also report `line` and `column`. For example, an unknown field is `CONFIG_UNSUPPORTED_KEY`. The command exits nonzero on failure, and JSON diagnostics omit YAML source snippets so inline secrets are not echoed.
+
 If validation fails, the error names the YAML key or parse line. Existing configurations without a schema version continue to load; review them with `config validate` before applying a changed version. Challenge answers should use the CLI or a JSON POST body to `/auth/tfa` or `/auth/captcha` on loopback, for example `curl -X POST -H 'content-type: application/json' --data '{"code":"123456"}' http://127.0.0.1:3000/auth/tfa`. The legacy query form still works for older callers but exposes answers in URL logs.
