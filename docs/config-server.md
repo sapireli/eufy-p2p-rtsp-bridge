@@ -4,7 +4,7 @@ The Node bridge owns its setup command and YAML loader. The installed `eufy-brid
 
 ## First install
 
-After installing the server release, run `sudo eufy-bridge setup`. It lists local IPv4 interfaces, asks for a dedicated Eufy account and LAN CIDR, stores credentials in `/etc/eufy-wall-bridge.env` with mode `0600`, writes versioned YAML, restarts the service, and guides 2FA or captcha from the terminal. The challenge answer is sent in a JSON POST body. The command prints the discovered camera list and inventory export command when authentication succeeds. Use a terminal connected to the server; an SSH terminal works.
+After installing the server release, run `sudo eufy-bridge setup`. It lists local IPv4 interfaces, asks for a dedicated Eufy account and LAN CIDR, and stores credentials in `/etc/eufy-wall-bridge.env` with mode `0600`. Setup first starts the bridge on `127.0.0.1` for login and 2FA or captcha; challenge answers are sent in JSON POST bodies. It then applies the chosen client listener, checks health, optionally probes selected camera streams, and enables the service only after those checks pass. A failed step restores the previous YAML and secrets. Use a terminal connected to the server; an SSH terminal works.
 
 For noninteractive setup, create an answer file with mode `0600`. Keep it private and remove it after use. Do not type passwords into command arguments; they can remain in shell history.
 
@@ -14,7 +14,10 @@ password: your-password
 country: US
 lan_cidr: 192.168.1.0/24
 lan_force: true
+host: 192.168.1.10
+client_host: 192.168.1.10
 port: 3000
+probe_streams: [T8410XXXXXXXXXXX]
 cameras:
   T8410XXXXXXXXXXX: { mode: always }
 ```
@@ -24,6 +27,8 @@ umask 077
 ${EDITOR:-vi} ./answers.yaml
 sudo eufy-bridge setup --answers ./answers.yaml
 ```
+
+`host` is the local IPv4 address where the bridge listens after login, or `0.0.0.0` for all interfaces. `client_host` is the hostname or IPv4 address printed in URLs for display clients; it must be reachable by those clients. Setup checks that a specific bind address belongs to the server and that the selected LAN CIDR contains a local interface. `probe_streams` is optional: `true` probes all enabled cameras, `false` skips probes, and a serial list probes only those cameras. An interactive setup asks which cameras to probe; a noninteractive setup skips probes unless the answer file selects them. Each selected probe checks the RTSP video description and a bounded live bridge stream, then releases any temporary hold on a sleeping camera. A camera that cannot be woken or streamed makes setup fail and roll back, so choose probes deliberately for battery cameras.
 
 For hand-edited config, use `eufy-bridge config example` to print the versioned template and `eufy-bridge config explain cameras` for short inline help. The runtime file is `/etc/eufy-wall-bridge.yaml` in a release install, overridable with `BRIDGE_CONFIG`. The environment file is `/etc/eufy-wall-bridge.env`, overridable with `BRIDGE_ENV`. Shell or systemd environment values take precedence over YAML credentials.
 
