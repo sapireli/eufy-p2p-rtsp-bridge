@@ -67,6 +67,37 @@ test("RTSP probe has a bounded timeout for a camera that never responds", async 
   await assert.rejects(probeRtsp({ host: "127.0.0.1", streamKey: "sleeping", port, timeoutMs: 30 }), /timed out/);
 });
 
+test("RTSP deadline is absolute even when a peer trickles bytes", async (t) => {
+  const port = await withRtsp(t, (socket) => {
+    const trickle = setInterval(() => socket.write("x"), 5);
+    socket.on("close", () => clearInterval(trickle));
+  });
+  const started = Date.now();
+  await assert.rejects(probeRtsp({ host: "127.0.0.1", streamKey: "sleeping", port, timeoutMs: 35 }), /timed out/);
+  assert.ok(Date.now() - started < 300);
+});
+
+test("RTSP probe handles fragmented headers and rejects malformed or oversized replies", async (t) => {
+  const sdp = "v=0\r\nm=video 0 RTP/AVP 96\r\na=rtpmap:96 H265/90000\r\n";
+  const fragmented = await withRtsp(t, (socket) => {
+    const bytes = Buffer.from(`RTSP/1.0 200 OK\r\nContent-Length: ${sdp.length}\r\n\r\n${sdp}`);
+    let index = 0;
+    const send = () => { if (index === bytes.length) return socket.end(); socket.write(bytes.subarray(index, ++index)); setImmediate(send); };
+    send();
+  });
+  assert.equal((await probeRtsp({ host: "127.0.0.1", streamKey: "door", port: fragmented, timeoutMs: 1000 })).codec, "h265");
+  const badStatus = await withRtsp(t, (socket) => socket.end("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nv=0\r\n"));
+  await assert.rejects(probeRtsp({ host: "127.0.0.1", streamKey: "door", port: badStatus, timeoutMs: 500 }), /malformed status line/);
+  const badLength = await withRtsp(t, (socket) => socket.end("RTSP/1.0 200 OK\r\nContent-Length: banana\r\n\r\n"));
+  await assert.rejects(probeRtsp({ host: "127.0.0.1", streamKey: "door", port: badLength, timeoutMs: 500 }), /valid Content-Length/);
+  const hugeLength = await withRtsp(t, (socket) => socket.end("RTSP/1.0 200 OK\r\nContent-Length: 999999999\r\n\r\n"));
+  await assert.rejects(probeRtsp({ host: "127.0.0.1", streamKey: "door", port: hugeLength, timeoutMs: 500 }), /body length is invalid/);
+  const hugeHeader = await withRtsp(t, (socket) => socket.end(`RTSP/1.0 200 OK\r\nX-Fill: ${"x".repeat(17_000)}\r\n\r\n`));
+  await assert.rejects(probeRtsp({ host: "127.0.0.1", streamKey: "door", port: hugeHeader, timeoutMs: 500 }), /headers exceeded/);
+  const truncated = await withRtsp(t, (socket) => socket.end("RTSP/1.0 200 OK\r\nContent-Length: 100\r\n\r\nv=0\r\n"));
+  await assert.rejects(probeRtsp({ host: "127.0.0.1", streamKey: "door", port: truncated, timeoutMs: 500 }), /closed before a complete/);
+});
+
 test("battery probe releases its bounded hold even when RTSP fails", async () => {
   const calls = [];
   const fetchImpl = async (url, options) => { calls.push({ url, method: options.method }); return { ok: true }; };
@@ -105,6 +136,36 @@ test("header traffic does not count as a video frame", async () => {
   assert.equal(hasVideoSlice(vps, "h265"), false);
   assert.equal(hasVideoSlice(new Uint8Array([...spsPps, 0, 0, 0, 1, 0x65, 0x88]), "h264"), true);
   assert.equal(hasVideoSlice(new Uint8Array([...vps, 0, 0, 0, 1, 0x26, 0x01, 0x88]), "h265"), true);
+  assert.equal(hasVideoSlice(new Uint8Array([...spsPps, 0, 0, 0, 1, 0x65, 0x88])), true);
+  assert.equal(hasVideoSlice(new Uint8Array([...vps, 0, 0, 0, 1, 0x26, 0x01, 0x88])), true);
   const fetchImpl = async () => ({ ok: true, body: new ReadableStream({ start(c) { c.enqueue(spsPps); c.close(); } }) });
   await assert.rejects(probeBridgeFrame({ bridgeUrl: "http://127.0.0.1:3000", sn: "A", codec: "h264", timeoutMs: 100, fetchImpl }), /ended before a video slice/);
+});
+
+test("tiny chunks and split Annex-B start codes find H264 and H265 slices without buffering the stream", async () => {
+  for (const [codec, nal] of [["h264", [0x65, 0x88]], ["h265", [0x26, 0x01, 0x88]]]) {
+    const bytes = [...new Array(4096).fill(0xff), 0, 0, 0, 1, ...nal];
+    const fetchImpl = async () => ({ ok: true, body: new ReadableStream({
+      start(controller) { for (const byte of bytes) controller.enqueue(new Uint8Array([byte])); controller.close(); },
+    }) });
+    assert.equal(await probeBridgeFrame({ bridgeUrl: "http://127.0.0.1:3000", sn: "A", codec, timeoutMs: 1000, fetchImpl }), bytes.length);
+  }
+});
+
+test("split start codes and incomplete or invalid NALs cannot create a false video success", async () => {
+  for (const [codec, bytes] of [
+    ["h264", [0, 0, 1, 0x65, 0, 0, 1, 0x67, 0x42]], // the apparent payload zeros begin the next start code
+    ["h264", [0, 0, 1, 0xe5, 0x88]], // forbidden_zero_bit
+    ["h265", [0, 0, 1, 0x26, 0x00, 0x88]], // temporal_id_plus1 is zero
+  ]) {
+    const fetchImpl = async () => ({ ok: true, body: new ReadableStream({
+      start(controller) { for (const byte of bytes) controller.enqueue(new Uint8Array([byte])); controller.close(); },
+    }) });
+    await assert.rejects(probeBridgeFrame({ bridgeUrl: "http://127.0.0.1:3000", sn: "A", codec, timeoutMs: 100, fetchImpl }), /ended before a video slice/);
+  }
+});
+
+test("video probe bounds stream bytes even when no slice arrives", async () => {
+  const fetchImpl = async () => ({ ok: true, body: new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(2 * 1024 * 1024 + 1)); controller.close(); } }) });
+  await assert.rejects(probeBridgeFrame({ bridgeUrl: "http://127.0.0.1:3000", sn: "A", codec: "h264", timeoutMs: 100, fetchImpl }), /2 MiB without a video slice/);
 });

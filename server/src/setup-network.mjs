@@ -3,6 +3,9 @@ import { inCidr } from "./lan-guard.mjs";
 import { isValidCidr } from "./config.mjs";
 
 const RTSP_PORT = 8554;
+const MAX_RTSP_BYTES = 64 * 1024;
+const MAX_RTSP_HEADER_BYTES = 16 * 1024;
+const MAX_STREAM_BYTES = 2 * 1024 * 1024;
 
 /** Validate choices against this host before applying a client-facing listener. */
 export function validateSetupNetwork({ lanCidr, force, host, publicHost, interfaces }) {
@@ -33,59 +36,105 @@ export function probeRtsp({ host, streamKey, port = RTSP_PORT, timeoutMs = 8_000
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host, port });
     let settled = false;
-    let response = "";
+    const response = Buffer.alloc(MAX_RTSP_BYTES);
+    let used = 0;
+    let bodyStart = -1;
+    let bodyLength = -1;
+    const deadline = setTimeout(() => finish(new Error(`RTSP probe timed out after ${timeoutMs} ms; check camera wake time, go2rtc, and port ${port}`)), timeoutMs);
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
       socket.destroy();
       if (error) reject(error); else resolve(result);
     };
-    socket.setTimeout(timeoutMs, () => finish(new Error(`RTSP probe timed out after ${timeoutMs} ms; check camera wake time, go2rtc, and port ${port}`)));
     socket.on("error", (error) => finish(new Error(`RTSP ${host}:${port} unavailable: ${error.message}`)));
     socket.on("connect", () => {
       const uri = `rtsp://${host}:${port}/${encodeURIComponent(streamKey)}`;
       socket.write(`DESCRIBE ${uri} RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\nUser-Agent: eufy-bridge-setup\r\n\r\n`);
     });
     socket.on("data", (chunk) => {
-      response += chunk;
-      if (response.length > 64 * 1024) return finish(new Error("RTSP response exceeded 64 KiB"));
-      const line = response.split("\r\n", 1)[0];
-      const match = /^RTSP\/1\.0 (\d{3}) (.*)$/.exec(line);
-      if (!match) return;
-      const status = Number(match[1]);
-      if (status !== 200) return finish(new Error(`RTSP DESCRIBE returned ${status} ${match[2]}; check the camera stream key and bridge logs`));
-      const headerEnd = response.indexOf("\r\n\r\n");
-      if (headerEnd < 0) return;
-      const header = response.slice(0, headerEnd);
-      const length = Number(/^content-length:\s*(\d+)/im.exec(header)?.[1] ?? 0);
-      const body = response.slice(headerEnd + 4);
-      if (length && body.length < length) return;
-      if (/^m=video\s/im.test(body)) {
-        const codecName = /^a=rtpmap:\d+\s+(H264|H265|HEVC)\//im.exec(body)?.[1]?.toLowerCase();
-        const codec = codecName === "hevc" ? "h265" : codecName ?? null;
-        finish(null, { ok: true, status, codec, uri: `rtsp://${host}:${port}/${encodeURIComponent(streamKey)}` });
+      if (settled) return;
+      if (used + chunk.length > MAX_RTSP_BYTES) return finish(new Error("RTSP response exceeded 64 KiB"));
+      const oldUsed = used;
+      chunk.copy(response, used);
+      used += chunk.length;
+      if (bodyStart < 0) {
+        const headerEnd = response.indexOf("\r\n\r\n", Math.max(0, oldUsed - 3));
+        if (headerEnd < 0) {
+          if (used > MAX_RTSP_HEADER_BYTES) finish(new Error("RTSP headers exceeded 16 KiB"));
+          return;
+        }
+        bodyStart = headerEnd + 4;
+        if (bodyStart > MAX_RTSP_HEADER_BYTES) return finish(new Error("RTSP headers exceeded 16 KiB"));
+        const header = response.toString("utf8", 0, headerEnd);
+        const [statusLine, ...lines] = header.split("\r\n");
+        const match = /^RTSP\/1\.0 ([0-9]{3}) (.+)$/.exec(statusLine);
+        if (!match) return finish(new Error("RTSP DESCRIBE returned a malformed status line"));
+        const status = Number(match[1]);
+        if (status !== 200) return finish(new Error(`RTSP DESCRIBE returned ${status} ${match[2]}; check the camera stream key and bridge logs`));
+        if (lines.some((line) => !/^[!#$%&'*+.^_`|~\w-]+:\s*[^\r\n]*$/.test(line)))
+          return finish(new Error("RTSP DESCRIBE returned malformed headers"));
+        const lengths = lines.filter((line) => /^content-length:/i.test(line));
+        if (lengths.length !== 1 || !/^content-length:\s*\d+\s*$/i.test(lengths[0]))
+          return finish(new Error("RTSP DESCRIBE requires one valid Content-Length header"));
+        bodyLength = Number(lengths[0].split(":", 2)[1].trim());
+        if (!bodyLength || !Number.isSafeInteger(bodyLength) || bodyLength > MAX_RTSP_BYTES - bodyStart)
+          return finish(new Error("RTSP DESCRIBE body length is invalid or exceeds 64 KiB"));
       }
-      else if (length) finish(new Error("RTSP DESCRIBE returned no video track; check camera codec and bridge logs"));
+      if (used < bodyStart + bodyLength) return;
+      const body = response.toString("utf8", bodyStart, bodyStart + bodyLength);
+      if (!/^m=video\s/im.test(body)) return finish(new Error("RTSP DESCRIBE returned no video track; check camera codec and bridge logs"));
+      const codecName = /^a=rtpmap:\d+\s+(H264|H265|HEVC)\//im.exec(body)?.[1]?.toLowerCase();
+      const codec = codecName === "hevc" ? "h265" : codecName ?? null;
+      finish(null, { ok: true, status: 200, codec, uri: `rtsp://${host}:${port}/${encodeURIComponent(streamKey)}` });
     });
-    socket.on("end", () => finish(new Error("RTSP peer closed before a DESCRIBE response")));
+    socket.on("end", () => finish(new Error("RTSP peer closed before a complete DESCRIBE response")));
   });
+}
+
+/** Incremental Annex-B scanner; a candidate needs a NAL header and at least one payload byte. */
+class VideoSliceScanner {
+  constructor(codec) { this.codec = codec; this.zeros = 0; this.headerBytes = 0; this.first = 0; this.second = 0; this.inNal = false; }
+  nalByte(byte) {
+    if (!this.inNal) return false;
+    if (this.headerBytes === 0) {
+      this.first = byte;
+      this.headerBytes = 1;
+      if (!this.codec) {
+        const h264 = byte & 0x1f, h265 = (byte >> 1) & 0x3f;
+        if (h264 === 7 || h264 === 8) this.codec = "h264";
+        else if (h265 === 32 || h265 === 33 || h265 === 34) this.codec = "h265";
+      }
+      return false;
+    }
+    const first = this.first;
+    if (this.codec === "h264") {
+      const type = first & 0x1f;
+      return (first & 0x80) === 0 && (type === 1 || type === 5);
+    }
+    if (this.headerBytes === 1) { this.second = byte; this.headerBytes = 2; return false; }
+    return this.codec === "h265" && (first & 0x80) === 0 && (this.second & 0x07) !== 0 && ((first >> 1) & 0x3f) <= 31;
+  }
+  feed(bytes) {
+    for (const byte of bytes) {
+      if (byte === 0) { this.zeros++; continue; }
+      if (byte === 1 && this.zeros >= 2) {
+        this.inNal = true; this.headerBytes = 0; this.zeros = 0;
+        continue;
+      }
+      // Zeros are held until we know they are payload rather than a split start code.
+      for (let i = 0; i < Math.min(this.zeros, 3); i++) if (this.nalByte(0)) return true;
+      this.zeros = 0;
+      if (this.nalByte(byte)) return true;
+    }
+    return false;
+  }
 }
 
 /** A real H.264/H.265 picture slice, ignoring SPS/PPS/VPS and other header-only traffic. */
 export function hasVideoSlice(bytes, codec) {
-  let kind = codec;
-  for (let i = 0; i < bytes.length - 4; i++) {
-    if (bytes[i] !== 0 || bytes[i + 1] !== 0) continue;
-    const start = bytes[i + 2] === 1 ? i + 3 : bytes[i + 2] === 0 && bytes[i + 3] === 1 ? i + 4 : -1;
-    if (start < 0 || start >= bytes.length) continue;
-    const h264 = bytes[start] & 0x1f;
-    const h265 = (bytes[start] >> 1) & 0x3f;
-    if (!kind && (h264 === 7 || h264 === 8)) kind = "h264";
-    if (!kind && (h265 === 32 || h265 === 33 || h265 === 34)) kind = "h265";
-    if (kind === "h264" && (h264 === 1 || h264 === 5) && start + 1 < bytes.length) return true;
-    if (kind === "h265" && h265 <= 31 && start + 2 < bytes.length) return true;
-  }
-  return false;
+  return new VideoSliceScanner(codec).feed(bytes);
 }
 
 /** Read a real Annex-B chunk from the bridge. SDP alone does not prove that frames are arriving. */
@@ -98,14 +147,15 @@ export async function probeBridgeFrame({ bridgeUrl, sn, codec, timeoutMs = 7_000
     if (!response.ok) throw new Error(`HTTP stream returned ${response.status}`);
     reader = response.body?.getReader();
     if (!reader) throw new Error("HTTP stream returned no readable body");
-    let bytes = Buffer.alloc(0);
+    const scanner = new VideoSliceScanner(codec);
+    let bytes = 0;
     for (;;) {
       const { value, done } = await reader.read();
       if (done) throw new Error("HTTP stream ended before a video slice arrived");
       if (!value?.length) continue;
-      bytes = Buffer.concat([bytes, Buffer.from(value)]);
-      if (bytes.length > 2 * 1024 * 1024) throw new Error("HTTP stream sent 2 MiB without a video slice");
-      if (hasVideoSlice(bytes, codec)) return bytes.length;
+      bytes += value.length;
+      if (bytes > MAX_STREAM_BYTES) throw new Error("HTTP stream sent 2 MiB without a video slice");
+      if (scanner.feed(value)) return bytes;
     }
   } catch (error) {
     throw new Error(`${sn}: no live video bytes within ${timeoutMs} ms (${error.message}); check camera wake, LAN policy, and bridge logs`);
