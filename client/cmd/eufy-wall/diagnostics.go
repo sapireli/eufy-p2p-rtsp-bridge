@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"eufy-wall/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 type clientDiagnostic struct {
@@ -58,6 +62,10 @@ func diagnosticForClient(message string, operation string) clientDiagnostic {
 		d.Code, d.Remedy = "GSTREAMER_ELEMENT_MISSING", "Install the required GStreamer package and rerun eufy-wall doctor."
 	case strings.Contains(message, "decoder") || strings.Contains(message, "GStreamer"):
 		d.Code, d.Remedy = "DECODER_UNAVAILABLE", "Install the required GStreamer element or change the codec/decoder choice."
+	case operation == "migrate" && strings.Contains(message, "legacy migration needs rtsp_base"):
+		d.Code, d.Path, d.Remedy = "CONFIG_MIGRATION_NEEDS_RTSP_BASE", "rtsp_base", "Keep a URL-only offline file in the supported legacy format, or add a bridge-backed rtsp_base before migration."
+	case strings.Contains(message, "bridge_url must be an http(s) origin") || strings.Contains(message, "cannot derive bridge_url"):
+		d.Code, d.Path, d.Remedy = "BRIDGE_URL_INVALID", "bridge_url", "Use a credential-free HTTP(S) bridge origin without a path, query, or fragment."
 	case strings.Contains(message, "bridge") && strings.Contains(message, "auth"):
 		d.Code, d.Path, d.Remedy = "BRIDGE_AUTH_REQUIRED", "bridge_url", "Complete bridge login and retry."
 	case strings.Contains(message, "bridge"):
@@ -74,6 +82,55 @@ func diagnosticForClient(message string, operation string) clientDiagnostic {
 		d.Code, d.Remedy = "HOST_CHECK_FAILED", "Resolve the reported host check and rerun eufy-wall doctor."
 	}
 	return d
+}
+
+func diagnosticForClientInput(message, operation string, data []byte) clientDiagnostic {
+	d := diagnosticForClient(message, operation)
+	if d.Code == "CONFIG_UNSUPPORTED_KEY" && d.Line > 0 {
+		if path := yamlFieldPath(data, d.Path, d.Line); path != "" {
+			d.Path = path
+			d.Message = fmt.Sprintf("unsupported config key %q", path)
+		}
+	}
+	return d
+}
+
+func yamlFieldPath(data []byte, field string, line int) string {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return ""
+	}
+	var visit func(*yaml.Node, string) string
+	visit = func(node *yaml.Node, prefix string) string {
+		switch node.Kind {
+		case yaml.DocumentNode:
+			if len(node.Content) > 0 {
+				return visit(node.Content[0], prefix)
+			}
+		case yaml.MappingNode:
+			for i := 0; i+1 < len(node.Content); i += 2 {
+				key, value := node.Content[i], node.Content[i+1]
+				path := key.Value
+				if prefix != "" {
+					path = prefix + "." + path
+				}
+				if key.Value == field && key.Line == line {
+					return path
+				}
+				if found := visit(value, path); found != "" {
+					return found
+				}
+			}
+		case yaml.SequenceNode:
+			for i, child := range node.Content {
+				if found := visit(child, fmt.Sprintf("%s[%d]", prefix, i)); found != "" {
+					return found
+				}
+			}
+		}
+		return ""
+	}
+	return visit(&root, "")
 }
 
 func emitClientJSON(out io.Writer, ok bool, diagnostic *clientDiagnostic) error {
@@ -96,7 +153,11 @@ func validateClientCommand(path string, in io.Reader, out io.Writer, jsonOutput 
 }
 
 func validateClientCommandTarget(path string, in io.Reader, out io.Writer, jsonOutput bool, target clientTarget) error {
-	c, err := parseClientInput(path, in)
+	data, err := readClientInput(path, in)
+	var c *config.Config
+	if err == nil {
+		c, err = config.Parse(data)
+	}
 	if err == nil {
 		err = validateTargetOutput(target, c)
 	}
@@ -111,7 +172,7 @@ func validateClientCommandTarget(path string, in io.Reader, out io.Writer, jsonO
 		return err
 	}
 	if err != nil {
-		d := diagnosticForClient(err.Error(), "validate")
+		d := diagnosticForClientInput(err.Error(), "validate", data)
 		if writeErr := emitClientJSON(out, false, &d); writeErr != nil {
 			return writeErr
 		}
@@ -132,9 +193,12 @@ func applyClientCommandTarget(path string, in io.Reader, out io.Writer, jsonOutp
 	if !jsonOutput {
 		return applyClientConfigTarget(path, in, out, target)
 	}
-	err := applyClientConfigTarget(path, in, io.Discard, target)
+	data, err := readClientInput(path, in)
+	if err == nil {
+		err = applyClientConfigTarget("-", bytes.NewReader(data), io.Discard, target)
+	}
 	if err != nil {
-		d := diagnosticForClient(err.Error(), "apply")
+		d := diagnosticForClientInput(err.Error(), "apply", data)
 		if writeErr := emitClientJSON(out, false, &d); writeErr != nil {
 			return writeErr
 		}

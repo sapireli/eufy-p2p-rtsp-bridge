@@ -47,6 +47,54 @@ func TestClientApplyJSONFailureIsStructuredAndSafe(t *testing.T) {
 	}
 }
 
+func TestNestedUnknownFieldDiagnosticNamesFullYAMLPath(t *testing.T) {
+	const invalid = "schema_version: 2\nbridge_url: http://bridge:3000\nrtsp_base: rtsp://bridge:8554\nlayout: custom\ncanvas: {cols: 32, rows: 32}\ntiles:\n  - id: front\n    camera: CAM\n    rect: {x: 0, y: 0, w: 32, h: 32, width_typo: 1}\n"
+	for _, operation := range []string{"validate", "apply"} {
+		var out bytes.Buffer
+		_, err := runCommand([]string{"config", operation, "-", "--json"}, strings.NewReader(invalid), &out)
+		if err == nil {
+			t.Fatalf("%s accepted unknown rectangle key", operation)
+		}
+		var report struct {
+			Diagnostics []clientDiagnostic `json:"diagnostics"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &report); err != nil || len(report.Diagnostics) != 1 {
+			t.Fatalf("%s returned bad JSON: %v %s", operation, err, out.String())
+		}
+		d := report.Diagnostics[0]
+		if d.Code != "CONFIG_UNSUPPORTED_KEY" || d.Path != "tiles[0].rect.width_typo" || d.Line != 9 {
+			t.Fatalf("%s gave incomplete location: %+v", operation, d)
+		}
+	}
+}
+
+func TestMigrationPrerequisiteDiagnosticsGiveConfigAdvice(t *testing.T) {
+	for _, tc := range []struct {
+		name, yaml, code, path, remedy string
+	}{
+		{"offline URL", "layout: 1\ntiles: [{url: rtsp://127.0.0.1:8554/live}]\n", "CONFIG_MIGRATION_NEEDS_RTSP_BASE", "rtsp_base", "legacy format"},
+		{"credential-bearing bridge", "rtsp_base: rtsp://user:SECRET@127.0.0.1:8554\nlayout: 1\ntiles: [{camera: CAM}]\n", "BRIDGE_URL_INVALID", "bridge_url", "credential-free"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			_, err := runCommand([]string{"config", "migrate", "-", "--json"}, strings.NewReader(tc.yaml), &out)
+			if err == nil {
+				t.Fatal("invalid migration accepted")
+			}
+			var report struct {
+				Diagnostics []clientDiagnostic `json:"diagnostics"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &report); err != nil || len(report.Diagnostics) != 1 {
+				t.Fatalf("bad JSON: %v %s", err, out.String())
+			}
+			d := report.Diagnostics[0]
+			if d.Code != tc.code || d.Path != tc.path || !strings.Contains(d.Remedy, tc.remedy) || strings.Contains(out.String(), "SECRET") {
+				t.Fatalf("misleading or leaking migration diagnostic: %+v", d)
+			}
+		})
+	}
+}
+
 func TestOldGStreamerVersionHasActionableDiagnostic(t *testing.T) {
 	d := diagnosticForClient("GStreamer version 1.18 is unsupported for the native compositor", "doctor")
 	if d.Code != "GSTREAMER_VERSION_UNSUPPORTED" || !strings.Contains(d.Remedy, "1.20") {
