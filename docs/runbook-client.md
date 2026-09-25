@@ -1,57 +1,93 @@
-# Runbook — eufy-wall (display client)
+# Client runbook: eufy-wall
 
-## Hardware / OS
-- Raspberry Pi 3 (recommended), Pi 1/Zero (H.264 only, ≤ 4×720p — see limits), or Debian x86 (VAAPI).
-- Raspberry Pi OS **Lite** (Bookworm or Trixie), no desktop. Ethernet preferred.
-- `/boot/firmware/config.txt`: `dtoverlay=vc4-kms-v3d`, `gpu_mem=128`, `hdmi_blanking=0` (install script adds them).
-- Cameras must stream **H.264** (the bridge's /api/cameras shows `codec`). The Pi has no HEVC decoder.
+## Release install
 
-## Install
-The install script expects the repo layout (`deploy/` next to `client/`), so copy both directories:
+The release workflow publishes Linux binaries for amd64, arm64, armv7, and armv6. The release archive includes the binary, installer, systemd unit, and YAML example. No Go build or repo checkout is required on the display host. The installer uses apt for GStreamer and DRM tools when absent; for offline install, preinstall those packages from an OS mirror or cache and pass `--no-apt`.
 
-    make pi3            # on your workstation (or pi1 / pi64 / amd64) → client/bin/eufy-wall-armv7
-    ssh pi 'mkdir -p /tmp/eufy-wall' && scp -r deploy client pi:/tmp/eufy-wall/
-    ssh pi
-    sudo /tmp/eufy-wall/deploy/install-client.sh /tmp/eufy-wall/client/bin/eufy-wall-armv7
-    sudo nano /etc/eufy-wall.yaml      # rtsp_base → your server, tiles, layout
-    eufy-wall -config /etc/eufy-wall.yaml -dry-run   # shows the tile table + the gst-launch line
-    sudo systemctl start eufy-wall && journalctl -fu eufy-wall
+Get a tag from [GitHub Releases](https://github.com/sapireli/eufy-p2p-rtsp-bridge/releases). On the display host, replace `vX.Y.Z` and choose the matching architecture. `dpkg --print-architecture` reports `armhf` for both 32-bit Pi variants: use `armv6` on Pi 1/Zero and `armv7` on Pi 2/3/4 running 32-bit OS.
 
-## Layouts
-`1`, `2x2`, `3x3`, `1+5` (primary 2×2 at `left` or `right` of a 3×3 grid; `center` is not possible with 3
-columns). A tile with `aspect: tall` (an E340 in split-view) takes 1 column × 2 rows — in `1+5` that is the
-side column next to the primary; if there is no room it is letterboxed in one cell.
-
-## Sink strategy (from Spike B — fill in measured numbers)
-| Pi | streams | sink=planes | sink=compositor | notes |
-|----|---------|-------------|-----------------|-------|
-| Pi 3 | 6×720p15 | | | |
-| Pi 1 | 4×720p15 | | | |
-- `sink: planes` needs the DRM overlay plane ids: `modetest -M vc4 -p` → "Planes" table → ids whose
-  `type` is Overlay. Put ≥ N ids in `planes:`.
-- `sink: compositor` needs no ids and works on x86 too.
-
-## macOS preview
-The binary runs on macOS for previewing a layout against the real server. Install GStreamer:
+```sh
+VERSION=vX.Y.Z
+ARCH=arm64 # or amd64, armv7, armv6
+BASE="https://github.com/sapireli/eufy-p2p-rtsp-bridge/releases/download/$VERSION"
+FILE="eufy-wall-$VERSION-linux-$ARCH.tar.gz"
+curl -fL -o "$FILE" "$BASE/$FILE"
+curl -fL -o SHA256SUMS "$BASE/SHA256SUMS"
+grep "  $FILE\$" SHA256SUMS | sha256sum -c -
+gh attestation verify "$FILE" --repo sapireli/eufy-p2p-rtsp-bridge \
+  --signer-workflow sapireli/eufy-p2p-rtsp-bridge/.github/workflows/release.yml \
+  --source-ref "refs/tags/$VERSION"
+tar -xzf "$FILE" eufy-wall-client/deploy/install-client.sh eufy-wall-client/deploy/install-common.sh
+bash eufy-wall-client/deploy/install-client.sh --artifact "$FILE" --checksums SHA256SUMS --verify-only
+sudo bash eufy-wall-client/deploy/install-client.sh --artifact "$FILE" --checksums SHA256SUMS
 ```
-brew install gstreamer
+
+The installer repeats that provenance check before extraction. `SHA256SUMS` is an extra integrity check and cannot authenticate an archive if someone replaces both files.
+
+For an offline display host, verify the archive on a connected trusted machine, then run `gh attestation download "$FILE" -R sapireli/eufy-p2p-rtsp-bridge` and `gh attestation trusted-root > trusted_root.jsonl`. Transfer the verified installer scripts, archive, manifest, `sha256:*.jsonl` bundle, trusted root, and GitHub CLI over a trusted channel. On the target, use:
+
+```sh
+sudo bash eufy-wall-client/deploy/install-client.sh --artifact "$FILE" --checksums SHA256SUMS \
+  --attestation-bundle sha256:ARTIFACT_DIGEST.jsonl --trusted-root trusted_root.jsonl --no-apt
 ```
-This pulls in the plugin sets. Configure with:
-- `sink: window` (displays to an X11/Quartz window instead of KMS)
-- `decoder: software` (uses libav H.264 decoder)
-- An explicit `screen: { width, height }` in the config (auto-detect reads Linux sysfs and fails on macOS)
 
-KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the only valid sink.
+Run the same command without `sudo` and with `--verify-only` first. If GitHub CLI is unavailable on the Pi, verify the attestation on the connected machine and pass its archive SHA-256 through a *separate trusted channel*:
 
-## Troubleshooting
-- Black screen, logs say `Could not open DRM`/`Permission denied` → user `wall` must be in `video`+`render`
-  and nothing else (X/Wayland/getty splash) may own the display; `systemctl stop getty@tty1` if needed.
-- `v4l2h264dec` missing → `apt install gstreamer1.0-plugins-good`; `/dev/video10` missing → kernel/firmware
-  without `bcm2835-codec` — check `dmesg | grep codec`.
-- Decoder hangs after a while on kernel 6.6.x (`h264_v4l2m2m` regression) → `journalctl` shows no frames;
-  the supervisor restarts the pipeline; upgrade the kernel (`sudo apt full-upgrade`).
-- One camera down restarts the whole wall (single pipeline) — expected in Phase 1; the bridge keeps the
-  others warm so they return in ~2 s.
-- Too slow (dropped frames, CPU > 80 %) → lower the secondaries' streaming quality to 720p in the eufy
-  app (camera → Settings → Video → Streaming quality; the bridge cannot set it — see the server runbook)
-  or use a smaller layout.
+```sh
+TRUSTED_SHA256=PASTE_VERIFIED_DIGEST_FROM_TRUSTED_MACHINE
+sudo bash eufy-wall-client/deploy/install-client.sh --artifact "$FILE" --checksums SHA256SUMS \
+  --trusted-sha256 "$TRUSTED_SHA256" --no-apt
+```
+
+Do not read `TRUSTED_SHA256` from the copied manifest. The offline host checks the archive against this pinned value. For either offline path, preinstall GStreamer and DRM packages from an OS mirror or cache; `--no-apt` fails before switching releases if they are missing. See GitHub's [offline attestation guide](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations-offline).
+
+The installer uses `/opt/eufy-wall/releases/VERSION-ARCH`, `/opt/eufy-wall/current`, and `/usr/local/bin/eufy-wall`. It preserves `/etc/eufy-wall.yaml` on upgrades. A repeat install of the same checksum leaves a running service alone. An upgrade of a running service switches the symlink, restarts, checks it stays active, and restores the old binary on failure. Later run `sudo bash eufy-wall-client/deploy/install-client.sh --rollback` to choose the previous binary. A pre-release `/usr/local/bin/eufy-wall` is copied into a `legacy-*` release first.
+
+## First setup and manual YAML
+
+The binary owns local config commands. The guided `sudo eufy-wall setup` wizard is planned and is not available yet. To provide a hand-authored YAML file, use the validator and safe apply path:
+
+```sh
+eufy-wall config example > wall.yaml
+eufy-wall config validate wall.yaml
+eufy-wall layout preview wall.yaml
+sudo eufy-wall config apply wall.yaml
+# Or: cat wall.yaml | ssh pi 'sudo eufy-wall config apply -'
+eufy-wall doctor
+sudo systemctl status eufy-wall
+```
+
+The default config path is `/etc/eufy-wall.yaml`. Legacy rendering flags remain available: `eufy-wall -config /etc/eufy-wall.yaml -dry-run` prints the planned GStreamer command, and `-print-layout` prints placement. `config recover` is run as root in the unit's `ExecStartPre`; if an apply was interrupted, it restores the previous YAML before starting the wall. See [client config reference](config-client.md) and [layout reference](layouts.md) for keys, presets, custom rectangles, and examples.
+
+For a manual first config, set `rtsp_base` to `rtsp://SERVER_IP:8554`, select cameras by serial under `tiles`, and choose a layout. The client may need a `bridge_url` for motion and power inventory; set it explicitly. Use `eufy-wall doctor` to inspect the actual output, GStreamer elements, and decoder before starting the service. A screen can be described on a logical 32×32 canvas, but this says nothing about the host's decoder or DRM plane capacity.
+
+## Display and decoder diagnostics
+
+On Raspberry Pi OS Lite, KMS usually needs `dtoverlay=vc4-kms-v3d` in `/boot/firmware/config.txt`. Check the current firmware, kernel, and connected output before changing that file. The installer does not modify boot configuration; reboot after a manual KMS change. Ethernet is preferred for a wall with multiple live feeds.
+
+```sh
+eufy-wall doctor --json
+ls /sys/class/drm/
+modetest -M vc4 -p
+gst-inspect-1.0 v4l2h264dec
+gst-inspect-1.0 v4l2h265dec
+sudo journalctl -u eufy-wall -n 100 --no-pager
+```
+
+For `sink: planes`, each active tile needs a usable DRM plane for the chosen output. Counting plane IDs alone is insufficient; run a render probe. `sink: compositor` avoids explicit plane IDs but may restart the full wall when one source changes, so use a planes profile for motion-heavy layouts until compositor isolation is verified. For an H.265 passthrough source, the display host must have an H.265 decoder. If it does not, configure server-side hardware transcode where supported or use a different display host. Do not assume every Pi model decodes H.265.
+
+Two physical outputs should run separate wall instances with separate config files and output selectors; each output has its own DRM CRTC and plane routing. The service unit starts the default `/etc/eufy-wall.yaml` only. Additional instances need separate units.
+
+On macOS, the Go binary can preview layouts with GStreamer installed through Homebrew and `sink: window`, `decoder: software`, and an explicit screen size. The Linux release installer and KMS sinks do not apply there.
+
+## Recovery
+
+If the screen is black, inspect `eufy-wall doctor`, `journalctl`, output ownership (`video` and `render` groups), and whether another compositor holds DRM. A missing GStreamer decoder or watchdog plugin needs its corresponding OS package. A camera that stops delivering frames should be detected by the runtime progress watchdog; confirm the recovery in the journal. If an upgrade fails, use the installer `--rollback` and inspect the current binary symlink with `readlink /opt/eufy-wall/current`.
+
+## Measured profile table
+
+No Pi stream count, frame rate, CPU, dropped-frame, or recovery measurements are recorded yet. Release archive availability does not imply hardware qualification. Record the actual Pi/CPU, OS and kernel, display mode, codecs and sizes, sink and planes, 30-minute live result, dropped frames, and recovery under camera/station/network restarts before marking a profile supported.
+
+| Device / OS / kernel | Output | Streams / codec / size | Sink / planes | FPS / drops / CPU | Soak and recovery |
+| --- | --- | --- | --- | --- | --- |
+| Awaiting measured result | | | | | |
