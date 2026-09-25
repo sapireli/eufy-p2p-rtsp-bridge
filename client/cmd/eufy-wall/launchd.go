@@ -12,7 +12,24 @@ import (
 
 const launchdWallLabel = "com.eufy.wall"
 
-type launchdWallService struct{}
+type launchdWallService struct {
+	run       func(...string) ([]byte, error)
+	plistPath func() (string, error)
+}
+
+func (s launchdWallService) command(args ...string) ([]byte, error) {
+	if s.run != nil {
+		return s.run(args...)
+	}
+	return launchctl(args...)
+}
+
+func (s launchdWallService) plist() (string, error) {
+	if s.plistPath != nil {
+		return s.plistPath()
+	}
+	return launchdPlist()
+}
 
 func launchdTarget() string { return fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdWallLabel) }
 
@@ -36,43 +53,43 @@ func launchctl(args ...string) ([]byte, error) {
 	return b, nil
 }
 
-func (launchdWallService) Restart() error {
-	if err := enableLaunchdWall(); err != nil {
+func (s launchdWallService) Restart() error {
+	if _, err := s.command("enable", launchdTarget()); err != nil {
 		return err
 	}
-	if _, err := launchctl("print", launchdTarget()); err != nil {
-		plist, pathErr := launchdPlist()
+	if _, err := s.command("print", launchdTarget()); err != nil {
+		plist, pathErr := s.plist()
 		if pathErr != nil {
 			return pathErr
 		}
 		if _, err := os.Stat(plist); err != nil {
 			return fmt.Errorf("launchd service is not installed at %s: %w", plist, err)
 		}
-		if _, err := launchctl("bootstrap", launchdDomain(), plist); err != nil {
+		if _, err := s.command("bootstrap", launchdDomain(), plist); err != nil {
 			return fmt.Errorf("load launchd service in the logged-in user's GUI session: %w", err)
 		}
 	}
-	_, err := launchctl("kickstart", "-k", launchdTarget())
+	_, err := s.command("kickstart", "-k", launchdTarget())
 	return err
 }
 
-func (launchdWallService) Stop() error {
-	if _, err := launchctl("print", launchdTarget()); err == nil {
-		if _, err := launchctl("bootout", launchdTarget()); err != nil {
+func (s launchdWallService) Stop() error {
+	if _, err := s.command("print", launchdTarget()); err == nil {
+		if _, err := s.command("bootout", launchdTarget()); err != nil {
 			return err
 		}
 	}
-	_, err := launchctl("disable", launchdTarget())
+	_, err := s.command("disable", launchdTarget())
 	return err
 }
 
-func (launchdWallService) Healthy() error {
+func (s launchdWallService) Healthy() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if err := launchdActive(); err == nil {
+		if err := s.active(); err == nil {
 			return nil
 		}
 		select {
@@ -84,7 +101,11 @@ func (launchdWallService) Healthy() error {
 }
 
 func launchdActive() error {
-	b, err := launchctl("print", launchdTarget())
+	return (launchdWallService{}).active()
+}
+
+func (s launchdWallService) active() error {
+	b, err := s.command("print", launchdTarget())
 	if err != nil {
 		return err
 	}
