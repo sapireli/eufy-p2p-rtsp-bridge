@@ -121,6 +121,39 @@ func TestRendererSwitchKeepsUnaffectedTileProducing(t *testing.T) {
 	}
 }
 
+func TestRendererCodecChangeAtSameStreamURLSwitchesOnlyThatTile(t *testing.T) {
+	if _, err := load(); err != nil {
+		t.Skip(err)
+	}
+	tiles := testTiles()
+	tiles[0].URL, tiles[0].Codec = "test://same-camera", "h264"
+	opts := syntheticOptions(t)
+	opts.source = func(tile layout.Placed) (string, error) {
+		if tile.URL == "test://same-camera" && tile.Codec == "h265" {
+			return "videotestsrc is-live=true pattern=snow ! videoconvert", nil
+		}
+		return "videotestsrc is-live=true pattern=ball ! videoconvert", nil
+	}
+	r, err := New(&config.Config{}, tiles,
+		pipeline.Caps{Sink: "window", Screen: config.Screen{Width: 128, Height: 64}}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	waitFrames(t, r, "left", 0)
+	peerBefore := waitFrames(t, r, "right", 0)
+	tiles[0].Codec = "h265"
+	if err := r.Update(tiles); err != nil {
+		t.Fatal(err)
+	}
+	waitFrames(t, r, "left", 0)
+	waitFrames(t, r, "right", peerBefore)
+	status := r.Status()
+	if status.Tiles["left"].Generation != 2 || status.Tiles["right"].Generation != 1 {
+		t.Fatalf("codec change restarted wrong tiles: %+v", status.Tiles)
+	}
+}
+
 func TestRendererRejectsInvalidUpdateWithoutChangingTiles(t *testing.T) {
 	if _, err := load(); err != nil {
 		t.Skip(err)

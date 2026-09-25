@@ -2,6 +2,7 @@ package gstnative
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"eufy-wall/internal/layout"
@@ -13,33 +14,21 @@ func (r *Renderer) switchSource(s *slot, tile layout.Placed) error {
 	if s.key == key && s.source != 0 && s.state == "playing" {
 		return nil
 	}
+	if s.state == "retrying" && sourceKey(s.tile) == key && time.Now().Before(s.nextRetry) {
+		return nil
+	}
 	s.expectedLive = sourceKind(tile) == "live"
 	s.tile = tile
 	desc, err := r.options.source(tile)
 	if err != nil {
-		s.state, s.err = "retrying", err.Error()
-		s.nextRetry = time.Now().Add(r.options.retryAfter)
-		return err
+		return r.retrySource(s, err)
 	}
 	next, err := r.api.sourceBin(desc)
 	if err != nil {
-		s.state, s.err = "retrying", err.Error()
-		s.nextRetry = time.Now().Add(r.options.retryAfter)
-		return err
+		return r.retrySource(s, err)
 	}
 	if err := r.install(s, next); err != nil {
-		if s.source == 0 && s.initialSource == 0 {
-			if black, parseErr := r.api.sourceBin(blackSource); parseErr == nil {
-				if fallbackErr := r.install(s, black); fallbackErr == nil {
-					s.kind, s.state, s.err, s.key = "black", "retrying", err.Error(), ""
-					s.tile, s.nextRetry = tile, time.Now().Add(r.options.retryAfter)
-					return err
-				}
-			}
-		}
-		s.state, s.err = "retrying", err.Error()
-		s.nextRetry = time.Now().Add(r.options.retryAfter)
-		return err
+		return r.retrySource(s, err)
 	}
 	s.key, s.kind, s.state, s.err = key, sourceKind(tile), "playing", ""
 	s.tile = tile
@@ -47,6 +36,27 @@ func (r *Renderer) switchSource(s *slot, tile layout.Placed) error {
 	s.installed = time.Now()
 	s.nextRetry = time.Time{}
 	return nil
+}
+
+// A failed replacement must not keep showing the camera previously assigned to this rectangle.
+// Black is tile-local; the other source bins and output sink remain running.
+func (r *Renderer) retrySource(s *slot, cause error) error {
+	if s.kind != "black" || (s.source == 0 && s.initialSource == 0) {
+		black, err := r.api.sourceBin(blackSource)
+		if err == nil {
+			err = r.install(s, black)
+		}
+		if err != nil {
+			cause = fmt.Errorf("%w; black fallback: %v", cause, err)
+			r.removeSource(s)
+		} else {
+			s.kind = "black"
+		}
+	}
+	s.key = ""
+	s.state, s.err = "retrying", cause.Error()
+	s.nextRetry = time.Now().Add(r.options.retryAfter)
+	return cause
 }
 
 func (r *Renderer) install(s *slot, next uintptr) error {
@@ -57,8 +67,8 @@ func (r *Renderer) install(s *slot, next uintptr) error {
 		return errors.New("native source has no src pad")
 	}
 	defer a.objectUnref(srcPad)
-	// Add and retain a ref before tearing down the old source. Parse failures leave the
-	// existing source untouched.
+	// Add and retain a ref before tearing down the old source. The caller handles failures
+	// by selecting a tile-local black fallback.
 	if a.binAdd(r.pipeline, next) == 0 {
 		a.objectUnref(next)
 		return errors.New("native renderer could not add source bin")

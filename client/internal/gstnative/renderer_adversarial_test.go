@@ -279,3 +279,48 @@ func TestRendererNativeSetupFailuresReleasePipeline(t *testing.T) {
 		})
 	}
 }
+
+func TestRendererFailedCodecChangeCannotBorrowOldFrameProgress(t *testing.T) {
+	if _, err := load(); err != nil {
+		t.Skip(err)
+	}
+	tiles := testTiles()
+	opts := syntheticOptions(t)
+	opts.retryAfter = time.Hour
+	original := opts.source
+	var attempts atomic.Int32
+	opts.source = func(tile layout.Placed) (string, error) {
+		if tile.URL == "test://broken-codec" {
+			attempts.Add(1)
+			return "", errors.New("decoder missing")
+		}
+		return original(tile)
+	}
+	r, err := New(&config.Config{}, tiles,
+		pipeline.Caps{Sink: "window", Screen: config.Screen{Width: 128, Height: 64}}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	waitFrames(t, r, "left", 0)
+	peerBefore := waitFrames(t, r, "right", 0)
+	tiles[0].URL, tiles[0].Codec = "test://broken-codec", "h265"
+	if err := r.Update(tiles); err == nil {
+		t.Fatal("failed source change accepted")
+	}
+	status := r.Status().Tiles["left"]
+	if !status.ExpectedLive || status.State != "retrying" || status.SourceKind != "black" ||
+		status.DecodedFrames != 0 || status.LastDecodedFrameAt != nil {
+		t.Fatalf("old source frames credited to failed codec change: %+v", status)
+	}
+	waitFrames(t, r, "right", peerBefore)
+	if err := r.Update(tiles); err != nil || attempts.Load() != 1 {
+		t.Fatalf("reconciliation ignored retry backoff: err=%v attempts=%d", err, attempts.Load())
+	}
+	r.mu.Lock()
+	r.slots["left"].nextRetry = time.Now().Add(-time.Second)
+	r.mu.Unlock()
+	if err := r.Update(tiles); err == nil || attempts.Load() != 2 {
+		t.Fatalf("source did not retry after deadline: err=%v attempts=%d", err, attempts.Load())
+	}
+}

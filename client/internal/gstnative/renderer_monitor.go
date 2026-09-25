@@ -29,7 +29,7 @@ func (r *Renderer) statusLocked() Status {
 		tile := r.slots[id]
 		t := TileStatus{ExpectedLive: tile.expectedLive, SourceKind: tile.kind,
 			Generation: tile.generation, State: tile.state, Error: tile.err}
-		if tile.counter != nil && (tile.kind == "live" || tile.kind == "still") {
+		if tile.state == "playing" && tile.counter != nil && (tile.kind == "live" || tile.kind == "still") {
 			t.DecodedFrames = tile.counter.frames.Load()
 			t.LastDecodedFrameAt = tile.counter.lastTime()
 		}
