@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -24,6 +25,13 @@ import (
 )
 
 func main() {
+	if handled, err := runCommand(os.Args[1:], os.Stdin, os.Stdout); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "eufy-wall:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	cfgPath := flag.String("config", "/etc/eufy-wall.yaml", "config file")
 	dryRun := flag.Bool("dry-run", false, "print the resolved layout and pipeline, then exit")
 	printLayout := flag.Bool("print-layout", false, "print the resolved layout table, then exit")
@@ -95,8 +103,13 @@ func main() {
 }
 
 // runDynamic follows /ws and keeps the running pipelines matching what each tile should be showing.
-func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles []layout.Placed, mgr *supervisor.Manager, static []pipeline.Plan) {
-	endpoint := wsclient.EventURL(c.RTSPBase)
+type wallManager interface {
+	Run(context.Context, []pipeline.Plan) error
+	Update(context.Context, []pipeline.Plan)
+}
+
+func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles []layout.Placed, mgr wallManager, static []pipeline.Plan) {
+	endpoint := wsclient.EventURL(controlBase(c))
 	if endpoint == "" {
 		log.Printf("[wall] cannot derive the event channel from rtsp_base %q — running a static wall", c.RTSPBase)
 		_ = mgr.Run(ctx, static)
@@ -175,10 +188,10 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		mu.Unlock()
 
 		for _, cam := range take {
-			go holdRequest(ctx, c.RTSPBase, http.MethodPost, cam)
+			go holdRequest(ctx, controlBase(c), http.MethodPost, cam)
 		}
 		for _, cam := range drop {
-			go holdRequest(ctx, c.RTSPBase, http.MethodDelete, cam)
+			go holdRequest(ctx, controlBase(c), http.MethodDelete, cam)
 		}
 		if line := describe(tiles, snapshot, kinds); line != lastShown {
 			lastShown = line
@@ -189,7 +202,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 				return k
 			}
 			return sn
-		}))
+		}, store.CodecFor))
 	}
 
 	apply()
@@ -214,7 +227,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			var wg sync.WaitGroup
 			for _, cam := range held {
 				wg.Add(1)
-				go func(c2 string) { defer wg.Done(); holdRequest(release, c.RTSPBase, http.MethodDelete, c2) }(cam)
+				go func(c2 string) { defer wg.Done(); holdRequest(release, controlBase(c), http.MethodDelete, c2) }(cam)
 			}
 			wg.Wait()
 			cancel()
@@ -228,7 +241,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			}
 			mu.Unlock()
 			for _, cam := range held {
-				go holdRequest(ctx, c.RTSPBase, http.MethodPost, cam)
+				go holdRequest(ctx, controlBase(c), http.MethodPost, cam)
 			}
 		}
 	}
@@ -240,7 +253,7 @@ const holdRefreshInterval = 20 * time.Second
 
 // plansFor builds the pipelines for what each tile is currently showing. A tile showing nothing simply
 // has no plan, so a blank tile costs no process at all.
-func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showing, content map[int]string, streamKey func(string) string) []pipeline.Plan {
+func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showing, content map[int]string, streamKey, codecFor func(string) string) []pipeline.Plan {
 	live := make([]layout.Placed, 0, len(tiles))
 	for _, t := range tiles {
 		if showing == nil {
@@ -249,6 +262,15 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 		}
 		cam, ok := showing[t.Index]
 		if !ok || cam == "" {
+			// A tile with its own URL is independent of the bridge's camera inventory. It must survive
+			// the first hello snapshot even though it has no camera serial.
+			if t.Camera == "" && t.URL != "" {
+				live = append(live, t)
+			}
+			continue
+		}
+		if content[t.Index] == wallstate.ContentNone {
+			// Sleeping camera with no retained still: no RTSP or snapshot process should run.
 			continue
 		}
 		t.Camera = cam
@@ -260,13 +282,15 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 			key = streamKey(cam)
 		}
 		t.URL = c.TileURL(config.Tile{Camera: key})
-		if tc := c.TileFor(cam); tc != nil {
+		if codecFor != nil && codecFor(cam) != "" {
+			t.Codec = codecFor(cam)
+		} else if tc := c.TileFor(cam); tc != nil {
 			t.Codec = tc.Codec
 		}
 		if content[t.Index] == wallstate.ContentSnapshot {
 			// Not streaming yet: put the retained still up rather than pointing a decoder at a camera
 			// that is asleep, which shows one frozen frame at best.
-			t.StillURL = wsclient.StillURL(c.RTSPBase, cam)
+			t.StillURL = wsclient.StillURL(controlBase(c), cam)
 			if t.StillURL == "" {
 				continue
 			}
@@ -298,14 +322,33 @@ func describe(tiles []layout.Placed, showing, content map[int]string) string {
 	return strings.Join(parts, " ")
 }
 
-// holdRequest takes (POST) or releases (DELETE) this wall's hold on a camera.
-func holdRequest(ctx context.Context, rtspBase, method, sn string) {
-	u := wsclient.EventURL(rtspBase)
+func controlBase(c *config.Config) string {
+	if c.BridgeURL != "" {
+		return c.BridgeURL
+	}
+	return c.RTSPBase
+}
+
+var wallHoldOwner = func() string {
+	host, _ := os.Hostname()
+	return fmt.Sprintf("wall:%s:%d", host, os.Getpid())
+}()
+
+// holdRequest takes (POST) or releases (DELETE) this wall instance's hold on a camera.
+func holdRequest(ctx context.Context, base, method, sn string) {
+	u := wsclient.EventURL(base)
 	if u == "" {
 		return
 	}
-	endpoint := strings.Replace(strings.Replace(u, "ws://", "http://", 1), "/ws", "/hold/"+sn, 1)
-	req, err := http.NewRequestWithContext(ctx, method, endpoint+"?owner=wall", nil)
+	parsed, _ := url.Parse(u)
+	if parsed.Scheme == "wss" {
+		parsed.Scheme = "https"
+	} else {
+		parsed.Scheme = "http"
+	}
+	parsed.Path = "/hold/" + sn
+	parsed.RawQuery = url.Values{"owner": {wallHoldOwner}}.Encode()
+	req, err := http.NewRequestWithContext(ctx, method, parsed.String(), nil)
 	if err != nil {
 		return
 	}
@@ -315,6 +358,9 @@ func holdRequest(ctx context.Context, rtspBase, method, sn string) {
 		return
 	}
 	resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		log.Printf("[wall] %s hold %s failed: HTTP %d", strings.ToLower(method), sn, resp.StatusCode)
+	}
 }
 
 // planNames lists what the wall is running, so the log says whether tiles are independent processes or
