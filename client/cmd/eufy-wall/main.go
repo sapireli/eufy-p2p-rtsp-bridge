@@ -98,6 +98,14 @@ func runWall(cfgPath string, dryRun, printLayout bool) {
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
+	if caps.Sink == "planes" {
+		if len(c.Planes) < len(c.Tiles) {
+			log.Fatalf("[wall] sink=planes needs %d plane IDs, one per tile", len(c.Tiles))
+		}
+		if err := detect.CheckPlaneReachability(c.Output, c.Planes[:len(c.Tiles)]); err != nil {
+			log.Fatalf("[wall] %v", err)
+		}
+	}
 
 	log.Printf("[wall] screen %dx%d layout %s decoder %s sink %s", c.Screen.Width, c.Screen.Height, c.Layout, caps.Decoder, caps.Sink)
 	for _, t := range tiles {

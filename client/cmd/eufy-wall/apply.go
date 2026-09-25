@@ -152,6 +152,11 @@ func validateClientConfig(b []byte, host bool) error {
 		if _, err := pipeline.Plans(c, placed, caps); err != nil {
 			return err
 		}
+		if caps.Sink == "planes" {
+			if err := detect.CheckPlaneReachability(c.Output, c.Planes[:len(c.Tiles)]); err != nil {
+				return err
+			}
+		}
 		cameras, err := preflightClientRemote(context.Background(), c)
 		if err != nil {
 			return err
