@@ -1,10 +1,10 @@
 # Plug-and-play setup and terminal layout plan
 
-Status: implementation in progress on `plan/plug-and-play-setup`, 2026-09-25. The acceptance criteria below remain the release gates. Node and Go CI now require more than 80% overall line or statement coverage with adversarial and unit tests. The integrated setup commands, config transactions, inventory contract, full-screen and line-mode layout editors, and verified installers are implemented on this branch. Independent recovery of compositor tiles, full hardware qualification, and clean-host usability/soak evidence remain open; the runbooks mark unmeasured profiles unverified.
+Status: implementation in progress on `plan/plug-and-play-setup`, 2026-09-25. The acceptance criteria below remain the release gates. Node and Go CI now require more than 80% overall line or statement coverage with adversarial and unit tests. The integrated setup commands, config transactions, inventory contract, full-screen and line-mode layout editors, and verified Linux installers are implemented on this branch. Independent recovery of compositor tiles, macOS installation and display support, full hardware qualification, and clean-host usability/soak evidence remain open; the runbooks mark unmeasured profiles unverified.
 
 ## Outcome
 
-A person with a fresh Debian server and a fresh Raspberry Pi or Debian display client can get a working wall without hand-editing YAML, finding DRM plane IDs, building Go locally, or learning the bridge's HTTP API. The same person can later change cameras and layouts safely, see why a choice will not work on the target hardware, and recover from a bad configuration.
+A person with a fresh Debian server and a fresh Raspberry Pi, Debian, or macOS display client can get a working wall without hand-editing YAML, finding DRM plane IDs, building Go locally, or learning the bridge's HTTP API. The same person can later change cameras and layouts safely, see why a choice will not work on the target hardware, and recover from a bad configuration.
 
 Each existing program owns its own setup and config experience. The Node bridge exposes an `eufy-bridge` command; the Go client extends the existing `eufy-wall` binary. Both can generate a config interactively, validate and apply a hand-written YAML file, diagnose their host, and roll back a failed change. Defaults, templates, schema checks, and help live beside each program's runtime config loader. YAML remains an external file so a user can edit it directly, keep it in Git, or send it to a host through SSH. There is no third setup program and no web interface.
 
@@ -48,8 +48,8 @@ Commands: `eufy-bridge setup`, `eufy-bridge doctor`, `eufy-bridge config validat
 
 ### New client
 
-1. Copy or download the `eufy-wall` release binary for the Pi or Debian display host and run its installer; no workstation cross-build is needed.
-2. Run `sudo eufy-wall setup`. It finds connected outputs, screen modes, available GStreamer elements, decoders, and usable DRM planes. It selects the display output explicitly when more than one is connected.
+1. Copy or download the `eufy-wall` release binary for the Pi, Debian, or macOS display host and run its installer; no workstation cross-build is needed.
+2. Run `eufy-wall setup` with the privilege required by that host's installer. On Linux it finds connected outputs, screen modes, available GStreamer elements, decoders, and usable DRM planes. On macOS it selects a window sink and reports the detected or explicitly configured display mode; no DRM or `sudo` requirement is invented for a desktop window.
 3. Enter or discover the bridge address. Discovery may use mDNS, but manual address entry always works. The CLI checks HTTP health, imports camera inventory, and tests RTSP on selected cameras without holding a battery camera indefinitely.
 4. Choose a starter template (one camera, split screen, 2×2, 1+5, motion screen), open the terminal layout editor, or import an existing YAML file. The CLI shows a text preview and lists every warning.
 5. The CLI checks layout fit, decoder/codec match, usable planes, stream count budget, network reachability, and a short render probe. It applies the config only after validation and reports the service's live status.
@@ -157,8 +157,8 @@ The server setup flow must stage credentials separately from nonsecret YAML. The
 
 ### 2. Safe installation and apply
 
-1. CI produces versioned server and client artifacts for supported architectures. Bundle the built pinned SDK and production Node dependencies so target hosts do not compile a Git dependency. Package or pin go2rtc and all external version references.
-2. Replace repo-relative install assumptions with idempotent release installers. Support online and offline artifact input, prerequisite checks, checksum/signature verification, existing-install detection, upgrade, and binary rollback.
+1. CI produces versioned server and client artifacts for supported architectures, including macOS Intel and Apple Silicon client binaries. Bundle the built pinned SDK and production Node dependencies so target hosts do not compile a Git dependency. Package or pin go2rtc and all external version references.
+2. Replace repo-relative install assumptions with idempotent release installers. Support online and offline artifact input, prerequisite checks, checksum/signature verification, existing-install detection, upgrade, and binary rollback. The macOS client uses a launchd user service and a window sink; its installer and runbook must not assume systemd, apt, DRM, or root access.
 3. Implement atomic config apply and automatic rollback for both services, including power-loss and interrupted-process tests. Keep existing hand-authored configs working.
 4. Add a migration command that shows a diff, backs up the old config, and can restore it. Never silently replace `/etc` files.
 
@@ -192,7 +192,7 @@ The server setup flow must stage credentials separately from nonsecret YAML. The
 ### 7. Release qualification
 
 1. Exercise fresh install, upgrade, config migration, failed apply, rollback, and offline install on Debian amd64/arm64 and supported Pi OS images.
-2. Verify at least one measured layout at each supported hardware profile, including a battery motion tile, a dual-lens portrait feed, and a mixed H.264/H.265 setup where hardware permits.
+2. Verify at least one measured layout at each supported hardware profile, including macOS Intel and Apple Silicon, a battery motion tile, a dual-lens portrait feed, and a mixed H.264/H.265 setup where hardware permits.
 3. Verify docs by following them from a clean machine. Include `doctor` output and recovery steps in both runbooks. Mark unmeasured combinations as unverified rather than supported.
 
 ## Acceptance criteria
@@ -209,7 +209,9 @@ The server setup flow must stage credentials separately from nonsecret YAML. The
 
 ## Hardware target and remaining decisions
 
-The requested display targets are Raspberry Pi 1, 3, 4, and 5, plus Debian amd64. Architecture builds are available for these families; actual rendering and recovery support is conditional on the measurements in the client runbook. A Pi 1 is a display-client target, not a bridge-server target.
+The requested display targets are Raspberry Pi 1, 3, 4, and 5, Debian amd64, and macOS Intel and Apple Silicon. Architecture builds are available for the Linux families, and the Makefile cross-builds both macOS architectures; actual rendering and recovery support is conditional on measurements in the client runbook. A Pi 1 is a display-client target, not a bridge-server target. macOS is a display-client target with `sink: window`; the Node bridge remains a Debian server target.
+
+For macOS, add a signed or notarized versioned client artifact, a checksum/provenance-verified installer that preserves the previous binary and launchd service state, Homebrew GStreamer dependency checks, display/window detection and setup guidance, a launchd recovery path, and macOS-specific `doctor` diagnostics. Test both architectures with a bounded local RTSP source, source loss and codec switches, compositor restarts, sleep/wake, and a 30-minute live run. A passing cross-build or synthetic GStreamer test alone does not qualify either Mac profile.
 
 1. Should a local HDMI preview be mandatory before apply on a headless SSH session, or optional when the PNG and render probe pass? This plan makes it optional.
 2. Should deliberate overlapping tiles/overlays be a later feature? This plan rejects overlap in v2 so the render result is predictable.
