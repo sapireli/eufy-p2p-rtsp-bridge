@@ -107,7 +107,7 @@ ln -sfn "$base/current/eufy-wall" /usr/local/bin/eufy-wall
 systemctl daemon-reload
 
 if ((upgrade_active || old_active)); then
-  if ! systemctl restart "$service" || ! wait_active "$service"; then
+  if ! systemctl restart "$service" || ! wait_active "$service" || ! /usr/local/bin/eufy-wall health; then
     say 'new client failed to stay active; restoring previous binary'
     if [[ -n $old_current ]]; then
       rollback_release_unit "$old_current" "$base/.upgrade-unit" "$base/current" "/etc/systemd/system/$service.service" "$service"
@@ -117,6 +117,9 @@ if ((upgrade_active || old_active)); then
     fi
     rm -f "$base/.upgrade-pending" "$base/.upgrade-active"
     rm -f "$base/.upgrade-unit"
+    if [[ -n $old_current ]] && ! /usr/local/bin/eufy-wall health; then
+      die 'upgrade failed; previous binary restored but frame progress did not recover'
+    fi
     die 'upgrade failed; inspect journalctl -u eufy-wall'
   fi
 fi
