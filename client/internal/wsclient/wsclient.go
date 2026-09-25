@@ -9,6 +9,7 @@ package wsclient
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -27,30 +28,43 @@ const (
 	readTimeout = 90 * time.Second
 )
 
-// EventURL turns an rtsp_base (or any http/rtsp URL of the bridge) into its /ws endpoint. The wall is
-// already configured with where the bridge is; making the operator repeat it as a second URL would be
-// one more thing to get wrong.
-func EventURL(rtspBase string) string {
-	u, err := url.Parse(strings.TrimSpace(rtspBase))
+// EventURL accepts the explicit bridge_url (HTTP or WS) or a legacy rtsp_base. Only legacy RTSP URLs
+// need the conventional HTTP port; explicit control URLs keep their configured port and TLS scheme.
+func EventURL(base string) string {
+	u, err := url.Parse(strings.TrimSpace(base))
 	if err != nil || u.Host == "" {
 		return ""
 	}
-	host := u.Hostname()
-	if host == "" {
+	switch u.Scheme {
+	case "rtsp", "rtsps":
+		u.Scheme = "ws"
+		u.Host = net.JoinHostPort(u.Hostname(), "3000")
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	case "ws", "wss":
+	default:
 		return ""
 	}
-	// The bridge serves RTSP on 8554 (go2rtc) and its HTTP/WS API on 3000.
-	return "ws://" + host + ":3000/ws"
+	u.Path, u.RawPath, u.RawQuery, u.Fragment = "/ws", "", "", ""
+	return u.String()
 }
 
-// StillURL is where the bridge serves a camera's last retained thumbnail. Derived from the same
-// rtsp_base for the same reason as EventURL: one address to configure, not three.
-func StillURL(rtspBase, sn string) string {
-	u := EventURL(rtspBase)
-	if u == "" {
+// StillURL is where the bridge serves a camera's retained thumbnail.
+func StillURL(base, sn string) string {
+	ws := EventURL(base)
+	if ws == "" {
 		return ""
 	}
-	return strings.Replace(strings.Replace(u, "ws://", "http://", 1), "/ws", "/snapshot/"+sn, 1)
+	u, _ := url.Parse(ws)
+	if u.Scheme == "wss" {
+		u.Scheme = "https"
+	} else {
+		u.Scheme = "http"
+	}
+	u.Path = "/snapshot/" + sn
+	return u.String()
 }
 
 // Run follows the channel until ctx is cancelled, applying every message to `store` and calling

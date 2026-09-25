@@ -113,3 +113,18 @@ func TestStillURL(t *testing.T) {
 		t.Errorf("no bridge configured should yield no URL, got %q", got)
 	}
 }
+
+func TestExplicitControlURLKeepsPortAndTLS(t *testing.T) {
+	if got := EventURL("https://bridge.local:7443/api"); got != "wss://bridge.local:7443/ws" {
+		t.Fatalf("EventURL = %q", got)
+	}
+	if got := StillURL("https://bridge.local:7443/api", "CAM1"); got != "https://bridge.local:7443/snapshot/CAM1" {
+		t.Fatalf("StillURL = %q", got)
+	}
+	if got := EventURL("rtsp://[2001:db8::1]:8554"); got != "ws://[2001:db8::1]:3000/ws" {
+		t.Fatalf("IPv6 EventURL = %q", got)
+	}
+	if got := EventURL("ftp://bridge.local/file"); got != "" {
+		t.Fatalf("unsupported scheme = %q", got)
+	}
+}
