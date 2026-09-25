@@ -37,6 +37,56 @@ async function readOptional(path) {
   try { return await fs.readFile(path); } catch (error) { if (error.code === "ENOENT") return null; throw error; }
 }
 
+async function restorePrevious(target, previous, backup, options) {
+  if (previous) {
+    try {
+      await atomicWrite(target, previous, options);
+      return { backup };
+    } catch (writeError) {
+      // A full filesystem can reject another copy of the old YAML. The
+      // durable backup is already on this filesystem and can replace it.
+      if (!backup || (writeError.code !== "ENOSPC" && writeError.code !== "EDQUOT")) throw writeError;
+      const staged = join(dirname(target), `.${basename(target)}.${randomUUID()}.restore`);
+      let replaced = false, linkFailure;
+      try {
+        await fs.link(backup, staged);
+        await fs.rename(staged, target);
+        replaced = true;
+        await syncDir(dirname(target));
+        return { backup };
+      } catch (linkError) {
+        await fs.unlink(staged).catch(() => {});
+        if (replaced) throw linkError;
+        linkFailure = linkError;
+      }
+      try {
+        await fs.rename(backup, target);
+        await syncDir(dirname(target));
+        return { backup: null, backupConsumed: true };
+      } catch (renameError) {
+        throw new AggregateError([writeError, linkFailure, renameError], `could not restore previous config from its backup: ${writeError.message}; ${linkFailure.message}; ${renameError.message}`);
+      }
+    }
+  }
+  try { await fs.unlink(target); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  await syncDir(dirname(target));
+  return { backup: null };
+}
+
+async function archiveFailed(path, candidate, options) {
+  if (!candidate) {
+    try { return { failed: (await fs.stat(path)).isFile() ? path : null }; }
+    catch (error) { return { failed: null, ...(error.code === "ENOENT" ? {} : { archiveError: error.message }) }; }
+  }
+  try { await atomicWrite(path, candidate, options); return { failed: path }; }
+  catch (error) { return { failed: null, archiveError: error.message }; }
+}
+
+async function recordRollback(path, target, previous, lastRollback) {
+  try { await atomicWrite(path, JSON.stringify({ target, sha256: previous ? sha256(previous) : null, lastRollback }) + "\n"); }
+  catch (error) { lastRollback.statusError = error.message; }
+}
+
 async function serviceIdentity() {
   try {
     const [user, group] = await Promise.all([exec("id", ["-u", "eufy-wall"]), exec("id", ["-g", "eufy-wall"])]);
@@ -115,7 +165,7 @@ async function applyConfigLocked({ target, yamlText, env = process.env, restart,
   const statusPath = `${target}.apply-status.json`;
   const pendingPath = `${target}.apply-pending.json`;
   if (backup) await atomicWrite(backup, old, { mode, ...ownership });
-  await atomicWrite(pendingPath, JSON.stringify({ owner: process.pid, ownerStart: await processStartToken(process.pid), target, backup, failed, mode, ...ownership, at: new Date(now()).toISOString() }) + "\n");
+  await atomicWrite(pendingPath, JSON.stringify({ owner: process.pid, ownerStart: await processStartToken(process.pid), target, backup, previousSha256: old ? sha256(old) : null, failed, mode, ...ownership, at: new Date(now()).toISOString() }) + "\n");
   await atomicWrite(target, yamlText, { mode, ...ownership });
   try {
     await restart();
@@ -125,17 +175,20 @@ async function applyConfigLocked({ target, yamlText, env = process.env, restart,
     await fs.unlink(pendingPath);
     return result;
   } catch (error) {
-    // Keep the failed candidate for diagnosis; restore previous bytes with another atomic rename.
-    await atomicWrite(failed, yamlText, { mode, ...ownership });
-    if (old) await atomicWrite(target, old, { mode, ...ownership });
-    else await fs.unlink(target).catch(() => {});
+    let restored;
+    try { restored = await restorePrevious(target, old, backup, { mode, ...ownership }); }
+    catch (restoreError) {
+      throw new Error(`apply failed: ${error.message}; previous config restoration failed: ${restoreError.message}; pending journal retained`, { cause: restoreError });
+    }
     let recoveryError;
     try { await restart(); if (old) await health(loadConfig({ env, rawText: old.toString() }).cfg); }
     catch (e) { recoveryError = e; }
-    const lastRollback = { at: new Date(now()).toISOString(), reason: error.message, failed, backup, recoveryError: recoveryError?.message };
-    await atomicWrite(statusPath, JSON.stringify({ target, sha256: old ? sha256(old) : null, lastRollback }) + "\n");
+    const archive = await archiveFailed(failed, Buffer.from(yamlText), { mode, ...ownership });
+    const lastRollback = { at: new Date(now()).toISOString(), reason: error.message, ...archive, ...restored, recoveryError: recoveryError?.message };
+    await recordRollback(statusPath, target, old, lastRollback);
     await fs.unlink(pendingPath);
-    throw Object.assign(new Error(`apply failed; restored previous config: ${error.message}${recoveryError ? `; recovery check failed: ${recoveryError.message}` : ""}`), { lastRollback });
+    const detail = [recoveryError && `recovery check failed: ${recoveryError.message}`, archive.archiveError && `failed candidate archive failed: ${archive.archiveError}`, lastRollback.statusError && `rollback status write failed: ${lastRollback.statusError}`].filter(Boolean).join("; ");
+    throw Object.assign(new Error(`apply failed; restored previous config: ${error.message}${detail ? `; ${detail}` : ""}`), { lastRollback });
   }
 }
 
@@ -165,13 +218,26 @@ export async function recoverInterruptedApply(target) {
   catch (error) { if (error.code === "ENOENT") return recoverStaleLock(`${target}.apply-lock`); throw error; }
   if (pending.target !== target || !pending.failed) throw new Error("invalid pending apply journal");
   if (await ownerIsRunning(pending.owner, pending.ownerStart)) return { recovered: false, inProgress: true };
-  const candidate = await readOptional(target);
-  if (candidate) await atomicWrite(pending.failed, candidate, { mode: pending.mode, uid: pending.uid, gid: pending.gid });
-  const backup = pending.backup ? await fs.readFile(pending.backup) : null;
-  if (backup) await atomicWrite(target, backup, { mode: pending.mode, uid: pending.uid, gid: pending.gid });
-  else { await fs.unlink(target).catch(() => {}); await syncDir(dirname(target)); }
-  const lastRollback = { at: new Date().toISOString(), reason: "apply process stopped before health confirmation", failed: pending.failed, backup: pending.backup };
-  await atomicWrite(`${target}.apply-status.json`, JSON.stringify({ target, sha256: backup ? sha256(backup) : null, lastRollback }) + "\n");
+  let backup = null, alreadyRestored = false;
+  if (pending.backup) {
+    try { backup = await fs.readFile(pending.backup); }
+    catch (error) {
+      if (error.code !== "ENOENT" || !pending.previousSha256) throw error;
+      const current = await readOptional(target);
+      if (!current || sha256(current) !== pending.previousSha256) throw error;
+      backup = current;
+      alreadyRestored = true;
+    }
+  }
+  let candidate, candidateReadError;
+  try { candidate = await readOptional(target); } catch (error) { candidateReadError = error; }
+  const options = { mode: pending.mode, uid: pending.uid, gid: pending.gid };
+  const restored = alreadyRestored ? { backup: null, backupConsumed: true } : await restorePrevious(target, backup, pending.backup, options);
+  const archive = candidateReadError
+    ? { failed: null, archiveError: `could not read failed candidate: ${candidateReadError.message}` }
+    : await archiveFailed(pending.failed, candidate && (!backup || !candidate.equals(backup)) ? candidate : null, options);
+  const lastRollback = { at: new Date().toISOString(), reason: "apply process stopped before health confirmation", ...archive, ...restored };
+  await recordRollback(`${target}.apply-status.json`, target, backup, lastRollback);
   await fs.unlink(pendingPath);
   await fs.unlink(`${target}.apply-lock`).catch(() => {});
   return { recovered: true, lastRollback };
