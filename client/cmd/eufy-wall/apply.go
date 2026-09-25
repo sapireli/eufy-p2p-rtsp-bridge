@@ -90,7 +90,18 @@ func wallRestartCount() (int, error) {
 }
 
 func wallRestartCountFor(name string) (int, error) {
-	b, err := exec.Command("systemctl", "show", "--property=NRestarts", "--value", name).Output()
+	return wallRestartCountWithTimeout(name, 5*time.Second)
+}
+
+func wallRestartCountWithTimeout(name string, timeout time.Duration) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "systemctl", "show", "--property=NRestarts", "--value", name)
+	cmd.WaitDelay = timeout
+	b, err := cmd.Output()
+	if ctx.Err() != nil {
+		return 0, fmt.Errorf("systemctl restart count for %s timed out: %w", name, ctx.Err())
+	}
 	if err != nil {
 		return 0, err
 	}
