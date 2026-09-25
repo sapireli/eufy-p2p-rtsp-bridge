@@ -127,6 +127,15 @@ ensure_debian_packages() {
   DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
 }
 
+require_gstreamer_elements() {
+  need gst-inspect-1.0
+  local element
+  for element in "$@"; do
+    gst-inspect-1.0 --exists "$element" >/dev/null 2>&1 ||
+      die "missing GStreamer element $element; install gstreamer1.0-plugins-bad and retry"
+  done
+}
+
 atomic_link() {
   local target=$1 link=$2
   local next="${link}.next.$$"

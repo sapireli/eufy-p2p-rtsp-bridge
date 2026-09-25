@@ -167,4 +167,18 @@ install_release "$archive_g"
 [[ $(cat "$base/current/VERSION") == v1.2.10 && -f $LAUNCHCTL_TEST_DIR/loaded && -f $LAUNCHCTL_TEST_DIR/disabled ]]
 bash "$repo/deploy/install-client-macos.sh" --rollback
 [[ $(cat "$base/current/VERSION") == v1.2.3 && -f $LAUNCHCTL_TEST_DIR/loaded && -f $LAUNCHCTL_TEST_DIR/disabled ]]
+
+# Missing per-tile intervideo elements fail preflight before changing the release.
+cat > "$scratch/bin/gst-inspect-1.0" <<'EOF'
+#!/bin/sh
+[ "$1" = --exists ] && [ "$2" != "${GST_MISSING_ELEMENT:-}" ]
+EOF
+chmod +x "$scratch/bin/gst-inspect-1.0"
+before=$(shasum -a 256 "$plist")
+for element in intervideosrc intervideosink; do
+  export GST_MISSING_ELEMENT=$element
+  reject install_release "$archive_g"
+  [[ $(cat "$base/current/VERSION") == v1.2.3 && $(shasum -a 256 "$plist") == "$before" ]]
+done
+unset GST_MISSING_ELEMENT
 echo 'macOS installer tests passed'

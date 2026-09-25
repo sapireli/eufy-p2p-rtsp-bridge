@@ -44,6 +44,7 @@ need systemctl; need useradd; need install; need mv; need readlink
 source /etc/os-release
 [[ ${ID:-} == debian || ${ID:-} == ubuntu || " ${ID_LIKE:-} " == *' debian '* ]] || die 'Debian or Raspberry Pi OS is required'
 ensure_debian_packages gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libdrm-tests
+require_gstreamer_elements intervideosrc intervideosink
 
 release="$base/releases/$version-$arch"
 install -d -m 755 "$base/releases"

@@ -174,6 +174,20 @@ fi
 grep -Fq '/etc/eufy-wall-bridge.example.yaml' "$repo/deploy/install-server.sh"
 grep -Fq '/etc/eufy-wall.example.yaml' "$repo/deploy/install-client.sh"
 grep -Fq 'export BRIDGE_CONFIG=${BRIDGE_CONFIG:-/etc/eufy-wall-bridge.yaml}' "$repo/deploy/install-server.sh"
+grep -Fq 'require_gstreamer_elements intervideosrc intervideosink' "$repo/deploy/install-client.sh"
+cat > "$scratch/bin/gst-inspect-1.0" <<'EOF'
+#!/bin/sh
+[ "$1" = --exists ] || exit 2
+[ "$2" != "${GST_MISSING_ELEMENT:-}" ]
+EOF
+chmod +x "$scratch/bin/gst-inspect-1.0"
+source "$repo/deploy/install-common.sh"
+require_gstreamer_elements intervideosrc intervideosink
+for element in intervideosrc intervideosink; do
+  export GST_MISSING_ELEMENT=$element
+  reject "missing $element element" bash -c 'source "$1"; require_gstreamer_elements intervideosrc intervideosink' bash "$repo/deploy/install-common.sh"
+done
+unset GST_MISSING_ELEMENT
 grep -q 'if ((upgrade_active || old_active)); then' "$repo/deploy/install-server.sh"
 grep -q 'if ((upgrade_active || old_active)); then' "$repo/deploy/install-client.sh"
 echo 'installer verification tests passed'
