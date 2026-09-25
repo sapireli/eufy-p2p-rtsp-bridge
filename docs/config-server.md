@@ -68,6 +68,16 @@ eufy-bridge inventory export cameras.json --host 192.168.1.10
 
 `config validate` is offline: it checks YAML structure and the bridge's config rules, using available environment credentials. `config apply` reads a file or stdin once, validates it, keeps a dated backup, atomically replaces the active file, restarts the service, and waits up to 30 seconds for `/healthz` to report authenticated health. If that check fails, it restores the prior file, restarts the service again, retains the failed candidate, records the reason in `<config>.apply-status.json`, and exits nonzero. Reapplying identical bytes skips a restart. `status` shows the last rollback; `doctor` checks Node, config, go2rtc, and live bridge health. `--json` is supported on the noninteractive commands.
 
+To upgrade an unversioned or `schema_version: 1` file:
+
+```sh
+eufy-bridge config migrate ./old-bridge.yaml --output ./bridge-v2.yaml
+eufy-bridge config validate ./bridge-v2.yaml
+sudo eufy-bridge config apply ./bridge-v2.yaml
+```
+
+The migration command accepts `-` for stdin, writes the candidate with mode `0600`, and reports a path-level diff against the active file. It does not replace the active file or restart the bridge. Review the candidate before the explicit apply. Without `--output`, the candidate YAML is included in the command output; a file with an inline `eufy.password` requires `--output` to avoid printing that password to the terminal. If the permissive legacy file has keys that v2 does not support, migration lists each omitted path under `unsupportedPaths`, writes the supported candidate, and exits with code 2. Resolve those paths before applying; the command never silently claims a lossy conversion is complete. YAML comments and formatting are regenerated, so keep the original for reference.
+
 The apply command also writes a short transaction journal while a candidate is being checked. A release service should run `eufy-bridge config recover` as a root `ExecStartPre` step so a power loss during apply restores the last backed-up file before the bridge starts. It leaves an in-progress apply alone while its owner process is alive.
 
 The exported inventory is a JSON file with `schema_version: 1`, `bridge_url`, and camera entries keyed by serial. It contains no Eufy credentials or session tokens. Specify `--host` when the server has more than one client-facing address; otherwise the first non-loopback IPv4 address is used. It includes RTSP URLs, so review the file before sharing it outside your LAN.
