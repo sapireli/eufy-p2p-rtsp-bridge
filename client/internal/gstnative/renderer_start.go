@@ -17,7 +17,7 @@ func (r *Renderer) startBlackPumps() {
 func (r *Renderer) stopBlackPumps() {
 	for _, id := range r.order {
 		s := r.slots[id]
-		if s.blackStop == nil {
+		if s == nil || s.blackStop == nil {
 			continue
 		}
 		close(s.blackStop)
