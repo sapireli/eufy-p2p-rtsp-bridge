@@ -1,0 +1,79 @@
+{
+  "host": {
+    "os": "macOS 15.8 (24H23)",
+    "arch": "amd64",
+    "cpu": "Intel Core i5-8500 3.00 GHz",
+    "gstreamer": "Homebrew 1.28.7_1"
+  },
+  "motion_codec_switch": {
+    "binary_revision": "3051dddb3d99ba70c44065f992dc9f5732fd0559",
+    "vcs_modified": false,
+    "binary_sha256": "82c3a558979e5bc89c07a3bf0e517c631b6e3bb68c2f2e8dd922a6c4d81d3251",
+    "source": "Local MediaMTX 1.21.1; FFmpeg 9.0.2 testsrc2 publishers for H.264 peer, H.264 motion camera, and H.265 motion camera; each 320x180 at 15 fps over TCP RTSP",
+    "client": "Actual eufy-wall Mac binary, 640x180 window, software decode, two 16x32 cells on a 32x32 canvas: fixed H.264 URL peer and motion: latest watching CAM264/CAM265",
+    "bridge": "Isolated local WebSocket stub sent hello with stream keys/codecs and motion events CAM264, CAM265, CAM264; MediaMTX logged a TCP reader for the H.265 track",
+    "started_at_utc": "2026-09-25T13:00:04.227522+00:00",
+    "ended_at_utc": "2026-09-25T13:00:25.158525+00:00",
+    "initial_h264": {
+      "output_frames": 32,
+      "peer_decoded_frames": 15,
+      "peer_generation": 1,
+      "motion_decoded_frames": 14,
+      "motion_generation": 2
+    },
+    "h264_to_h265": {
+      "observed_seconds_until_playing_and_more_than_10_decoded_frames": 2.03,
+      "output_frames": [32, 63],
+      "peer_decoded_frames": [15, 45],
+      "peer_generation": 1,
+      "h265_decoded_frames": 17,
+      "motion_generation": 3
+    },
+    "h265_to_h264": {
+      "observed_seconds_until_playing_and_more_than_10_decoded_frames": 3.07,
+      "output_frames": [108, 153],
+      "peer_decoded_frames": [90, 135],
+      "peer_generation": 1,
+      "h264_decoded_frames": 29,
+      "motion_generation": 4
+    },
+    "final": {
+      "output_frames": 198,
+      "peer_decoded_frames": 180,
+      "motion_decoded_frames": 74,
+      "peer_generation": 1,
+      "motion_generation": 4,
+      "client_exit_code_after_sigterm": 0,
+      "harness_errors": []
+    },
+    "status_poll_interval_seconds": 0.2,
+    "status_write_interval_seconds": 2,
+    "trial_log_directory_at_trial_time": "/var/folders/fc/fbjsbs1122v0vjb_h_hw9v2m0000gp/T/eufy-codec-trial-jqcwxhrb"
+  },
+  "deliberate_compositor_stop_and_recreate": {
+    "test": "TestStoppedCompositorRecreatesWithLiveTiles",
+    "source_revision": "0bca119",
+    "test_binary_sha256": "f390579ebd77bb46cff33f116e48c1afb8e02bebae229f3d08b63f5eaabeaf5a",
+    "sink": "headless fakesink",
+    "sources": "two local synthetic videotestsrc live tiles",
+    "injection": "set only the test compositor pipeline to NULL after both tiles decode; wait for fatal output-freeze error, close it, then construct a new renderer",
+    "configured_output_stall_after_ms": 250,
+    "repetitions": 10,
+    "passed": 10,
+    "fault_to_error_ms_range": [175.542968, 251.55826],
+    "recreate_to_both_tiles_decoding_ms_range": [386.060971, 410.889409],
+    "output_frames_before_fault_range": [6, 7],
+    "decoded_frames_per_tile_before_fault": 6,
+    "output_frames_after_recreate_range": [6, 7],
+    "decoded_frames_per_tile_after_recreate": 6,
+    "focused_race_repetitions": 3,
+    "focused_race_passed": 3,
+    "command": "go test -c -o /tmp/eufy-gstnative-fault-0bca119 ./internal/gstnative; /tmp/eufy-gstnative-fault-0bca119 -test.run '^TestStoppedCompositorRecreatesWithLiveTiles$' -test.count=10 -test.v"
+  },
+  "limits": [
+    "The window output counter is upstream of the macOS display sink; pixels and displayed drops were not measured.",
+    "The codec-switch observation is one bounded local synthetic trial, not a long soak or a real Eufy motion event.",
+    "The output-freeze trial uses a headless sink and synthetic sources; it verifies native detection, cleanup, and recreation, not launchd restart or a physical window after a compositor failure.",
+    "Neither trial covers sleep/wake, Apple Silicon, or a clean-host installer."
+  ]
+}
