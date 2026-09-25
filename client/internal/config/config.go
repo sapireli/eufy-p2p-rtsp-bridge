@@ -292,7 +292,7 @@ func (c *Config) TileURL(t Tile) string {
 	if t.Camera == "" {
 		return ""
 	}
-	return strings.TrimRight(c.RTSPBase, "/") + "/" + t.Camera
+	return strings.TrimRight(c.RTSPBase, "/") + "/" + url.PathEscape(t.Camera)
 }
 
 // GridDims is the cell grid behind a layout.

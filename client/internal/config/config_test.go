@@ -40,6 +40,9 @@ func TestParseDefaults(t *testing.T) {
 	if got := c.TileURL(c.Tiles[4]); got != "rtsp://other:8554/E" {
 		t.Fatalf("explicit url %q", got)
 	}
+	if got := c.TileURL(Tile{Camera: "Front Door/1"}); got != "rtsp://192.168.1.10:8554/Front%20Door%2F1" {
+		t.Fatalf("stream key was not escaped as one RTSP path segment: %q", got)
+	}
 	if c.Tiles[3].Span == nil || *c.Tiles[3].Span != (Span{1, 1}) {
 		t.Fatalf("span %+v", c.Tiles[3].Span)
 	}
