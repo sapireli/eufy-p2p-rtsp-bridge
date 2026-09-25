@@ -28,6 +28,8 @@ type Options struct {
 	source       func(layout.Placed) (string, error)
 	stallAfter   time.Duration
 	retryAfter   time.Duration
+	startupAfter time.Duration
+	monitorEvery time.Duration
 	stillRefresh time.Duration
 	api          *gstAPI
 }
@@ -53,11 +55,19 @@ func (c *frameCounter) lastTime() *time.Time {
 
 type slot struct {
 	tile         layout.Placed
-	queueSink    uintptr
+	feed         uintptr
+	blackBuffer  uintptr
+	lastFrame    uintptr
+	blackStop    chan struct{}
+	blackDone    chan struct{}
+	showLive     atomic.Bool
+	lastLivePush atomic.Int64
+	feedMu       sync.Mutex
 	source       uintptr
-	sourcePad    uintptr
-	probe        uint64
-	callback     func(uintptr, uintptr, uintptr) int32
+	sourceBus    uintptr
+	sourceSink   uintptr
+	pumpStop     chan struct{}
+	pumpDone     chan struct{}
 	counter      *frameCounter
 	kind         string
 	expectedLive bool
@@ -67,13 +77,10 @@ type slot struct {
 	err          string
 	installed    time.Time
 	nextRetry    time.Time
-	// The initial black source is parsed as two top-level elements.
-	initialSource uintptr
-	initialCaps   uintptr
 }
 
-// Renderer owns one GStreamer pipeline with stable queue/compositor pads. Update replaces only
-// changed source bins. GStreamer callbacks only touch atomics; all native mutations hold mu.
+// Renderer owns one GStreamer pipeline with stable appsrc/queue/compositor pads.
+// Update replaces only changed source pipelines. Native graph mutations hold mu.
 type Renderer struct {
 	mu             sync.Mutex
 	api            *gstAPI
@@ -99,7 +106,7 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 	if c == nil || (caps.Sink != "compositor" && caps.Sink != "window") {
 		return nil, errors.New("native renderer requires config and compositor or window sink")
 	}
-	if caps.Screen.Width <= 0 || caps.Screen.Height <= 0 || len(tiles) > 1024 {
+	if caps.Screen.Width <= 0 || caps.Screen.Height <= 0 || len(tiles) == 0 || len(tiles) > 1024 {
 		return nil, errors.New("native renderer has invalid screen or tile count")
 	}
 	if opts.StatusPath == "" {
@@ -115,10 +122,16 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 		opts.source = func(tile layout.Placed) (string, error) { return sourceDescription(tile, caps, c.Latency) }
 	}
 	if opts.stallAfter <= 0 {
-		opts.stallAfter = 20 * time.Second
+		opts.stallAfter = 5 * time.Second
 	}
 	if opts.retryAfter <= 0 {
 		opts.retryAfter = 10 * time.Second
+	}
+	if opts.startupAfter <= 0 {
+		opts.startupAfter = 10 * time.Second
+	}
+	if opts.monitorEvery <= 0 {
+		opts.monitorEvery = 2 * time.Second
 	}
 	if opts.stillRefresh <= 0 {
 		opts.stillRefresh = 30 * time.Second
@@ -144,7 +157,7 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 	if err != nil {
 		return nil, err
 	}
-	p, err := a.parsed(desc, false)
+	p, err := a.parsed(desc)
 	if err != nil {
 		return nil, err
 	}
@@ -161,8 +174,13 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 		r.closeNative()
 		return nil, errors.New("native renderer failed to start GStreamer pipeline")
 	}
-	// Initial blanks render immediately. Sources are installed after the compositor is playing
-	// so a slow RTSP handshake never delays other tiles or the black output frame.
+	for _, id := range r.order {
+		s := r.slots[id]
+		s.blackStop, s.blackDone = make(chan struct{}), make(chan struct{})
+		go pumpBlack(a, s)
+	}
+	// Permanent feeds render black immediately. Camera pipelines start after the
+	// compositor so a slow RTSP handshake cannot delay other tiles.
 	initial := opts.Initial
 	if initial == nil {
 		initial = tiles
@@ -176,9 +194,7 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 }
 
 func pipelineDescription(tiles []layout.Placed, caps pipeline.Caps, sink string) (string, []string, error) {
-	parts := []string{
-		"videotestsrc is-live=true pattern=black ! video/x-raw,format=I420,width=1,height=1,framerate=1/1 ! mix.sink_0",
-	}
+	parts := []string{}
 	order := make([]string, 0, len(tiles))
 	seen := map[string]bool{}
 	for i, tile := range tiles {
@@ -190,13 +206,13 @@ func pipelineDescription(tiles []layout.Placed, caps pipeline.Caps, sink string)
 		seen[id] = true
 		order = append(order, id)
 		parts = append(parts, fmt.Sprintf(
-			"videotestsrc name=blank_%d is-live=true pattern=black ! capsfilter name=blankcaps_%d caps=\"video/x-raw,format=I420,width=1,height=1,framerate=1/1\" ! queue name=entry_%d max-size-buffers=2 leaky=downstream ! mix.sink_%d",
-			i, i, i, i+1))
+			"appsrc name=feed_%d is-live=true format=time do-timestamp=true block=false max-buffers=2 leaky-type=downstream max-bytes=%d caps=\"video/x-raw,format=I420,width=%d,height=%d,framerate=15/1\" ! queue name=entry_%d max-size-buffers=2 leaky=downstream ! mix.sink_%d",
+			i, tile.W*tile.H*4, tile.W, tile.H, i, i))
 	}
-	mix := fmt.Sprintf("compositor name=mix background=black ignore-inactive-pads=true sink_0::xpos=0 sink_0::ypos=0 sink_0::width=%d sink_0::height=%d", caps.Screen.Width, caps.Screen.Height)
+	mix := "compositor name=mix background=black ignore-inactive-pads=true"
 	for i, tile := range tiles {
 		mix += fmt.Sprintf(" sink_%d::xpos=%d sink_%d::ypos=%d sink_%d::width=%d sink_%d::height=%d sink_%d::sizing-policy=keep-aspect-ratio",
-			i+1, tile.X, i+1, tile.Y, i+1, tile.W, i+1, tile.H, i+1)
+			i, tile.X, i, tile.Y, i, tile.W, i, tile.H, i)
 	}
 	parts = append(parts, mix+fmt.Sprintf(" ! video/x-raw,width=%d,height=%d ! identity name=output_probe ! %s", caps.Screen.Width, caps.Screen.Height, sink))
 	return strings.Join(parts, " "), order, nil
@@ -223,28 +239,17 @@ func (r *Renderer) prepare(tiles []layout.Placed) error {
 		return errors.New("native renderer could not count output frames")
 	}
 	for i, tile := range tiles {
-		entry := a.byName(r.pipeline, fmt.Sprintf("entry_%d", i))
-		if entry == 0 {
-			return fmt.Errorf("native renderer missing entry queue %d", i)
+		feed := a.byName(r.pipeline, fmt.Sprintf("feed_%d", i))
+		if feed == 0 {
+			return fmt.Errorf("native renderer missing feed %d", i)
 		}
-		sink := a.staticPad(entry, "sink")
-		a.objectUnref(entry)
-		initial := a.byName(r.pipeline, fmt.Sprintf("blank_%d", i))
-		initialCaps := a.byName(r.pipeline, fmt.Sprintf("blankcaps_%d", i))
-		if sink == 0 || initial == 0 || initialCaps == 0 {
-			if sink != 0 {
-				a.objectUnref(sink)
-			}
-			if initial != 0 {
-				a.objectUnref(initial)
-			}
-			if initialCaps != 0 {
-				a.objectUnref(initialCaps)
-			}
-			return fmt.Errorf("native renderer missing initial source %d", i)
+		black, err := makeBlackBuffer(a, tile.W, tile.H)
+		if err != nil {
+			a.objectUnref(feed)
+			return fmt.Errorf("native renderer black tile %d: %w", i, err)
 		}
 		r.slots[tileID(tile)] = &slot{
-			tile: tile, queueSink: sink, initialSource: initial, initialCaps: initialCaps,
+			tile: tile, feed: feed, blackBuffer: black,
 			kind: "black", key: "black", state: "playing",
 		}
 	}

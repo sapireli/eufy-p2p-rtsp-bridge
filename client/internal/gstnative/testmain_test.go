@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// On macOS the test process uses the same Cocoa main-loop entry as the shipped binary.
-// This also keeps optional window tests on the supported application thread.
+// Headless native tests do not need Cocoa. The optional window trial opts in to
+// the same Cocoa main-loop entry as the shipped binary.
 func TestMain(m *testing.M) {
-	if runtime.GOOS != "darwin" {
+	if runtime.GOOS != "darwin" || (os.Getenv("EUFY_RTSP_FAULT_WINDOW") != "1" && os.Getenv("EUFY_RTSP_WINDOW_TEST") != "1") {
 		os.Exit(m.Run())
 	}
 	code := 1

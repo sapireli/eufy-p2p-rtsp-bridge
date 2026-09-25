@@ -74,6 +74,20 @@ func waitOutput(t *testing.T, r *Renderer, before uint64) {
 	t.Fatalf("compositor output stopped after frame %d: %+v", before, r.Status())
 }
 
+func waitTileGeneration(t *testing.T, r *Renderer, id string, generation uint64) TileStatus {
+	t.Helper()
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		status := r.Status().Tiles[id]
+		if status.Generation >= generation && status.State == "playing" {
+			return status
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("tile %s did not reach playing generation %d: %+v", id, generation, r.Status())
+	return TileStatus{}
+}
+
 func TestRendererSwitchKeepsUnaffectedTileProducing(t *testing.T) {
 	if _, err := load(); err != nil {
 		t.Skip(err)
@@ -86,7 +100,7 @@ func TestRendererSwitchKeepsUnaffectedTileProducing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	waitFrames(t, r, "left", 0)
+	waitTileGeneration(t, r, "left", 1)
 	rightBefore := waitFrames(t, r, "right", 0)
 	outBefore := r.Status().OutputFrames
 
@@ -201,6 +215,7 @@ func TestRendererRecoversFailedTileWithoutRestartingPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
+	waitTileGeneration(t, r, "left", 1)
 	waitFrames(t, r, "right", 0)
 	peerBefore := r.Status().Tiles["right"].DecodedFrames
 	r.mu.Lock()
@@ -208,8 +223,10 @@ func TestRendererRecoversFailedTileWithoutRestartingPeer(t *testing.T) {
 	left.installed = time.Now().Add(-21 * time.Second)
 	left.counter.last.Store(time.Now().Add(-21 * time.Second).UnixNano())
 	r.recoverStalledLocked(time.Now(), nil)
+	left.nextRetry = time.Now().Add(-time.Second)
+	r.recoverStalledLocked(time.Now(), nil)
 	r.mu.Unlock()
-	if got := r.Status().Tiles["left"]; got.Generation != 2 || got.State != "playing" {
+	if got := waitTileGeneration(t, r, "left", 2); got.Generation != 2 {
 		t.Fatalf("failed tile was not restarted: %+v", got)
 	}
 	waitFrames(t, r, "right", peerBefore)
@@ -237,6 +254,7 @@ func TestRendererRefreshesSameSnapshotURLAndRecoversStall(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
+	waitFrames(t, r, "left", 0)
 	peerBefore := r.Status().Tiles["right"].Generation
 	r.mu.Lock()
 	r.refreshStillsLocked(time.Now().Add(31 * time.Second))
@@ -245,10 +263,13 @@ func TestRendererRefreshesSameSnapshotURLAndRecoversStall(t *testing.T) {
 		r.Status().Tiles["right"].Generation != peerBefore {
 		t.Fatalf("same-URL still was not refetched independently: requests=%d status=%+v", stillRequests.Load(), r.Status())
 	}
+	waitFrames(t, r, "left", 0)
 	r.mu.Lock()
 	left := r.slots["left"]
 	left.installed = time.Now().Add(-21 * time.Second)
 	left.counter.last.Store(time.Now().Add(-21 * time.Second).UnixNano())
+	r.recoverStalledLocked(time.Now(), nil)
+	left.nextRetry = time.Now().Add(-time.Second)
 	r.recoverStalledLocked(time.Now(), nil)
 	r.mu.Unlock()
 	if stillRequests.Load() != 3 || r.Status().Tiles["left"].Generation != 3 {
@@ -266,6 +287,19 @@ func TestPipelineDescriptionRejectsBadGeometry(t *testing.T) {
 		if _, _, err := pipelineDescription(tiles, caps, "fakesink"); err == nil {
 			t.Fatalf("accepted %+v", tiles)
 		}
+	}
+}
+
+func TestPipelineDescriptionHasOnlyPermanentTileFeeds(t *testing.T) {
+	caps := pipeline.Caps{Sink: "window", Screen: config.Screen{Width: 128, Height: 64}}
+	desc, _, err := pipelineDescription(testTiles(), caps, "fakesink sync=false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(desc, "videotestsrc") || strings.Contains(desc, "input-selector") ||
+		strings.Contains(desc, "mix.sink_2") || !strings.Contains(desc, "appsrc name=feed_0") ||
+		!strings.Contains(desc, "mix.sink_0") || !strings.Contains(desc, "mix.sink_1") {
+		t.Fatalf("unexpected compositor inputs: %s", desc)
 	}
 }
 

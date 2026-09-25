@@ -44,7 +44,7 @@ func (r *Renderer) writeStatusLocked() error {
 
 func (r *Renderer) monitor() {
 	defer close(r.done)
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(r.options.monitorEvery)
 	defer ticker.Stop()
 	for {
 		select {
@@ -77,11 +77,20 @@ func (r *Renderer) reportError(err error) {
 	}
 }
 
-// recoverStalledLocked restarts only sources whose decoded frames stopped. A watchdog bus error
-// gives useful detail, while the frame clock catches silent freezes without relying on bus order.
+// recoverStalledLocked restarts only pipelines whose decoded frames stopped. A source bus
+// error gives useful detail; the frame clock also catches silent freezes.
 func (r *Renderer) recoverStalledLocked(now time.Time, busErr error) {
 	for _, s := range r.slots {
 		if (!s.expectedLive && s.tile.StillURL == "") || now.Before(s.nextRetry) {
+			continue
+		}
+		if s.state == "starting" {
+			if s.counter != nil && s.counter.frames.Load() > 0 {
+				s.showLive.Store(true)
+				s.state = "playing"
+			} else if now.Sub(s.installed) >= r.options.startupAfter {
+				_ = r.retrySource(s, fmt.Errorf("source produced no initial decoded frame for %s", r.options.startupAfter))
+			}
 			continue
 		}
 		if s.state == "retrying" {
@@ -98,17 +107,16 @@ func (r *Renderer) recoverStalledLocked(now time.Time, busErr error) {
 		if now.Sub(last) < r.options.stallAfter {
 			continue
 		}
-		s.state = "stalled"
-		if busErr != nil {
-			s.err = busErr.Error()
+		var reason error
+		if s.sourceBus != 0 {
+			reason = r.api.busError(s.sourceBus)
+		}
+		if reason == nil && busErr != nil {
+			reason = busErr
 		} else {
-			s.err = fmt.Sprintf("source produced no decoded frames for %s", r.options.stallAfter)
+			reason = fmt.Errorf("source produced no decoded frames for %s", r.options.stallAfter)
 		}
-		s.key = ""
-		if err := r.switchSource(s, s.tile); err != nil {
-			s.state, s.err = "retrying", err.Error()
-			s.nextRetry = now.Add(r.options.retryAfter)
-		}
+		_ = r.retrySource(s, reason)
 	}
 }
 
@@ -116,7 +124,7 @@ func (r *Renderer) recoverStalledLocked(now time.Time, busErr error) {
 // again periodically. Replacing only its source bin leaves other tiles and output running.
 func (r *Renderer) refreshStillsLocked(now time.Time) {
 	for _, s := range r.slots {
-		if s.kind != "still" || now.Before(s.nextRetry) || now.Sub(s.installed) < r.options.stillRefresh {
+		if s.kind != "still" || s.state != "playing" || now.Sub(s.installed) < r.options.stillRefresh {
 			continue
 		}
 		s.key = ""
@@ -146,25 +154,21 @@ func (r *Renderer) closeNative() {
 	if r.pipeline == 0 {
 		return
 	}
-	a.setState(r.pipeline, stateNull)
 	for _, s := range r.slots {
-		if s.sourcePad != 0 {
-			a.removeProbe(s.sourcePad, s.probe)
-			a.objectUnref(s.sourcePad)
+		if s.blackStop != nil {
+			close(s.blackStop)
+			<-s.blackDone
 		}
-		if s.source != 0 {
-			a.objectUnref(s.source)
+		r.removeSource(s)
+		s.clearLastFrame(a)
+		if s.blackBuffer != 0 {
+			a.miniUnref(s.blackBuffer)
 		}
-		if s.queueSink != 0 {
-			a.objectUnref(s.queueSink)
-		}
-		if s.initialSource != 0 {
-			a.objectUnref(s.initialSource)
-		}
-		if s.initialCaps != 0 {
-			a.objectUnref(s.initialCaps)
+		if s.feed != 0 {
+			a.objectUnref(s.feed)
 		}
 	}
+	a.setState(r.pipeline, stateNull)
 	if r.outputPad != 0 {
 		if r.outputProbe != 0 {
 			a.removeProbe(r.outputPad, r.outputProbe)

@@ -12,7 +12,7 @@ func TestNativeGStreamerBindingsAndParseErrors(t *testing.T) {
 	if err != nil {
 		t.Skipf("GStreamer runtime unavailable: %v", err)
 	}
-	pipeline, err := a.parsed("videotestsrc num-buffers=1 ! fakesink", false)
+	pipeline, err := a.parsed("videotestsrc num-buffers=1 ! fakesink")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,11 +21,8 @@ func TestNativeGStreamerBindingsAndParseErrors(t *testing.T) {
 		t.Fatal("pipeline would not play")
 	}
 	defer a.setState(pipeline, stateNull)
-	if _, err := a.parsed("this-element-does-not-exist ! fakesink", false); err == nil || !strings.Contains(err.Error(), "GStreamer pipeline") {
+	if _, err := a.parsed("this-element-does-not-exist ! fakesink"); err == nil || !strings.Contains(err.Error(), "GStreamer pipeline") {
 		t.Fatalf("missing plugin error=%v", err)
-	}
-	if _, err := a.parsed("this-element-does-not-exist", true); err == nil {
-		t.Fatal("invalid source bin accepted")
 	}
 }
 
@@ -42,29 +39,12 @@ func TestCStringBoundaries(t *testing.T) {
 	}
 }
 
-func TestNativeSourceBinHasLinkableGhostPad(t *testing.T) {
-	a, err := load()
-	if err != nil {
-		t.Skip(err)
-	}
-	bin, err := a.parsed(blackSource, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.objectUnref(bin)
-	pad := a.staticPad(bin, "src")
-	if pad == 0 {
-		t.Fatal("source bin has no src ghost pad")
-	}
-	a.objectUnref(pad)
-}
-
 func TestNativeBusErrorIsReadable(t *testing.T) {
 	a, err := load()
 	if err != nil {
 		t.Skipf("GStreamer runtime unavailable: %v", err)
 	}
-	pipeline, err := a.parsed("filesrc location=/definitely/missing/eufy-wall-frame ! fakesink", false)
+	pipeline, err := a.parsed("filesrc location=/definitely/missing/eufy-wall-frame ! fakesink")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,29 +69,7 @@ func TestNativeBusErrorIsReadable(t *testing.T) {
 	t.Fatal("missing file did not raise a GStreamer bus error")
 }
 
-func TestSourceBinRejectsMalformedOutputAndCleansUp(t *testing.T) {
-	a, err := load()
-	if err != nil {
-		t.Skip(err)
-	}
-	if _, err := a.sourceBin("element-that-does-not-exist"); err == nil {
-		t.Fatal("bad source description accepted")
-	}
-	for name, breakAPI := range map[string]func(*gstAPI){
-		"output element": func(mock *gstAPI) { mock.byName = func(uintptr, string) uintptr { return 0 } },
-		"output pad":     func(mock *gstAPI) { mock.staticPad = func(uintptr, string) uintptr { return 0 } },
-		"ghost pad":      func(mock *gstAPI) { mock.ghostPad = func(string, uintptr) uintptr { return 0 } },
-		"add ghost":      func(mock *gstAPI) { mock.addPad = func(uintptr, uintptr) int32 { return 0 } },
-	} {
-		t.Run(name, func(t *testing.T) {
-			mock := *a
-			breakAPI(&mock)
-			if bin, err := mock.sourceBin(blackSource); err == nil {
-				mock.objectUnref(bin)
-				t.Fatal("broken source bin accepted")
-			}
-		})
-	}
+func TestNativeBindingRejectsMissingLibraryAndSymbol(t *testing.T) {
 	if _, err := openLibrary([]string{"/definitely/missing/libgstreamer.so"}); err == nil {
 		t.Fatal("missing GStreamer library accepted")
 	}
