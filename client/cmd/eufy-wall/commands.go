@@ -220,6 +220,7 @@ type doctorReport struct {
 	Sink        string        `json:"sink,omitempty"`
 	Watchdog    bool          `json:"watchdog"`
 	GstLaunch   bool          `json:"gstLaunch"`
+	Launchd     bool          `json:"launchd,omitempty"`
 	BridgeReady bool          `json:"bridgeReady"`
 	ConfigValid bool          `json:"configValid"`
 	Problems    []string      `json:"problems"`
@@ -274,6 +275,22 @@ func clientDoctorAt(path string, jsonOutput bool, out io.Writer) error {
 	} else {
 		report.Problems = append(report.Problems, "gst-launch-1.0 is missing")
 	}
+	if runtime.GOOS == "darwin" && path == clientConfigPath {
+		plist, err := launchdPlist()
+		if err == nil {
+			_, err = os.Stat(plist)
+		}
+		if err != nil {
+			report.Problems = append(report.Problems, "launchd agent is not installed: "+err.Error())
+		} else {
+			report.Launchd = true
+			if report.ConfigValid {
+				if err := launchdActive(); err != nil {
+					report.Problems = append(report.Problems, "launchd agent is not running: "+err.Error())
+				}
+			}
+		}
+	}
 	if jsonOutput {
 		if err := json.NewEncoder(out).Encode(report); err != nil {
 			return err
@@ -284,6 +301,9 @@ func clientDoctorAt(path string, jsonOutput bool, out io.Writer) error {
 		return nil
 	}
 	_, _ = fmt.Fprintf(out, "screen: %dx%d\ndecoder: %s\nsink: %s\nwatchdog: %v\ngst-launch: %v\nconfig valid: %v\nbridge ready: %v\n", report.Screen.Width, report.Screen.Height, report.Decoder, report.Sink, report.Watchdog, report.GstLaunch, report.ConfigValid, report.BridgeReady)
+	if runtime.GOOS == "darwin" {
+		_, _ = fmt.Fprintf(out, "launchd installed: %v\n", report.Launchd)
+	}
 	for _, p := range report.Problems {
 		_, _ = fmt.Fprintf(out, "problem: %s\n", p)
 	}
