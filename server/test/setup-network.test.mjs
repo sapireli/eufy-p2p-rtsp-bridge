@@ -29,7 +29,7 @@ test("local RTSP probe uses the bind address instead of client DNS", () => {
   assert.equal(localProbeHost("127.0.0.1", interfaces), "127.0.0.1");
 });
 
-async function withRtsp(t, responder) {
+async function withRtsp(t, responder, host = "127.0.0.1") {
   const server = net.createServer((socket) => {
     let request = "";
     socket.on("data", (chunk) => {
@@ -37,7 +37,10 @@ async function withRtsp(t, responder) {
       if (request.includes("\r\n\r\n")) responder(socket, request);
     });
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, host, () => { server.off("error", reject); resolve(); });
+  });
   t.after(() => server.close());
   return server.address().port;
 }
@@ -53,6 +56,24 @@ test("RTSP probe accepts a video SDP from the selected stream path", async (t) =
   assert.equal(result.status, 200);
   assert.equal(result.codec, "h264");
   assert.match(request, /DESCRIBE rtsp:\/\/127\.0\.0\.1:\d+\/front_door RTSP\/1\.0/);
+});
+
+test("RTSP probe brackets an IPv6 host in the DESCRIBE URI", async (t) => {
+  let request;
+  let port;
+  try {
+    port = await withRtsp(t, (socket, text) => {
+      request = text;
+      const sdp = "v=0\r\nm=video 0 RTP/AVP 96\r\na=rtpmap:96 H264/90000\r\n";
+      socket.end(`RTSP/1.0 200 OK\r\nContent-Length: ${sdp.length}\r\n\r\n${sdp}`);
+    }, "::1");
+  } catch (error) {
+    if (["EADDRNOTAVAIL", "EAFNOSUPPORT", "EPROTONOSUPPORT"].includes(error.code)) { t.skip("IPv6 loopback unavailable"); return; }
+    throw error;
+  }
+  const result = await probeRtsp({ host: "::1", streamKey: "front_door", port, timeoutMs: 500 });
+  assert.equal(result.uri, `rtsp://[::1]:${port}/front_door`);
+  assert.match(request, /DESCRIBE rtsp:\/\/\[::1\]:\d+\/front_door RTSP\/1\.0/);
 });
 
 test("RTSP probe rejects missing paths and responses without video", async (t) => {

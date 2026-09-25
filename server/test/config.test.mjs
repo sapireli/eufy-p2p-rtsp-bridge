@@ -73,6 +73,7 @@ test("missing config file → env-only config", () => {
 test("go2rtc dials the configured bind address when the bridge listens only on LAN", () => {
   const env = { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" };
   assert.equal(loadConfig({ env, rawText: "schema_version: 2\nhost: 192.0.2.10\n" }).cfg.selfHost, "192.0.2.10");
+  assert.equal(loadConfig({ env, rawText: "schema_version: 2\nhost: '::1'\n" }).cfg.selfHost, "::1");
   assert.equal(loadConfig({ env, rawText: "schema_version: 2\nhost: 0.0.0.0\n" }).cfg.selfHost, "127.0.0.1");
   assert.equal(loadConfig({ env: { ...env, BRIDGE_SELF_HOST: "192.0.2.20" }, rawText: "schema_version: 2\nhost: 192.0.2.10\n" }).cfg.selfHost, "192.0.2.20");
 });

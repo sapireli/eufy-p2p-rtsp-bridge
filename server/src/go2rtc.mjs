@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { parseDocument } from "yaml";
 import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
+import { urlHost } from "./url-host.mjs";
 
 /**
  * go2rtc source suffix for a camera: transcode H.265 to H.264 when asked, ALWAYS hardware-accelerated
@@ -115,12 +116,12 @@ export function createGo2rtc(ctx, { spawnImpl = spawn, retryDelayMs = 3000, setT
   async function writeGo2rtc(cameras = ctx.listCameras()) {
     const enabled = cameras.filter((c) => c.enabled);
     const devices = enabled.map((c) => ({ sn: c.sn, stream: `/stream/${c.sn}` }));
-    const sns = await writeGo2rtcConfig(cfg, devices);
+    const sns = await writeGo2rtcConfig({ ...cfg, selfHost: urlHost(cfg.selfHost) }, devices);
     // The vendored generator always emits "#video=copy"; rewrite each source to this camera's egress mode.
     const plan = egressPlan(cameras);
     let text = hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8"));
     for (const [sn, suffix] of Object.entries(plan)) {
-      const url = `http://${cfg.selfHost}:${cfg.port}/stream/${sn}`;
+      const url = `http://${urlHost(cfg.selfHost)}:${cfg.port}/stream/${sn}`;
       const source = suffix === "#video=copy" ? url : `ffmpeg:${url}${suffix}`;
       text = text.replace(`ffmpeg:${url}#video=copy`, source);
     }
@@ -133,7 +134,7 @@ export function createGo2rtc(ctx, { spawnImpl = spawn, retryDelayMs = 3000, setT
   }
 
   function sourceFor(sn, suffix) {
-    const url = `http://${cfg.selfHost}:${cfg.port}/stream/${sn}`;
+    const url = `http://${urlHost(cfg.selfHost)}:${cfg.port}/stream/${sn}`;
     return suffix === "#video=copy" ? url : `ffmpeg:${url}${suffix}`;
   }
 

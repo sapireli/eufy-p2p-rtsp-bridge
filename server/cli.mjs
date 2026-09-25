@@ -16,6 +16,7 @@ import { migrateLegacyConfig } from "./src/config-migrate.mjs";
 import { applyConfig, applyStatus, recoverInterruptedApply } from "./src/config-apply.mjs";
 import { chooseCameraPolicies } from "./src/setup-cameras.mjs";
 import { bridgeBase } from "./src/cli-host.mjs";
+import { urlHost } from "./src/url-host.mjs";
 import { validateSetupNetwork, bootstrapConfig, localProbeHost, probeCameraRtsp } from "./src/setup-network.mjs";
 
 const exec = promisify(execFile);
@@ -214,7 +215,7 @@ async function setup(args, asJson) {
       }
       const finalApply = await applyConfig({ target, yamlText: stringify(raw), restart, health });
       cams = await local("/api/cameras");
-      const publicBridgeUrl = `http://${publicHost}:${port}`;
+      const publicBridgeUrl = `http://${urlHost(publicHost)}:${port}`;
       const probes = [];
       for (const cam of cams.filter((c) => c.enabled)) {
         const selection = answers.probe_streams;
@@ -224,7 +225,7 @@ async function setup(args, asJson) {
         const result = await probeCameraRtsp(cam, { bridgeUrl: bridgeBase(raw), host: localProbeHost(host, nics) });
         probes.push({ sn: cam.sn, ...result });
       }
-      const inventory = cams.map((c) => ({ sn: c.sn, name: c.name, mode: c.mode, powered: c.powered, codec: c.codec, streamKey: requireStreamKey(c), rtsp: `rtsp://${publicHost}:8554/${encodeURIComponent(c.streamKey)}` }));
+      const inventory = cams.map((c) => ({ sn: c.sn, name: c.name, mode: c.mode, powered: c.powered, codec: c.codec, streamKey: requireStreamKey(c), rtsp: `rtsp://${urlHost(publicHost)}:8554/${encodeURIComponent(c.streamKey)}` }));
       await enableService();
       emit({ ok: true, serviceEnabled: true, applied: finalApply, bootstrapApply: applied, bridgeUrl: publicBridgeUrl, lanPolicy, cameras: inventory, probes, inventoryCommand: `eufy-bridge inventory export cameras.json --host ${publicHost}` }, asJson);
     } catch (error) {
@@ -306,9 +307,9 @@ async function main() {
     const cameras = (await local("/api/cameras")).map((camera) => {
       const { sn, name, model, modelName, enabled, mode, powered, powerOverride, dual, codec } = camera;
       const streamKey = requireStreamKey(camera);
-      return { sn, name, model, modelName, enabled, mode, powered, powerOverride, dual, codec, streamKey, rtsp: `rtsp://${host}:8554/${encodeURIComponent(streamKey)}` };
+      return { sn, name, model, modelName, enabled, mode, powered, powerOverride, dual, codec, streamKey, rtsp: `rtsp://${urlHost(host)}:8554/${encodeURIComponent(streamKey)}` };
     });
-    const inventory = { schema_version: 1, exported_at: new Date().toISOString(), bridge_url: `http://${host}:${loadConfig().cfg.port}`, cameras };
+    const inventory = { schema_version: 1, exported_at: new Date().toISOString(), bridge_url: `http://${urlHost(host)}:${loadConfig().cfg.port}`, cameras };
     await fs.writeFile(path, JSON.stringify(inventory, null, 2) + "\n", { flag: "wx", mode: 0o644 });
     return emit({ ok: true, file: path, cameras: cameras.length }, asJson);
   }

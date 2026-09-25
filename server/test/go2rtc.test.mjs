@@ -53,6 +53,13 @@ test("copy source uses the configured bridge address", async () => {
   assert.equal(parse(readFileSync(cfg.go2rtcConfig, "utf8")).streams.T8410A, "http://192.0.2.10:3030/stream/T8410A");
 });
 
+test("IPv6 bridge sources have bracketed URL authorities in generated go2rtc config", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ewb-go2rtc-ipv6-"));
+  const cfg = { go2rtcConfig: join(dir, "go2rtc.yaml"), selfHost: "::1", port: 3000, go2rtcTranscode: "never" };
+  await createGo2rtc({ cfg, state: createState(), listCameras: () => [{ sn: "CAM", name: "Camera", enabled: true }] }).writeGo2rtc();
+  assert.equal(parse(readFileSync(cfg.go2rtcConfig, "utf8")).streams.camera, "http://[::1]:3000/stream/CAM");
+});
+
 test("hardenGo2rtcYaml is idempotent and tolerates a file without webrtc", () => {
   const once = hardenGo2rtcYaml('api:\n  listen: ":1984"\nrtsp:\n  listen: ":8554"\nstreams: {}\n');
   assert.equal(parse(once).api.listen, "127.0.0.1:1984");
@@ -108,7 +115,7 @@ test("recovered camera is registered through loopback go2rtc without restarting 
   let killed = 0;
   const state = createState();
   state.flags.go2rtcProc = { kill: () => { killed++; } };
-  const cfg = { go2rtcConfig: "/tmp/unused-go2rtc.yaml", selfHost: "127.0.0.1", port: 3000, go2rtcTranscode: "never" };
+  const cfg = { go2rtcConfig: "/tmp/unused-go2rtc.yaml", selfHost: "::1", port: 3000, go2rtcTranscode: "never" };
   const go2rtc = createGo2rtc({ cfg, state, listCameras: () => [{ sn: "A", name: "Healthy", enabled: true }] }, {
     fetchImpl: async (url, options) => { calls.push({ url: new URL(url), options }); return { ok: true }; },
   });
@@ -116,7 +123,7 @@ test("recovered camera is registered through loopback go2rtc without restarting 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url.origin, "http://127.0.0.1:1984");
   assert.equal(calls[0].url.searchParams.get("name"), "recovered");
-  assert.equal(calls[0].url.searchParams.get("src"), "http://127.0.0.1:3000/stream/B");
+  assert.equal(calls[0].url.searchParams.get("src"), "http://[::1]:3000/stream/B");
   assert.equal(calls[0].options.method, "PUT");
   assert.equal(killed, 0);
 });

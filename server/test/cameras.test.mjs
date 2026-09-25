@@ -61,6 +61,7 @@ test("apiShape merges stream status and rtsp url", async () => {
     streaming: true, stalls: 2, blocked: "wan-path 203.0.113.9", rtsp: "rtsp://192.168.1.10:8554/garage",
     stream: "/stream/T8410A",
   });
+  assert.equal(c.apiShape(c.getCamera("T8410A"), "::1").rtsp, "rtsp://[::1]:8554/garage");
 });
 
 // A battery camera's whole behaviour is its mode and whether something is holding it right now; an API

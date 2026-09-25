@@ -1,6 +1,7 @@
 import net from "node:net";
 import { inCidr } from "./lan-guard.mjs";
 import { isValidCidr } from "./config.mjs";
+import { urlHost } from "./url-host.mjs";
 
 const RTSP_PORT = 8554;
 const MAX_RTSP_BYTES = 64 * 1024;
@@ -50,7 +51,7 @@ export function probeRtsp({ host, streamKey, port = RTSP_PORT, timeoutMs = 8_000
     };
     socket.on("error", (error) => finish(new Error(`RTSP ${host}:${port} unavailable: ${error.message}`)));
     socket.on("connect", () => {
-      const uri = `rtsp://${host}:${port}/${encodeURIComponent(streamKey)}`;
+      const uri = `rtsp://${urlHost(host)}:${port}/${encodeURIComponent(streamKey)}`;
       socket.write(`DESCRIBE ${uri} RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\nUser-Agent: eufy-bridge-setup\r\n\r\n`);
     });
     socket.on("data", (chunk) => {
@@ -87,7 +88,7 @@ export function probeRtsp({ host, streamKey, port = RTSP_PORT, timeoutMs = 8_000
       if (!/^m=video\s/im.test(body)) return finish(new Error("RTSP DESCRIBE returned no video track; check camera codec and bridge logs"));
       const codecName = /^a=rtpmap:\d+\s+(H264|H265|HEVC)\//im.exec(body)?.[1]?.toLowerCase();
       const codec = codecName === "hevc" ? "h265" : codecName ?? null;
-      finish(null, { ok: true, status: 200, codec, uri: `rtsp://${host}:${port}/${encodeURIComponent(streamKey)}` });
+      finish(null, { ok: true, status: 200, codec, uri: `rtsp://${urlHost(host)}:${port}/${encodeURIComponent(streamKey)}` });
     });
     socket.on("end", () => finish(new Error("RTSP peer closed before a complete DESCRIBE response")));
   });
