@@ -27,6 +27,10 @@ type clientService interface {
 	Stop() error
 }
 
+type clientFrameService interface {
+	FramesHealthy([]byte) error
+}
+
 type systemdWallService struct{}
 
 func (systemdWallService) Restart() error { return systemctl("restart", "eufy-wall") }
@@ -197,6 +201,11 @@ func applyClientData(dest string, data []byte, service clientService) error {
 	}
 	if err := service.Healthy(); err != nil {
 		return rollbackClientConfig(dest, service, err)
+	}
+	if frameService, ok := service.(clientFrameService); ok {
+		if err := frameService.FramesHealthy(data); err != nil {
+			return rollbackClientConfig(dest, service, fmt.Errorf("frame progress: %w", err))
+		}
 	}
 	previousStatus.SHA256 = clientSHA256(data)
 	previousStatus.AppliedAt = time.Now().UTC()

@@ -19,6 +19,8 @@ type fakeWallService struct {
 	stops        int
 	health       error
 	healthChecks int
+	frames       error
+	frameChecks  int
 	restart      func() error
 }
 
@@ -39,6 +41,10 @@ func (f *fakeWallService) Healthy() error {
 func (f *fakeWallService) Stop() error {
 	f.stops++
 	return nil
+}
+func (f *fakeWallService) FramesHealthy(_ []byte) error {
+	f.frameChecks++
+	return f.frames
 }
 
 func TestApplyClientDataAndNoop(t *testing.T) {
@@ -129,6 +135,22 @@ func TestFirstInstallFailureRemovesCandidate(t *testing.T) {
 	}
 	if _, err := os.Stat(dest); !errors.Is(err, os.ErrNotExist) || f.stops != 1 {
 		t.Fatalf("candidate retained or service running: stat=%v stops=%d", err, f.stops)
+	}
+}
+
+func TestApplyRollsBackWhenServiceRunsButFramesDoNotAdvance(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "wall.yaml")
+	if err := os.WriteFile(dest, []byte(validWallYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeWallService{frames: errors.New("live tile is frozen")}
+	err := applyClientData(dest, []byte(otherWallYAML), f)
+	if err == nil || !strings.Contains(err.Error(), "frame progress") {
+		t.Fatalf("frozen candidate was accepted: %v", err)
+	}
+	got, readErr := os.ReadFile(dest)
+	if readErr != nil || string(got) != validWallYAML || f.frameChecks != 1 || f.restarts != 2 {
+		t.Fatalf("frozen apply did not restore prior config: data=%q read=%v checks=%d restarts=%d", got, readErr, f.frameChecks, f.restarts)
 	}
 }
 
