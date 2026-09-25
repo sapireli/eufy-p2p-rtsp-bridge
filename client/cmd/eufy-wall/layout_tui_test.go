@@ -45,6 +45,20 @@ func TestFullScreenCanvasKeepsDisplayAspectAndShowsPixelEdges(t *testing.T) {
 	if !strings.Contains(out.String(), "Pixels: x=0 y=0 w=479 h=269") {
 		t.Fatal("panel omits renderer's odd-screen pixel bounds")
 	}
+	if err := s.editor.change(func(c *config.Config) error {
+		c.Screen = config.Screen{Width: 1080, Height: 1920}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := s.render(&out); err != nil {
+		t.Fatal(err)
+	}
+	lines = strings.Split(out.String(), "\r\n")
+	if !strings.HasPrefix(lines[2], "|@@@@@...............|") || !strings.HasPrefix(lines[19], "|....................|") {
+		t.Fatalf("portrait canvas should fit 20 columns by 18 rows: %q / %q", lines[2], lines[19])
+	}
 }
 
 func press(t *testing.T, s *layoutScreen, key screenKey) bool {

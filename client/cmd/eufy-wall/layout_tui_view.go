@@ -29,16 +29,14 @@ func (s *layoutScreen) render(out io.Writer) error {
 		s.selected = len(c.Tiles) - 1
 	}
 	contentH := s.height - 6
-	canvasW := c.Canvas.Cols
-	if canvasW < 1 {
-		canvasW = 32
-	}
-	if canvasW > 32 {
-		canvasW = 32
-	}
+	canvasW := 32
 	screen := previewScreen(c)
 	canvasH := int(math.Round(float64(canvasW) * float64(screen.Height) / float64(screen.Width) / 2))
-	canvasH = max(1, min(contentH, canvasH))
+	if canvasH > contentH {
+		canvasH = contentH
+		canvasW = max(1, int(math.Round(float64(canvasH)*float64(screen.Width)/float64(screen.Height)*2)))
+	}
+	canvasH = max(1, canvasH)
 	panelW := s.width - canvasW - 5
 	panel := s.panelLines(c, contentH, panelW)
 	mode := "move"
