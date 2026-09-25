@@ -79,6 +79,104 @@ test("warm feed sniffs codec/geometry, primes late consumer with last keyframe, 
   }
 });
 
+test("a reconnecting consumer is not primed with a keyframe from a dead feed", async () => {
+  const first = new PassThrough(), second = new PassThrough();
+  const ctx = ctxWith({ feeds: [() => first, () => second] });
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    first.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    first.destroy();
+    const res = fakeRes();
+    sm.attachConsumer("A", res);
+    assert.equal(res.chunks.length, 0, "the old stream's keyframe must not negotiate the new feed");
+    await waitUntil(() => ctx.state.slots.get("A").feed === second);
+    second.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(res.chunks, [KEY]);
+  } finally { await sm.stopAll(); }
+});
+
+test("a hold expiring during SDK open cannot leave a battery feed running", async () => {
+  const feed = new PassThrough();
+  let release;
+  let opening = false;
+  const ctx = ctxWith({ feeds: [() => { opening = true; return new Promise((resolve) => { release = () => resolve(feed); }); }] });
+  let held = true;
+  ctx.getCamera = () => ({ enabled: true, mode: "on_motion" });
+  ctx.holds = { isHeld: () => held };
+  const sm = createStreamManager(ctx);
+  const pending = sm.ensureWarm("A");
+  await waitUntil(() => opening);
+  assert.equal(opening, true);
+  held = false;
+  sm.stopCamera("A");
+  release();
+  await pending;
+  assert.equal(feed.destroyed, true);
+  assert.equal(ctx.state.streaming.has("A"), false);
+  assert.equal(ctx.state.starting.has("A"), false);
+  await sm.stopAll();
+});
+
+test("shutdown during SDK open discards the late feed", async () => {
+  const feed = new PassThrough();
+  let release;
+  let opening = false;
+  const ctx = ctxWith({ feeds: [() => { opening = true; return new Promise((resolve) => { release = () => resolve(feed); }); }] });
+  const sm = createStreamManager(ctx);
+  const pending = sm.ensureWarm("A");
+  await waitUntil(() => opening);
+  await sm.stopAll();
+  release();
+  await pending;
+  assert.equal(feed.destroyed, true);
+  assert.equal(ctx.state.streaming.has("A"), false);
+});
+
+test("a late open failure after hold expiry does not count toward process restart", async () => {
+  let rejectOpen;
+  let opening = false;
+  let exited = 0;
+  const ctx = ctxWith({ feeds: [() => { opening = true; return new Promise((_, reject) => { rejectOpen = reject; }); }], exit: () => exited++ });
+  let held = true;
+  ctx.getCamera = () => ({ enabled: true, mode: "on_motion" });
+  ctx.holds = { isHeld: () => held };
+  const sm = createStreamManager(ctx);
+  const pending = sm.ensureWarm("A");
+  await waitUntil(() => opening);
+  held = false;
+  sm.stopCamera("A");
+  rejectOpen(new Error("camera went to sleep"));
+  await pending;
+  const slot = ctx.state.slots.get("A");
+  assert.equal(slot.failures, 0);
+  assert.equal(slot.firstFailureAt, 0);
+  assert.equal(ctx.state.starting.has("A"), false);
+  sm.streamTick(Date.now() + 600_000);
+  assert.equal(exited, 0);
+  await sm.stopAll();
+});
+
+test("tick closes an unwanted camera even when bytes are still flowing", async () => {
+  const feed = new PassThrough();
+  const ctx = ctxWith({ feeds: [() => feed] });
+  let held = true;
+  ctx.getCamera = () => ({ enabled: true, mode: "on_motion" });
+  ctx.holds = { isHeld: () => held };
+  const sm = createStreamManager(ctx);
+  await sm.ensureWarm("A");
+  feed.write(KEY);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ctx.state.streaming.has("A"), true);
+  held = false;
+  sm.streamTick(Date.now());
+  assert.equal(feed.destroyed, true);
+  assert.equal(ctx.state.streaming.has("A"), false);
+  await sm.stopAll();
+});
+
 test("a blocked media peer is closed before its feed is served", async () => {
   const feed = new PassThrough();
   const ctx = ctxWith({ feeds: [() => feed] });

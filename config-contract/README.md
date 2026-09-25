@@ -1,0 +1,7 @@
+# Camera inventory contract
+
+`eufy-bridge inventory export FILE --host HOST` writes inventory schema version 1 as JSON. The client accepts this file with `eufy-wall setup --answers FILE` using `inventory_file` in its answer YAML, or through the layout editor's `inventory FILE` command. This is a portable, nonsecret snapshot; export it again after changing bridge cameras or their stream names.
+
+The top level contains `schema_version`, an ISO 8601 `exported_at` timestamp, `bridge_url`, and a nonempty `cameras` array. Each camera has `sn`, `name`, `model`, `modelName`, `enabled`, `mode`, `powered`, `powerOverride`, `dual`, `codec`, `streamKey`, and `rtsp`. `sn` is the unique camera identity. `mode` is `always`, `on_demand`, or `on_motion`. `codec` is `h264`, `h265`, or `null` until known. The exporter URL encodes the complete `streamKey` as one RTSP path segment; clients must use the exported `rtsp` or the bridge's reported stream key instead of guessing from the serial or name.
+
+The Go setup importer checks schema version 1, requires a nonempty list and unique nonempty serials, and uses serial, name, codec, mode, and power state to build its setup choices. Extra export metadata remains available in the JSON for operators and other consumers. The [valid fixture](inventory-v1.json) covers the two codecs, both battery modes, an unknown codec, and a stream key requiring URL encoding. The [future-version fixture](inventory-v2-unsupported.json) and [duplicate-serial fixture](inventory-v1-duplicate-serial.json) must be rejected by the importer.

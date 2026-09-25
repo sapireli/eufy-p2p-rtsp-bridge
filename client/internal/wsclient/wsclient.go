@@ -9,6 +9,8 @@ package wsclient
 import (
 	"context"
 	"encoding/json"
+	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,33 +26,47 @@ const (
 	maxBackoff = 30 * time.Second
 	// A read that never completes is indistinguishable from a healthy quiet wall, so a connection that
 	// has produced nothing for this long is treated as dead. The server pings every 30s.
-	readTimeout = 90 * time.Second
+	readTimeout      = 90 * time.Second
+	stableConnection = 30 * time.Second
 )
 
-// EventURL turns an rtsp_base (or any http/rtsp URL of the bridge) into its /ws endpoint. The wall is
-// already configured with where the bridge is; making the operator repeat it as a second URL would be
-// one more thing to get wrong.
-func EventURL(rtspBase string) string {
-	u, err := url.Parse(strings.TrimSpace(rtspBase))
+// EventURL accepts the explicit bridge_url (HTTP or WS) or a legacy rtsp_base. Only legacy RTSP URLs
+// need the conventional HTTP port; explicit control URLs keep their configured port and TLS scheme.
+func EventURL(base string) string {
+	u, err := url.Parse(strings.TrimSpace(base))
 	if err != nil || u.Host == "" {
 		return ""
 	}
-	host := u.Hostname()
-	if host == "" {
+	switch u.Scheme {
+	case "rtsp", "rtsps":
+		u.Scheme = "ws"
+		u.Host = net.JoinHostPort(u.Hostname(), "3000")
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	case "ws", "wss":
+	default:
 		return ""
 	}
-	// The bridge serves RTSP on 8554 (go2rtc) and its HTTP/WS API on 3000.
-	return "ws://" + host + ":3000/ws"
+	u.Path, u.RawPath, u.RawQuery, u.Fragment = "/ws", "", "", ""
+	return u.String()
 }
 
-// StillURL is where the bridge serves a camera's last retained thumbnail. Derived from the same
-// rtsp_base for the same reason as EventURL: one address to configure, not three.
-func StillURL(rtspBase, sn string) string {
-	u := EventURL(rtspBase)
-	if u == "" {
+// StillURL is where the bridge serves a camera's retained thumbnail.
+func StillURL(base, sn string) string {
+	ws := EventURL(base)
+	if ws == "" {
 		return ""
 	}
-	return strings.Replace(strings.Replace(u, "ws://", "http://", 1), "/ws", "/snapshot/"+sn, 1)
+	u, _ := url.Parse(ws)
+	if u.Scheme == "wss" {
+		u.Scheme = "https"
+	} else {
+		u.Scheme = "http"
+	}
+	u.Path = "/snapshot/" + sn
+	return u.String()
 }
 
 // Run follows the channel until ctx is cancelled, applying every message to `store` and calling
@@ -58,21 +74,32 @@ func StillURL(rtspBase, sn string) string {
 func Run(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), log func(string)) {
 	backoff := minBackoff
 	for ctx.Err() == nil {
+		started := time.Now()
 		err := follow(ctx, endpoint, store, changed)
 		if ctx.Err() != nil {
 			return
 		}
-		log("events: " + reason(err) + "; reconnecting in " + backoff.String())
+		base, next := reconnectBackoff(backoff, time.Since(started))
+		delay := jitterBackoff(base)
+		log("events: " + reason(err) + "; reconnecting in " + delay.String())
 		select {
-		case <-time.After(backoff):
+		case <-time.After(delay):
 		case <-ctx.Done():
 			return
 		}
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
+		backoff = next
 	}
+}
+
+func reconnectBackoff(current, connectedFor time.Duration) (delay, next time.Duration) {
+	if connectedFor >= stableConnection {
+		current = minBackoff
+	}
+	return current, min(current*2, maxBackoff)
+}
+
+func jitterBackoff(delay time.Duration) time.Duration {
+	return delay - time.Duration(rand.Int64N(int64(delay/5)+1))
 }
 
 func reason(err error) string {

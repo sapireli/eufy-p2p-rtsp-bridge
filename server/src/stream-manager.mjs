@@ -5,6 +5,7 @@ import { newSlot } from "./state.mjs";
 
 export function createStreamManager(ctx) {
   const { state, cfg } = ctx;
+  let stopped = false;
   const exit = (code) => (ctx.exit ?? process.exit)(code);
   const slotFor = (sn) => state.slots.get(sn) ?? state.slots.set(sn, newSlot(sn)).get(sn);
   const stationChains = new Map(); // parentStationSn -> Promise: serialises P2P opens per HomeBase
@@ -20,7 +21,7 @@ export function createStreamManager(ctx) {
       state.starting.delete(slot.sn);
       state.streaming.add(slot.sn);
       console.log(`[bridge] ${slot.sn}: streaming`);
-      ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "live" });
+      ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "live", codec: slot.codec ?? ctx.getCamera?.(slot.sn)?.codec ?? null });
     }
     const sets = ctx.sdk.extractParamSets(chunk); // non-undefined ⇒ this chunk carries SPS/PPS (keyframe AU)
     if (sets) {
@@ -54,6 +55,7 @@ export function createStreamManager(ctx) {
         slot.codec = sets.codec;
         slot.width = g?.width;
         slot.height = g?.height;
+        ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "live", codec: slot.codec, width: slot.width, height: slot.height });
         console.log(`[bridge] ${slot.sn}: codec ${from}${sets.codec} ${slot.width ?? "?"}x${slot.height ?? "?"}`);
         if (sets.codec !== "h264")
           console.warn(`[bridge] ${slot.sn}: stream is ${sets.codec.toUpperCase()} — players without an HEVC decoder (Chrome, the Pi) cannot read it; set a lower streaming quality in the owner's eufy app, or enable go2rtc.transcode.`);
@@ -106,6 +108,7 @@ export function createStreamManager(ctx) {
     state.starting.delete(slot.sn);
     const f = slot.feed;
     slot.feed = undefined;
+    slot.lastKeyChunk = undefined; // a new session may negotiate a different codec or geometry
     if (state.streaming.delete(slot.sn)) {
       console.log(`[bridge] ${slot.sn}: stopped`);
       ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "idle" });
@@ -119,6 +122,7 @@ export function createStreamManager(ctx) {
    * the guard re-check the peer and clear the block, so refusing to reconnect would be a one-way door.
    */
   async function ensureWarm(sn) {
+    if (stopped) return;
     const cam = ctx.getCamera?.(sn);
     if (cam && !cam.enabled) return;
     if (!wanted(sn)) return;
@@ -168,6 +172,13 @@ export function createStreamManager(ctx) {
         feed.destroy();
         throw new Error("media session peer is outside the configured LAN");
       }
+      // A battery hold may expire while the SDK is still waking the camera. Do not attach a feed that
+      // nobody wants now; a continuously producing feed would never satisfy the silence-only stop check.
+      if (stopped || !wanted(sn)) {
+        state.starting.delete(sn);
+        feed.destroy();
+        return;
+      }
       slot.feed = feed;
       slot.startedAt = Date.now();
       feed.on("data", (chunk) => onChunk(slot, chunk));
@@ -182,6 +193,12 @@ export function createStreamManager(ctx) {
       feed.on("close", onEnd("feed closed"));
     } catch (e) {
       console.error(`[bridge] ${sn}: open failed: ${e?.message ?? e}`);
+      if (stopped || !wanted(sn)) {
+        state.starting.delete(sn);
+        slot.failures = 0;
+        slot.firstFailureAt = 0;
+        return;
+      }
       noteFailure(slot);
       scheduleReopen(slot, "open failed");
     }
@@ -196,7 +213,7 @@ export function createStreamManager(ctx) {
   function attachConsumer(sn, res) {
     const slot = slotFor(sn);
     slot.consumers.add(res);
-    if (slot.lastKeyChunk) res.write(slot.lastKeyChunk);
+    if (slot.feed && !slot.feed.destroyed && slot.lastKeyChunk) res.write(slot.lastKeyChunk);
     void ensureWarm(sn);
     return () => slot.consumers.delete(res);
   }
@@ -224,8 +241,9 @@ export function createStreamManager(ctx) {
       const since = Math.max(slot.lastBytesAt, slot.startedAt);
       const silent = since ? now - since : 0;
       const stallMs = globalThis.__ewStallMs ?? cfg.stall.stallMs; // runtime-tunable for multi-channel tests
-      if (slot.feed && silent >= stallMs && !wanted(slot.sn)) {
-        closeFeed(slot); // its hold went away mid-stream; stopping is not a stall
+      if (!wanted(slot.sn)) {
+        if (slot.feed) closeFeed(slot); // its hold went away mid-stream; stopping is not a stall
+        slot.firstFailureAt = 0;
         continue;
       }
       if (slot.feed && silent >= stallMs) {
@@ -255,6 +273,7 @@ export function createStreamManager(ctx) {
   }
 
   async function stopAll() {
+    stopped = true;
     for (const slot of state.slots.values()) {
       if (slot.restartTimer) clearTimeout(slot.restartTimer);
       slot.restartTimer = null;

@@ -5,7 +5,8 @@
 //
 //   motion       {sn, event, at}                a camera reported something
 //   hold         {sn, until, owners}            a hold was taken, extended or released
-//   streamState  {sn, state: idle|live}         whether there is video to show right now
+//   streamState  {sn, state: idle|live, codec?} whether there is video to show right now
+//   heartbeat    {at}                           application-level liveness for quiet walls
 //
 // Read-only deliberately. A client that wants to *request* a stream does it over HTTP (POST /hold/<sn>),
 // which keeps this a one-way fan-out with no command parsing, no auth surface and no per-client state to
@@ -17,10 +18,13 @@
 import { WebSocketServer } from "ws";
 
 const HEARTBEAT_MS = 30_000;
+const MAX_PENDING_EVENTS = 256;
 
-export function createWsHub(ctx) {
+export function createWsHub(ctx, { heartbeatMs = HEARTBEAT_MS } = {}) {
   /** @type {Set<import("ws").WebSocket>} */
   const clients = new Set();
+  const pending = new Map(); // events received while a client's async hello snapshot is being built
+  const lastMotion = new Map(); // serial -> last motion event time, for clients joining mid-event
   let wss;
   let heartbeat;
 
@@ -33,9 +37,12 @@ export function createWsHub(ctx) {
           sn: c.sn,
           name: c.name,
           mode: c.mode ?? "always",
+          holdSeconds: c.holdSeconds ?? ctx.cfg.defaults.holdSeconds,
+          codec: ctx.streamStatus?.(c.sn)?.codec ?? c.codec ?? null,
           // The go2rtc stream key (the camera's name, slugged). The wall builds its RTSP URL from this
           // rather than from the serial, so renaming a camera moves its stream without a client change.
           streamKey: ctx.streamKeyFor?.(c.sn) ?? c.sn,
+          ...(lastMotion.has(c.sn) ? { lastMotionAt: lastMotion.get(c.sn) } : {}),
           state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
           // Whether GET /snapshot/<sn> has a thumbnail. A wall that renders a still for a camera with
           // none would be pointing a pipeline at a 404 and restarting it forever.
@@ -57,7 +64,14 @@ export function createWsHub(ctx) {
   /** Fan one event out to every connected client. Never throws: a broken client must not break a stream. */
   function broadcast(event) {
     const msg = { at: Date.now(), ...event };
-    for (const ws of clients) send(ws, msg);
+    if (msg.type === "motion" && msg.sn && Number.isFinite(msg.at)) lastMotion.set(msg.sn, msg.at);
+    for (const ws of clients) {
+      const queue = pending.get(ws);
+      if (queue) {
+        if (queue.length >= MAX_PENDING_EVENTS) { pending.delete(ws); clients.delete(ws); ws.close(1013, "hello backlog exceeded"); }
+        else queue.push(msg);
+      } else send(ws, msg);
+    }
     return msg;
   }
 
@@ -65,13 +79,19 @@ export function createWsHub(ctx) {
     wss = new WebSocketServer({ server, path: "/ws" });
     wss.on("connection", (ws) => {
       clients.add(ws);
+      pending.set(ws, []);
       ws.isAlive = true;
       ws.on("pong", () => {
         ws.isAlive = true;
       });
-      ws.on("close", () => clients.delete(ws));
-      ws.on("error", () => clients.delete(ws));
-      snapshot().then((hello) => send(ws, hello));
+      ws.on("close", () => { clients.delete(ws); pending.delete(ws); });
+      ws.on("error", () => { clients.delete(ws); pending.delete(ws); });
+      snapshot().then((hello) => {
+        if (!clients.has(ws)) return;
+        send(ws, hello);
+        for (const event of pending.get(ws) ?? []) send(ws, event);
+        pending.delete(ws);
+      }).catch(() => { pending.delete(ws); clients.delete(ws); ws.close(1011, "hello failed"); });
     });
     // A wall display that loses power or its network leaves a socket that never closes; without this the
     // server accumulates them and keeps serialising events to nobody.
@@ -88,12 +108,14 @@ export function createWsHub(ctx) {
         }
         ws.isAlive = false;
         try {
+          // Control pings detect dead peers; a JSON heartbeat also completes the Go client's Read call.
+          send(ws, { type: "heartbeat", at: Date.now() });
           ws.ping();
         } catch {
           /* dropped on the next sweep */
         }
       }
-    }, HEARTBEAT_MS);
+    }, heartbeatMs);
     heartbeat.unref?.();
     return wss;
   }
@@ -109,6 +131,8 @@ export function createWsHub(ctx) {
       }
     }
     clients.clear();
+    pending.clear();
+    lastMotion.clear();
     wss?.close();
     wss = undefined;
   }

@@ -1,0 +1,23 @@
+{
+  "date_utc": "2026-09-25",
+  "client_commit": "edc4dc9",
+  "host": "Intel Core i5-8500, macOS 15.8 (24H23), x86_64",
+  "source": "FFmpeg 9.0.2 testsrc2, H.264, 640x360, 15 fps, TCP RTSP through MediaMTX 1.21.1 on localhost",
+  "client": "one 32x32 full-canvas tile, software decode, 320x180 window, Homebrew GStreamer 1.28.7_1",
+  "duration_seconds": 1800,
+  "sample_interval_seconds": 10,
+  "samples": 180,
+  "output_frames_first": 33,
+  "output_frames_last": 27033,
+  "decoded_frames_first": 16,
+  "decoded_frames_last": 27020,
+  "minimum_output_fps": 14.5,
+  "minimum_decoded_fps": 14.4,
+  "maximum_sampled_output_frame_age_seconds": 0.75201,
+  "peak_client_rss_kib": 70232,
+  "maximum_sampled_client_cpu_percent": 6.1,
+  "source_retries": 0,
+  "health_failures": 0,
+  "client_exit_code_after_sigterm": 0,
+  "scope": "Pipeline output probe and decoder counters; physical display pixels, clean-host installation, sleep/wake, and real-camera behavior were not measured."
+}

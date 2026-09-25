@@ -1,9 +1,7 @@
-# eufy-wall-bridge configuration. Copy to config.yaml (or set BRIDGE_CONFIG). Secrets may instead come
-# from the environment: EUFY_EMAIL, EUFY_PASSWORD, EUFY_COUNTRY (env wins over this file).
-eufy:
-  email: wall@example.com        # use a DEDICATED eufy account (eufy allows one login per account;
-  password: change-me            # the phone app on the same account evicts the bridge)
-  country: US
+# eufy-wall-bridge configuration. Copy to config.yaml (or set BRIDGE_CONFIG).
+# Keep credentials in /etc/eufy-wall-bridge.env (mode 0600): EUFY_EMAIL, EUFY_PASSWORD,
+# EUFY_COUNTRY. Use a dedicated account; the phone app on that account can evict the bridge.
+schema_version: 2
 
 host: 0.0.0.0                    # HTTP bind (go2rtc + display clients + curl)
 port: 3000
@@ -16,6 +14,13 @@ lan:
   cidr: 192.168.1.0/24           # your LAN
   force: true                    # SDK refuses public IPv4 peers; bridge checks cidr on control and media sessions
   station_addresses: {}          # optional LAN IP hints keyed by HomeBase/station serial, e.g. T8010XXXX: 192.168.1.50
+  # upgrade:                    # relay-to-LAN attempts when force is false
+  #   enabled: true
+  #   interval_ms: 120000        # base gap between attempts for one station
+  #   window_ms: 6000            # wait for LAN media before falling back
+  #   stable_ms: 15000           # require this much relay stability before an upgrade
+  #   initial_window_ms: 14000   # LAN-first budget at boot
+  #   max_backoff_ms: 900000      # cap retry backoff
 
 # Both of these are UNSET by default, and unset means the bridge writes nothing to the camera.
 # Streaming quality and dual-lens view belong to the eufy app, where only the owner account can change

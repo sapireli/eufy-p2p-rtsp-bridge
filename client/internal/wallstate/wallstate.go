@@ -16,14 +16,16 @@ import (
 
 // Camera is what we know about one camera.
 type Camera struct {
-	SN         string
-	Name       string
-	Mode       string // always | on_motion | on_demand
-	Live       bool   // the server says there is video to show right now
-	Starting   bool   // waking: a stream is being established but no frames yet
-	HasStill   bool   // the bridge holds a thumbnail for this camera at /snapshot/<sn>
-	StreamKey  string // the bridge's go2rtc stream key (its name, slugged) — what the RTSP URL uses
-	LastMotion time.Time
+	SN          string
+	Name        string
+	Mode        string  // always | on_motion | on_demand
+	HoldSeconds float64 // bridge-configured hold lifetime; refresh before it expires
+	Live        bool    // the server says there is video to show right now
+	Starting    bool    // waking: a stream is being established but no frames yet
+	HasStill    bool    // the bridge holds a thumbnail for this camera at /snapshot/<sn>
+	StreamKey   string  // the bridge's go2rtc stream key (its name, slugged) — what the RTSP URL uses
+	Codec       string  // h264 | h265, as reported by the bridge for this camera
+	LastMotion  time.Time
 }
 
 // Store is the client's view of the wall. Event updates and renderer reads may run concurrently.
@@ -49,21 +51,26 @@ func (s *Store) get(sn string) *Camera {
 
 // HelloCamera is one camera in the server's hello snapshot.
 type HelloCamera struct {
-	SN        string `json:"sn"`
-	Name      string `json:"name"`
-	Mode      string `json:"mode"`
-	State     string `json:"state"`
-	Still     bool   `json:"still"`
-	StreamKey string `json:"streamKey"`
+	SN           string  `json:"sn"`
+	Name         string  `json:"name"`
+	Mode         string  `json:"mode"`
+	HoldSeconds  float64 `json:"holdSeconds"`
+	State        string  `json:"state"`
+	Still        bool    `json:"still"`
+	StreamKey    string  `json:"streamKey"`
+	Codec        string  `json:"codec"`
+	LastMotionAt int64   `json:"lastMotionAt"`
 }
 
 // Message is one /ws frame. Only the fields the wall acts on are decoded.
 type Message struct {
 	Type    string        `json:"type"`
+	At      int64         `json:"at"`
 	SN      string        `json:"sn"`
 	State   string        `json:"state"`
 	Event   string        `json:"event"`
 	Still   bool          `json:"still"`
+	Codec   string        `json:"codec"`
 	Cameras []HelloCamera `json:"cameras"`
 }
 
@@ -76,9 +83,25 @@ func (s *Store) Apply(m Message) bool {
 	case "hello":
 		// The snapshot a joining client is sent, so a wall that connects mid-event knows what is already
 		// happening rather than waiting for the next event.
+		previous := s.cams
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
-			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey}
+			cam := &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, HoldSeconds: c.HoldSeconds, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, Codec: c.Codec}
+			if c.LastMotionAt > 0 && m.At >= c.LastMotionAt {
+				// Use the age in the server snapshot, not its wall clock, so skew between the bridge and
+				// display cannot extend a battery camera's motion window indefinitely.
+				ageMs := min(m.At-c.LastMotionAt, int64((7*24*time.Hour)/time.Millisecond))
+				cam.LastMotion = s.now().Add(-time.Duration(ageMs) * time.Millisecond)
+			}
+			if old := previous[c.SN]; old != nil {
+				if cam.LastMotion.IsZero() {
+					cam.LastMotion = old.LastMotion
+				}
+				if cam.Codec == "" {
+					cam.Codec = old.Codec
+				}
+			}
+			s.cams[c.SN] = cam
 		}
 		return true
 	case "motion":
@@ -97,10 +120,14 @@ func (s *Store) Apply(m Message) bool {
 		}
 		c := s.get(m.SN)
 		live, starting := m.State == "live", m.State == "starting"
-		if c.Live == live && c.Starting == starting {
+		codecChanged := m.Codec != "" && m.Codec != c.Codec
+		if c.Live == live && c.Starting == starting && !codecChanged {
 			return false
 		}
 		c.Live, c.Starting = live, starting
+		if m.Codec != "" {
+			c.Codec = m.Codec
+		}
 		return true
 	}
 	return false // `hold` is informational for a tile; the streamState that follows is what matters
@@ -124,6 +151,15 @@ func (s *Store) IsLive(sn string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.isLive(sn)
+}
+
+func (s *Store) HoldSecondsFor(sn string) float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if cam := s.cams[sn]; cam != nil && cam.HoldSeconds > 0 {
+		return cam.HoldSeconds
+	}
+	return 60 // compatibility with a bridge that predates holdSeconds in hello
 }
 
 func (s *Store) isLive(sn string) bool {
@@ -166,8 +202,8 @@ type Selection struct {
 	// while it is — a hold is bounded on the server, so a tile that stopped asking once the picture
 	// arrived would watch it die mid-view.
 	//
-	// Only a motion tile asks. A fixed tile pointed at a battery camera waits for the server to wake it
-	// on its own; asking would pin that camera awake for as long as the wall is powered on.
+	// Motion tiles and fixed on_demand tiles ask for a bounded, refreshed hold. Fixed on_motion tiles
+	// never ask, so battery cameras continue sleeping between events.
 	Hold bool
 }
 
@@ -201,8 +237,11 @@ func (s *Store) Resolve(tiles []config.Tile, current map[int]string, switchedAt 
 					// Its camera is asleep or waking: show the last still rather than nothing. An
 					// always-on camera is exempt — a brief idle there is a reconnect, and swapping to a
 					// still and back would be a visible flap.
-					sel.Content = ContentSnapshot
+					sel.Content = s.contentFor(t.Camera)
 				}
+			}
+			if cam, ok := s.camera(t.Camera); ok && cam.Mode == "on_demand" {
+				sel.Hold = true
 			}
 			out = append(out, sel)
 			continue
@@ -281,4 +320,15 @@ func (s *Store) StreamKeyFor(sn string) string {
 		return c.StreamKey
 	}
 	return sn
+}
+
+// CodecFor returns the camera's current codec. An empty value means the bridge has not reported one;
+// the caller may then use a local tile hint or the transcoding bridge's H.264 default.
+func (s *Store) CodecFor(sn string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if c, ok := s.cams[sn]; ok {
+		return c.Codec
+	}
+	return ""
 }

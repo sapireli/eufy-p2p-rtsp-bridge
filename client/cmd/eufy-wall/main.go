@@ -3,43 +3,91 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
-	"strings"
-	"sync"
+	"runtime"
 	"syscall"
-	"time"
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/detect"
+	"eufy-wall/internal/gstnative"
 	"eufy-wall/internal/layout"
 	"eufy-wall/internal/pipeline"
 	"eufy-wall/internal/supervisor"
-	"eufy-wall/internal/wallstate"
-	"eufy-wall/internal/wsclient"
 )
 
 func main() {
-	cfgPath := flag.String("config", "/etc/eufy-wall.yaml", "config file")
+	if handled, err := runCommand(os.Args[1:], os.Stdin, os.Stdout); handled {
+		if err != nil {
+			if !errors.Is(err, errClientJSONReported) {
+				fmt.Fprintln(os.Stderr, "eufy-wall:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
+	cfgPath := flag.String("config", "", "config file")
+	instance := flag.String("instance", "", "Linux named display instance")
 	dryRun := flag.Bool("dry-run", false, "print the resolved layout and pipeline, then exit")
 	printLayout := flag.Bool("print-layout", false, "print the resolved layout table, then exit")
 	flag.Parse()
-	log.SetFlags(log.Ltime)
-
-	c, err := config.Load(*cfgPath)
+	target, err := targetForInstance(*instance)
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
+	if *cfgPath == "" {
+		*cfgPath = target.ConfigPath
+	}
+	render := func() { runWallTarget(*cfgPath, *dryRun, *printLayout, target) }
+	if runtime.GOOS == "darwin" && !*dryRun && !*printLayout {
+		if err := gstnative.RunMacOS(render); err != nil {
+			log.Fatalf("[wall] macOS display loop: %v", err)
+		}
+		return
+	}
+	render()
+}
+
+func runWall(cfgPath string, dryRun, printLayout bool) {
+	target, err := targetForInstance("")
+	if err != nil {
+		log.Fatalf("[wall] %v", err)
+	}
+	runWallTarget(cfgPath, dryRun, printLayout, target)
+}
+
+func runWallTarget(cfgPath string, dryRun, printLayout bool, target clientTarget) {
+	log.SetFlags(log.Ltime)
+
+	if runtime.GOOS == "darwin" && cfgPath == target.ConfigPath {
+		if err := recoverClientConfig(cfgPath); err != nil {
+			log.Fatalf("[wall] recover config: %v", err)
+		}
+	}
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		log.Fatalf("[wall] read config: %v", err)
+	}
+	c, err := config.Parse(raw)
+	if err != nil {
+		log.Fatalf("[wall] %v", err)
+	}
+	if err := validateTargetOutput(target, c); err != nil {
+		log.Fatalf("[wall] %v", err)
+	}
 	if c.Screen.Width == 0 || c.Screen.Height == 0 {
-		if s, ok := detect.ScreenFor("/", c.Output); ok {
+		if s, ok := detect.HostScreen("/", c.Output); ok {
 			c.Screen = s
 		} else {
 			c.Screen = config.Screen{Width: 1920, Height: 1080}
-			where := "no HDMI mode found in sysfs"
+			where := "no connected display mode found"
+			if runtime.GOOS == "linux" {
+				where = "no HDMI mode found in sysfs"
+			}
 			if c.Output != "" {
 				where = "no mode found for output " + c.Output
 			}
@@ -50,22 +98,38 @@ func main() {
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
-	if id, ok := detect.ConnectorID("/", c.Output); ok {
-		caps.ConnectorID = id
-		log.Printf("[wall] rendering on output %s (connector %d)", c.Output, id)
-	} else if c.Output != "" {
-		log.Printf("[wall] output %s: no connector id in sysfs — kmssink will pick the first connected output", c.Output)
+	if runtime.GOOS == "linux" && caps.Sink != "window" {
+		if id, err := detect.SelectedConnector("/", c.Output); err != nil {
+			log.Fatalf("[wall] %v", err)
+		} else if id > 0 {
+			caps.ConnectorID = id
+			log.Printf("[wall] rendering on output %s (connector %d)", c.Output, id)
+		}
 	}
 	tiles, err := layout.Place(c, c.Screen)
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
-	plans, err := pipeline.Plans(c, tiles, caps)
+	staticTiles := make([]layout.Placed, 0, len(tiles))
+	for _, tile := range tiles {
+		if c.Tiles[tile.Index].Motion == "" {
+			staticTiles = append(staticTiles, tile)
+		}
+	}
+	plans, err := pipeline.Plans(c, staticTiles, caps)
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
+	if caps.Sink == "planes" {
+		if len(c.Planes) < len(c.Tiles) {
+			log.Fatalf("[wall] sink=planes needs %d plane IDs, one per tile", len(c.Tiles))
+		}
+		if err := detect.CheckPlaneReachability(c.Output, c.Planes[:len(c.Tiles)]); err != nil {
+			log.Fatalf("[wall] %v", err)
+		}
+	}
 
-	log.Printf("[wall] screen %dx%d layout %s decoder %s sink %s", c.Screen.Width, c.Screen.Height, c.Layout, caps.Decoder, caps.Sink)
+	log.Printf("[wall] screen %dx%d layout %s decoder %s sink %s", c.Screen.Width, c.Screen.Height, c.Layout, caps.DecoderSummary(), caps.Sink)
 	for _, t := range tiles {
 		lb := ""
 		if t.Letterbox {
@@ -73,256 +137,44 @@ func main() {
 		}
 		log.Printf("[wall] tile %d %-18s cell %d,%d span %dx%d px %d,%d %dx%d%s", t.Index, t.Camera, t.Col, t.Row, t.Cols, t.Rows, t.X, t.Y, t.W, t.H, lb)
 	}
-	if *printLayout {
+	if printLayout {
 		return
 	}
-	if *dryRun {
+	if dryRun {
 		for _, p := range plans {
 			fmt.Printf("# %s\ngst-launch-1.0 %s\n", p.Name, pipeline.String(p.Args))
 		}
 		return
+	}
+	if err := detect.CheckNativeElements(caps.Sink, detect.HasElement); err != nil {
+		log.Fatalf("[wall] %v", err)
+	}
+	if err := detect.CheckNativeVersion(caps.Sink); err != nil {
+		log.Fatalf("[wall] %v", err)
 	}
 	if os.Getenv("GST_DEBUG") == "" {
 		os.Setenv("GST_DEBUG", "2")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) { log.Printf("[gst %s] %s", name, line) })
-	log.Printf("[wall] %d pipeline(s): %s", len(plans), planNames(plans))
-
-	runDynamic(ctx, c, caps, tiles, mgr, plans)
+	if caps.Sink != "planes" {
+		renderer, err := gstnative.New(c, tiles, caps, gstnative.Options{
+			StatusPath: target.StatusPath, ConfigSHA256: gstnative.HashConfig(raw), Initial: staticTiles,
+		})
+		if err != nil {
+			log.Fatalf("[wall] native compositor: %v", err)
+		}
+		defer renderer.Close()
+		log.Printf("[wall] native %s compositor with %d independently switched tiles", caps.Sink, len(tiles))
+		if err := runDynamicNative(ctx, c, caps, tiles, staticTiles, renderer); err != nil {
+			log.Printf("[wall] native compositor: %v", err)
+			_ = renderer.Close()
+			os.Exit(1)
+		}
+	} else {
+		mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) { log.Printf("[gst %s] %s", name, line) })
+		log.Printf("[wall] %d pipeline(s): %s", len(plans), planNames(plans))
+		runDynamic(ctx, c, caps, tiles, mgr, plans)
+	}
 	log.Printf("[wall] stopped")
-}
-
-// runDynamic follows /ws and keeps the running pipelines matching what each tile should be showing.
-func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles []layout.Placed, mgr *supervisor.Manager, static []pipeline.Plan) {
-	endpoint := wsclient.EventURL(c.RTSPBase)
-	if endpoint == "" {
-		log.Printf("[wall] cannot derive the event channel from rtsp_base %q — running a static wall", c.RTSPBase)
-		_ = mgr.Run(ctx, static)
-		return
-	}
-	log.Printf("[wall] following events at %s", endpoint)
-
-	store := wallstate.New()
-	var mu sync.Mutex
-	showing := map[int]string{}
-	switchedAt := map[int]time.Time{}
-	// What each tile is rendering: live video, or the camera's last still while it wakes.
-	content := map[int]string{}
-	lastShown := ""
-	// Cameras this wall is keeping awake. A hold is bounded on the server, so showing one means
-	// refreshing it; no longer showing one means releasing it, or a battery camera would be held awake
-	// by a tile that stopped looking at it.
-	holding := map[string]bool{}
-
-	apply := func() {
-		mu.Lock()
-		// Until the server has told us what exists, render the wall exactly as configured. Resolving
-		// against an empty store would blank every tile, so a display whose bridge is briefly
-		// unreachable would go dark rather than keep showing the always-on cameras it can still pull.
-		if len(store.Known()) == 0 {
-			mu.Unlock()
-			mgr.Update(ctx, static)
-			return
-		}
-		sels := store.Resolve(c.Tiles, showing, switchedAt)
-		now := time.Now()
-		for _, sel := range sels {
-			if showing[sel.TileIndex] != sel.Camera {
-				showing[sel.TileIndex] = sel.Camera
-				switchedAt[sel.TileIndex] = now
-			}
-			content[sel.TileIndex] = sel.Content
-		}
-
-		// Take a hold for every tile that asked for one, and release the ones that stopped asking. A
-		// tile keeps asking for as long as it is watching, because the server's hold is bounded.
-		wanted := map[string]bool{}
-		for _, sel := range sels {
-			if sel.Hold && sel.Camera != "" {
-				wanted[sel.Camera] = true
-			}
-		}
-		var take, drop []string
-		for cam := range wanted {
-			take = append(take, cam)
-			holding[cam] = true
-		}
-		for cam := range holding {
-			if !wanted[cam] {
-				drop = append(drop, cam)
-				delete(holding, cam)
-			}
-		}
-
-		snapshot := make(map[int]string, len(showing))
-		for k, v := range showing {
-			snapshot[k] = v
-		}
-		kinds := make(map[int]string, len(content))
-		for k, v := range content {
-			kinds[k] = v
-		}
-		// Snapshot the stream keys too: the plans are built after the lock is dropped, and the store is
-		// mutated by the event goroutine.
-		keys := make(map[string]string, len(snapshot))
-		for _, cam := range snapshot {
-			if cam != "" {
-				keys[cam] = store.StreamKeyFor(cam)
-			}
-		}
-		mu.Unlock()
-
-		for _, cam := range take {
-			go holdRequest(ctx, c.RTSPBase, http.MethodPost, cam)
-		}
-		for _, cam := range drop {
-			go holdRequest(ctx, c.RTSPBase, http.MethodDelete, cam)
-		}
-		if line := describe(tiles, snapshot, kinds); line != lastShown {
-			lastShown = line
-			log.Printf("[wall] showing %s", line)
-		}
-		mgr.Update(ctx, plansFor(c, caps, tiles, snapshot, kinds, func(sn string) string {
-			if k, ok := keys[sn]; ok && k != "" {
-				return k
-			}
-			return sn
-		}))
-	}
-
-	apply()
-	go wsclient.Run(ctx, endpoint, store, apply, func(line string) { log.Printf("[wall] %s", line) })
-
-	// A hold is deliberately short-lived on the server, so a wall that is still showing a camera has to
-	// say so. Refreshing well inside that window keeps the picture up without ever pinning a battery
-	// camera awake: stop refreshing and it sleeps on its own.
-	refresh := time.NewTicker(holdRefreshInterval)
-	defer refresh.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			mu.Lock()
-			held := make([]string, 0, len(holding))
-			for cam := range holding {
-				held = append(held, cam)
-			}
-			mu.Unlock()
-			// Let the cameras sleep rather than waiting out the hold we took.
-			release, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			var wg sync.WaitGroup
-			for _, cam := range held {
-				wg.Add(1)
-				go func(c2 string) { defer wg.Done(); holdRequest(release, c.RTSPBase, http.MethodDelete, c2) }(cam)
-			}
-			wg.Wait()
-			cancel()
-			mgr.Update(ctx, nil)
-			return
-		case <-refresh.C:
-			mu.Lock()
-			held := make([]string, 0, len(holding))
-			for cam := range holding {
-				held = append(held, cam)
-			}
-			mu.Unlock()
-			for _, cam := range held {
-				go holdRequest(ctx, c.RTSPBase, http.MethodPost, cam)
-			}
-		}
-	}
-}
-
-// holdRefreshInterval is well inside the server's default hold so a refresh cannot arrive late, and a
-// wall that dies simply stops refreshing and the camera sleeps.
-const holdRefreshInterval = 20 * time.Second
-
-// plansFor builds the pipelines for what each tile is currently showing. A tile showing nothing simply
-// has no plan, so a blank tile costs no process at all.
-func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showing, content map[int]string, streamKey func(string) string) []pipeline.Plan {
-	live := make([]layout.Placed, 0, len(tiles))
-	for _, t := range tiles {
-		if showing == nil {
-			live = append(live, t)
-			continue
-		}
-		cam, ok := showing[t.Index]
-		if !ok || cam == "" {
-			continue
-		}
-		t.Camera = cam
-		// go2rtc keys its streams by camera NAME, so the URL is built from the key the bridge reports
-		// rather than from the serial. Before the bridge has told us one, the serial is what it falls
-		// back to as well, so the two agree either way.
-		key := cam
-		if streamKey != nil {
-			key = streamKey(cam)
-		}
-		t.URL = c.TileURL(config.Tile{Camera: key})
-		if tc := c.TileFor(cam); tc != nil {
-			t.Codec = tc.Codec
-		}
-		if content[t.Index] == wallstate.ContentSnapshot {
-			// Not streaming yet: put the retained still up rather than pointing a decoder at a camera
-			// that is asleep, which shows one frozen frame at best.
-			t.StillURL = wsclient.StillURL(c.RTSPBase, cam)
-			if t.StillURL == "" {
-				continue
-			}
-		}
-		live = append(live, t)
-	}
-	plans, err := pipeline.Plans(c, live, caps)
-	if err != nil {
-		log.Printf("[wall] cannot build pipelines: %v", err)
-		return nil
-	}
-	return plans
-}
-
-// describe renders what the wall is showing as one line, so the log says why a tile changed rather than
-// only that some process restarted.
-func describe(tiles []layout.Placed, showing, content map[int]string) string {
-	parts := make([]string, 0, len(tiles))
-	for _, t := range tiles {
-		what := "blank"
-		if cam := showing[t.Index]; cam != "" {
-			what = cam
-			if content[t.Index] == wallstate.ContentSnapshot {
-				what += "(still)"
-			}
-		}
-		parts = append(parts, fmt.Sprintf("%d=%s", t.Index, what))
-	}
-	return strings.Join(parts, " ")
-}
-
-// holdRequest takes (POST) or releases (DELETE) this wall's hold on a camera.
-func holdRequest(ctx context.Context, rtspBase, method, sn string) {
-	u := wsclient.EventURL(rtspBase)
-	if u == "" {
-		return
-	}
-	endpoint := strings.Replace(strings.Replace(u, "ws://", "http://", 1), "/ws", "/hold/"+sn, 1)
-	req, err := http.NewRequestWithContext(ctx, method, endpoint+"?owner=wall", nil)
-	if err != nil {
-		return
-	}
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-	if err != nil {
-		log.Printf("[wall] %s hold %s failed: %v", strings.ToLower(method), sn, err)
-		return
-	}
-	resp.Body.Close()
-}
-
-// planNames lists what the wall is running, so the log says whether tiles are independent processes or
-// one composited pipeline.
-func planNames(plans []pipeline.Plan) string {
-	names := make([]string, 0, len(plans))
-	for _, p := range plans {
-		names = append(names, p.Name)
-	}
-	return strings.Join(names, ", ")
 }

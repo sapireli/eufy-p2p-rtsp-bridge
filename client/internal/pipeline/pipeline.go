@@ -1,4 +1,6 @@
-// Package pipeline renders the wall as gst-launch-1.0 arguments. Two sink strategies:
+// Package pipeline builds gst-launch-1.0 arguments for the planes runtime and diagnostics.
+// The compositor and window runtimes use gstnative to switch source bins in one Go-owned pipeline.
+// Two Linux sink strategies:
 //
 //	planes:     one kmssink per tile on its own DRM overlay plane (the Pi's HVS composites for free)
 //	compositor: N decoders → compositor → one kmssink (CPU/GPU composite; works everywhere)
@@ -13,9 +15,15 @@ import (
 )
 
 type Caps struct {
-	Decoder string // v4l2 | va | software
-	Sink    string // planes | compositor | window
-	Screen  config.Screen
+	Decoder string // auto | v4l2 | va | videotoolbox | software
+	// AutoElements records the concrete H.264 and H.265 choices on this host. A hardware
+	// decoder is preferred independently for each codec; only unavailable codecs use libav.
+	AutoElements map[string]string
+	// AutoSoftwareElements records libav decoders that can recover an automatically
+	// selected hardware decoder which fails on a particular stream/profile.
+	AutoSoftwareElements map[string]string
+	Sink                 string // planes | compositor | window
+	Screen               config.Screen
 	// ConnectorID is the DRM connector this instance renders on (0 = let kmssink pick the first connected
 	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
 	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.
@@ -35,9 +43,26 @@ func (c Caps) kmssinkArgs(extra ...string) []string {
 // cameras as H.264 and others as HEVC, and where the bridge passes a camera through untranscoded the tile
 // has to decode what the camera actually sends.
 var decoders = map[string]map[string]string{
-	"v4l2":     {"h264": "v4l2h264dec", "h265": "v4l2h265dec"},
-	"va":       {"h264": "vah264dec", "h265": "vah265dec"},
-	"software": {"h264": "avdec_h264", "h265": "avdec_h265"},
+	"v4l2":         {"h264": "v4l2h264dec", "h265": "v4l2slh265dec"},
+	"va":           {"h264": "vah264dec", "h265": "vah265dec"},
+	"videotoolbox": {"h264": "vtdec_hw", "h265": "vtdec_hw"},
+	"software":     {"h264": "avdec_h264", "h265": "avdec_h265"},
+}
+
+func decoderElement(family, codec string) string { return decoders[family][codec] }
+
+func (c Caps) Element(codec string) string {
+	if c.Decoder == "auto" {
+		return c.AutoElements[codec]
+	}
+	return decoderElement(c.Decoder, codec)
+}
+
+func (c Caps) DecoderSummary() string {
+	if c.Decoder != "auto" {
+		return c.Decoder
+	}
+	return fmt.Sprintf("auto (h264=%s, h265=%s)", c.Element("h264"), c.Element("h265"))
 }
 
 // RTP depayloader + parser per codec; they are codec-specific in the same way the decoder is.
@@ -62,14 +87,14 @@ type Plan struct {
 	Args []string
 }
 
-// Plans returns the processes this wall needs.
+// Plans returns gst-launch processes for the planes runtime, or one diagnostic plan for
+// compositor/window. The live compositor/window runtime uses gstnative instead.
 //
 // With sink=planes each tile owns a DRM overlay plane and is genuinely independent, so it gets its own
 // process: one camera dropping out then restarts one tile instead of every tile, and a tile can be
 // started, stopped or repointed on its own — which is what a wall with motion tiles needs.
 //
-// A compositor mixes every tile into one frame, so its tiles cannot be split; that wall is one process
-// and changing any tile restarts all of them. This is the honest trade of the two sinks, not a gap.
+// A diagnostic compositor plan remains one gst-launch process and cannot switch a tile by itself.
 func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 	if caps.Sink != "planes" {
 		args, err := Build(c, tiles, caps)
@@ -79,14 +104,14 @@ func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 		return []Plan{{Name: "wall", Args: args}}, nil
 	}
 	out := make([]Plan, 0, len(tiles))
-	for i, t := range tiles {
+	for _, t := range tiles {
 		args, err := Build(c, []layout.Placed{t}, caps)
 		if err != nil {
 			return nil, err
 		}
-		name := t.Camera
+		name := t.ID
 		if name == "" {
-			name = fmt.Sprintf("tile%d", i)
+			name = fmt.Sprintf("tile%d", t.Index)
 		}
 		out = append(out, Plan{Name: name, Args: args})
 	}
@@ -94,15 +119,14 @@ func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 }
 
 func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error) {
-	family, ok := decoders[caps.Decoder]
-	if !ok {
+	if _, ok := decoders[caps.Decoder]; !ok && (caps.Decoder != "auto" || len(caps.AutoElements) == 0) {
 		return nil, fmt.Errorf("pipeline: unknown decoder %q", caps.Decoder)
 	}
 	for _, t := range tiles {
 		if t.StillURL != "" {
 			continue // a JPEG needs no video decoder
 		}
-		if _, ok := family[codecOf(t)]; !ok {
+		if caps.Element(codecOf(t)) == "" {
 			return nil, fmt.Errorf("pipeline: decoder %q cannot decode %s (tile %s)", caps.Decoder, codecOf(t), t.Camera)
 		}
 	}
@@ -122,10 +146,9 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 	args := []string{"-e"}
 	src := func(i int, t layout.Placed) []string {
 		if t.StillURL != "" {
-			// One JPEG held on screen as a video stream. `imagefreeze` repeats the single frame forever, so
-			// this costs nothing once it has decoded. If the bridge has no thumbnail yet the request 404s
-			// and the process exits; the supervisor's backoff retries it, which is also how the tile picks
-			// up a newer still after the next event.
+			// One JPEG held on screen as a video stream. `imagefreeze` repeats the first frame forever.
+			// The planes dynamic coordinator periodically changes the URL to restart only this tile and
+			// fetch a newer retained still; failed requests are retried by the process supervisor.
 			return []string{
 				"souphttpsrc", "location=" + t.StillURL, "is-live=false", fmt.Sprintf("name=src%d", i),
 				"!", "jpegdec", "!", "imagefreeze", "!", "videoconvert",
@@ -135,7 +158,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		dp := depayParse[codec]
 		return []string{
 			"rtspsrc", "location=" + t.URL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp", fmt.Sprintf("name=src%d", i),
-			"!", dp[0], "!", dp[1], "!", family[codec],
+			"!", dp[0], "!", dp[1], "!", caps.Element(codec), "!", "watchdog", "timeout=15000",
 		}
 	}
 	switch caps.Sink {
@@ -147,16 +170,20 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 				fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H), "force-aspect-ratio=true", "sync=false")...)
 		}
 	case "compositor", "window":
+		// Keep the output clock and a black frame alive even when every motion tile is asleep. The
+		// compositor otherwise has no live pad and a display may retain its last camera frame.
+		args = append(args, "videotestsrc", "is-live=true", "pattern=black", "!", "video/x-raw,format=I420,width=1,height=1,framerate=1/1", "!", "mix.sink_0")
 		for i, t := range tiles {
 			args = append(args, src(i, t)...)
-			args = append(args, "!", "videoconvert", "!", fmt.Sprintf("mix.sink_%d", i))
+			args = append(args, "!", "videoconvert", "!", fmt.Sprintf("mix.sink_%d", i+1))
 		}
-		args = append(args, "compositor", "name=mix", "background=black")
+		args = append(args, "compositor", "name=mix", "background=black", "ignore-inactive-pads=true",
+			"sink_0::xpos=0", "sink_0::ypos=0", fmt.Sprintf("sink_0::width=%d", caps.Screen.Width), fmt.Sprintf("sink_0::height=%d", caps.Screen.Height))
 		for i, t := range tiles {
 			args = append(args,
-				fmt.Sprintf("sink_%d::xpos=%d", i, t.X), fmt.Sprintf("sink_%d::ypos=%d", i, t.Y),
-				fmt.Sprintf("sink_%d::width=%d", i, t.W), fmt.Sprintf("sink_%d::height=%d", i, t.H),
-				fmt.Sprintf("sink_%d::sizing-policy=keep-aspect-ratio", i))
+				fmt.Sprintf("sink_%d::xpos=%d", i+1, t.X), fmt.Sprintf("sink_%d::ypos=%d", i+1, t.Y),
+				fmt.Sprintf("sink_%d::width=%d", i+1, t.W), fmt.Sprintf("sink_%d::height=%d", i+1, t.H),
+				fmt.Sprintf("sink_%d::sizing-policy=keep-aspect-ratio", i+1))
 		}
 		args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d", caps.Screen.Width, caps.Screen.Height))
 		if caps.Sink == "window" {
@@ -173,3 +200,23 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 
 // String joins args for logging; the supervisor execs the slice directly (no shell).
 func String(args []string) string { return strings.Join(args, " ") }
+
+// ProbeArgs decodes two live pictures into a discard sink. identity sends EOS after the second decoded
+// buffer, so a zero exit proves frame progress without opening HDMI or retaining a battery stream.
+func ProbeArgs(c *config.Config, decoder, codec, rtspURL string) ([]string, error) {
+	return ProbeArgsForCaps(c, Caps{Decoder: decoder}, codec, rtspURL)
+}
+
+func ProbeArgsForCaps(c *config.Config, caps Caps, codec, rtspURL string) ([]string, error) {
+	element := caps.Element(codec)
+	if element == "" {
+		return nil, fmt.Errorf("pipeline: %s decoder cannot probe %s", caps.DecoderSummary(), codec)
+	}
+	if rtspURL == "" {
+		return nil, fmt.Errorf("pipeline: RTSP URL is empty")
+	}
+	dp := depayParse[codec]
+	return []string{"-q", "rtspsrc", "location=" + rtspURL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp",
+		"!", dp[0], "!", dp[1], "!", element, "!", "watchdog", "timeout=10000",
+		"!", "identity", "eos-after=2", "!", "fakesink", "sync=false"}, nil
+}

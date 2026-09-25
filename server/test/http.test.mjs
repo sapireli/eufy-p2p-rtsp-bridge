@@ -82,9 +82,24 @@ test("auth endpoints drive login", async () => {
     assert.equal(Buffer.from(await img.arrayBuffer()).toString(), "hi");
     assert.equal((await fetch(`${base}/auth/tfa?code=123456`, { method: "POST" })).status, 200);
     assert.equal((await fetch(`${base}/auth/captcha?code=AB3D`, { method: "POST" })).status, 200);
+    assert.equal((await fetch(`${base}/auth/tfa`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "654321" }) })).status, 200);
+    assert.equal((await fetch(`${base}/auth/captcha`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "XY9" }) })).status, 200);
     assert.equal((await fetch(`${base}/auth/retry`, { method: "POST" })).status, 200);
-    assert.deepEqual(calls.map((c) => c.code ?? c.ans ?? c.status), ["123456", "AB3D", "ok"]);
+    assert.deepEqual(calls.map((c) => c.code ?? c.ans ?? c.status), ["123456", "AB3D", "654321", "XY9", "ok"]);
     assert.equal((await fetch(`${base}/auth/tfa`, { method: "POST" })).status, 400);
+    assert.equal((await fetch(`${base}/auth/tfa`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" })).status, 400);
+  });
+});
+
+test("hold endpoint rejects infinite or excessive lifetimes before waking a camera", async () => {
+  const calls = [];
+  const ctx = ctxWith({ holds: { hold: (sn, owner, seconds) => { calls.push({ sn, owner, seconds }); return Date.now() + seconds * 1000; }, owners: () => ["client"] } });
+  await withServer(ctx, async (base) => {
+    for (const seconds of ["Infinity", "1e309", "3601", "0", "bad"])
+      assert.equal((await fetch(`${base}/hold/A?owner=client&seconds=${seconds}`, { method: "POST" })).status, 400, seconds);
+    assert.equal(calls.length, 0);
+    assert.equal((await fetch(`${base}/hold/A?owner=client&seconds=60`, { method: "POST" })).status, 200);
+    assert.deepEqual(calls, [{ sn: "A", owner: "client", seconds: 60 }]);
   });
 });
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadConfig, isValidCidr } from "../src/config.mjs";
+import { loadConfig, isValidCidr, parseConfigText } from "../src/config.mjs";
 
 function tmpYaml(text) {
   const dir = mkdtempSync(join(tmpdir(), "ewb-"));
@@ -70,6 +70,14 @@ test("missing config file → env-only config", () => {
   assert.equal(cfg.lan.force, false);
 });
 
+test("go2rtc dials the configured bind address when the bridge listens only on LAN", () => {
+  const env = { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" };
+  assert.equal(loadConfig({ env, rawText: "schema_version: 2\nhost: 192.0.2.10\n" }).cfg.selfHost, "192.0.2.10");
+  assert.equal(loadConfig({ env, rawText: "schema_version: 2\nhost: '::1'\n" }).cfg.selfHost, "::1");
+  assert.equal(loadConfig({ env, rawText: "schema_version: 2\nhost: 0.0.0.0\n" }).cfg.selfHost, "127.0.0.1");
+  assert.equal(loadConfig({ env: { ...env, BRIDGE_SELF_HOST: "192.0.2.20" }, rawText: "schema_version: 2\nhost: 192.0.2.10\n" }).cfg.selfHost, "192.0.2.20");
+});
+
 test("dual view is only written when the operator asks for it", () => {
   const off = loadConfig({ env: {}, configPath: tmpYaml(`eufy: { email: a@b.c, password: p, country: US }\n`) }).cfg;
   assert.equal(off.defaults.dualView, null, "nothing set → the bridge writes nothing to the camera");
@@ -92,4 +100,17 @@ test("power override is an explicit SDK policy with validated values", () => {
   for (const value of ["auto", "always-on", "battery"])
     assert.equal(loadConfig({ env: {}, configPath: config(value) }).cfg.cameras.T8214X.powerOverride, value);
   assert.throws(() => loadConfig({ env: {}, configPath: config("wired") }), /power_override must be one of/);
+});
+
+test("versioned config rejects unknown fields and unsafe numeric values", () => {
+  assert.throws(() => parseConfigText("schema_version: 3\n"), /unsupported/);
+  assert.throws(() => parseConfigText("schema_version: 2\nporrt: 3000\n"), /porrt/);
+  assert.throws(() => parseConfigText("schema_version: 2\nlan: { forced: true }\n"), /lan.forced/);
+  assert.throws(() => parseConfigText("schema_version: 2\nport: 99999\n"), /port/);
+  assert.throws(() => parseConfigText("schema_version: 2\ngo2rtc: { transcode: cpu }\n"), /transcode/);
+  assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "schema_version: 2\ncameras: { A: { enabled: nope } }\n" }), /enabled/);
+  assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "schema_version: 2\ncameras: { A: null }\n" }), /cameras\.A must be a mapping/);
+  assert.throws(() => parseConfigText("defaults: { hold_seconds: 3601 }\n"), /defaults.hold_seconds must be at most 3600/);
+  assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "cameras: { A: { hold_seconds: 3601 } }\n" }), /cameras.A.hold_seconds.*at most 3600/);
+  assert.equal(loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "schema_version: 2\n" }).cfg.port, 3000);
 });

@@ -45,6 +45,21 @@ func TestHelloSeedsTheWall(t *testing.T) {
 	}
 }
 
+func TestHelloRefreshesCameraHoldLifetimes(t *testing.T) {
+	s := New()
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "SHORT", HoldSeconds: 5}, {SN: "OLD"}}})
+	if got := s.HoldSecondsFor("SHORT"); got != 5 {
+		t.Fatalf("short hold lifetime = %v", got)
+	}
+	if got := s.HoldSecondsFor("OLD"); got != 60 {
+		t.Fatalf("older bridge fallback = %v", got)
+	}
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "SHORT", HoldSeconds: 10}}})
+	if got := s.HoldSecondsFor("SHORT"); got != 10 {
+		t.Fatalf("reconnected hold lifetime = %v", got)
+	}
+}
+
 func TestMotionTileFollowsWhateverMovedLast(t *testing.T) {
 	var off time.Duration
 	s := storeAt(t, &off)
@@ -289,5 +304,69 @@ func TestStreamKeyComesFromTheBridge(t *testing.T) {
 	}
 	if got := s.StreamKeyFor("UNKNOWN"); got != "UNKNOWN" {
 		t.Errorf("a camera we know nothing about falls back to its serial, got %q", got)
+	}
+}
+
+func TestFixedOnDemandRefreshesHoldButOnMotionSleeps(t *testing.T) {
+	s := New()
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{
+		{SN: "DEMAND", Mode: "on_demand", State: "idle", Still: true},
+		{SN: "MOTION", Mode: "on_motion", State: "idle", Still: true},
+	}})
+	sels := s.Resolve([]config.Tile{{Camera: "DEMAND"}, {Camera: "MOTION"}}, nil, nil)
+	if !sels[0].Hold || sels[0].Content != ContentSnapshot {
+		t.Fatalf("on_demand: %+v", sels[0])
+	}
+	if sels[1].Hold || sels[1].Content != ContentSnapshot {
+		t.Fatalf("on_motion: %+v", sels[1])
+	}
+	s.Apply(Message{Type: "streamState", SN: "DEMAND", State: "live"})
+	if got := s.Resolve([]config.Tile{{Camera: "DEMAND"}}, nil, nil)[0]; !got.Hold || got.Content != ContentLive {
+		t.Fatalf("live on_demand: %+v", got)
+	}
+}
+
+func TestFixedSleepingCameraWithoutStillIsDark(t *testing.T) {
+	s := New()
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "A", Mode: "on_motion", State: "idle", Still: false}}})
+	got := s.Resolve([]config.Tile{{Camera: "A"}}, nil, nil)[0]
+	if got.Content != ContentNone || got.Hold {
+		t.Fatalf("no snapshot should not open a 404 pipeline: %+v", got)
+	}
+}
+
+func TestBridgeCodecSurvivesHelloAndUpdatesWithoutStateChange(t *testing.T) {
+	s := New()
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "A", Mode: "on_motion", State: "live", Codec: "h265"}}})
+	if got := s.CodecFor("A"); got != "h265" {
+		t.Fatalf("hello codec %q", got)
+	}
+	if !s.Apply(Message{Type: "streamState", SN: "A", State: "live", Codec: "h264"}) {
+		t.Fatal("codec change must rerender even when state stays live")
+	}
+	if got := s.CodecFor("A"); got != "h264" {
+		t.Fatalf("updated codec %q", got)
+	}
+	if s.Apply(Message{Type: "streamState", SN: "A", State: "live", Codec: "h264"}) {
+		t.Fatal("identical codec should not rerender")
+	}
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "A", Mode: "on_motion", State: "live"}}})
+	if got := s.CodecFor("A"); got != "h264" {
+		t.Fatalf("codec should survive a reconnect when omitted: %q", got)
+	}
+}
+
+func TestHelloRestoresRecentMotionUsingAgeDespiteClockSkew(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	s := NewAt(func() time.Time { return now })
+	serverNow := int64(3_000_000_000_000) // intentionally far from the display clock
+	s.Apply(Message{Type: "hello", At: serverNow, Cameras: []HelloCamera{{SN: "A", Mode: "on_motion", State: "live", LastMotionAt: serverNow - 10_000}}})
+	tile := config.Tile{Motion: "latest", Watch: []string{"A"}, BlankAfterSeconds: 30}
+	if got := s.Resolve([]config.Tile{tile}, nil, nil)[0]; got.Camera != "A" || got.Content != ContentLive {
+		t.Fatalf("a wall joining mid-motion should select A: %+v", got)
+	}
+	now = now.Add(21 * time.Second)
+	if got := s.Resolve([]config.Tile{tile}, nil, nil)[0]; got.Camera != "" || got.Hold {
+		t.Fatalf("replayed motion should expire on the display clock: %+v", got)
 	}
 }

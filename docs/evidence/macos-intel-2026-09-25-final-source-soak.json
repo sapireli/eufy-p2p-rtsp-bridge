@@ -1,0 +1,47 @@
+{
+  "host": {
+    "os": "macOS 15.8 (24H23)",
+    "arch": "amd64",
+    "cpu": "Intel Core i5-8500 3.00 GHz",
+    "gstreamer": "Homebrew 1.28.7_1"
+  },
+  "binary": {
+    "git_revision": "7ee4d95f67abb764b757718e613fd3df06603d49",
+    "vcs_modified": false,
+    "go_version": "go1.27.1",
+    "sha256": "25d63f62da7da39c853a00efcbad70643132dd02e521637350c8c90d488ffd1c",
+    "copied_path_at_trial_time": "/tmp/eufy-wall-final-7ee4d95"
+  },
+  "trial": {
+    "source": "Local MediaMTX 1.21.1 with FFmpeg 9.0.2 H.264 testsrc2, 640x360 at 15 fps over TCP RTSP",
+    "client": "One 32x32 full-canvas tile, software decode, 320x180 macOS window",
+    "duration_seconds": 1800,
+    "started_at_utc": "2026-09-25T12:04:26.071709+00:00",
+    "ended_at_utc": "2026-09-25T12:34:33.166325+00:00",
+    "sample_interval_seconds": 10,
+    "samples": 180,
+    "checks_per_sample": [
+      "client and publisher remain running",
+      "tile remains playing on source generation 1",
+      "output and decoded rates are each at least 5 fps",
+      "last output frame age is at most 4 seconds"
+    ],
+    "output_frames": [33, 27033],
+    "decoded_frames": [16, 27016],
+    "minimum_output_fps": 14.9,
+    "minimum_decoded_fps": 14.9,
+    "maximum_sampled_output_age_seconds": 0.110821,
+    "peak_client_rss_kib": 66400,
+    "maximum_sampled_client_cpu_percent": 8.2,
+    "harness_errors": [],
+    "client_exit_code_after_sigterm": 0,
+    "summary_file_at_trial_time": "/var/folders/fc/fbjsbs1122v0vjb_h_hw9v2m0000gp/T/eufy-mac-soak-inupkw08/summary.json"
+  },
+  "limits": [
+    "The output probe is upstream of the macOS display sink; displayed pixels and dropped display frames were not measured.",
+    "The local bridge was intentionally absent because the tile used a direct RTSP URL; the client logged expected WebSocket reconnection attempts during the soak.",
+    "The Homebrew GStreamer plugin scanner logged missing GI typelib libraries and duplicate GTK Objective-C classes at startup; decoded and output frames progressed normally.",
+    "This uninterrupted synthetic source trial does not cover physical display continuity, real Eufy cameras, sleep/wake, clean-host installation, or Apple Silicon.",
+    "Separate clean-binary recovery evidence covers two 45-second local RTSP publisher outages."
+  ]
+}

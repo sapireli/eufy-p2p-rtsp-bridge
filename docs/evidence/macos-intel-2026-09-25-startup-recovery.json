@@ -1,0 +1,71 @@
+{
+  "host": {
+    "os": "macOS 15.8 (24H23)",
+    "arch": "amd64",
+    "cpu": "Intel Core i5-8500 3.00 GHz",
+    "gstreamer": "1.28.7_1"
+  },
+  "source": {
+    "server": "MediaMTX 1.21.1 on localhost",
+    "publisher": "FFmpeg 9.0.2 testsrc2, H.264, 640x360, 15 fps, TCP RTSP",
+    "client": "one 32x32 full-canvas tile, 320x180 window, software decoder"
+  },
+  "headless_compositor_startup": {
+    "before_fe643e4": "1 of 30 runs decoded 121 and 151 frames on two tiles while PLAYING with zero output after 10 seconds; each appsrc held two queued frames",
+    "after_fe643e4": "30 of 30 repeated headless startup/switch runs passed",
+    "mitigation": "require black-frame output before opening sources; restart the compositor once after five seconds without output; fail setup after a second failure"
+  },
+  "macos_startup_thread": {
+    "before_3ec5f5f": {
+      "fresh_home_attempts": 10,
+      "stalled_attempts": 1,
+      "stall_duration_seconds": 30,
+      "renderer_entry_logged": false,
+      "native_sample": "gst_macos_main_simple -> NSApplication run -> reportException",
+      "macos_log_exception": "NSInternalInconsistencyException: nextEventMatchingMask should only be called from the Main Thread!",
+      "sample_file_at_trial_time": "/var/folders/fc/fbjsbs1122v0vjb_h_hw9v2m0000gp/T/eufy-startup-probe-1fpim77f/sample.txt"
+    },
+    "after_3ec5f5f": {
+      "fresh_home_attempts": 40,
+      "successful_attempts": 40,
+      "status_seconds_range": [4.64, 5.09],
+      "more_than_five_decoded_frames_seconds_range": [6.69, 7.13],
+      "fix": "lock the Go main goroutine to the process startup OS thread during Darwin package init, before starting Cocoa"
+    }
+  },
+  "clean_commit_window_recovery": {
+    "git_revision": "3ec5f5f7ce25661bc4b1bfd07e75ba9f2552e165",
+    "vcs_modified": false,
+    "binary_sha256": "dd38b9114bbe6309afd78bd26544b70b277d0badc2c1f698b2555977a906c6da",
+    "publisher_absence_seconds_per_cycle": 45,
+    "output_frames_during_absence": [[33, 708], [963, 1638]],
+    "decoded_recovered_generations": [4, 7],
+    "approximate_seconds_from_publisher_restart_to_decode": [17, 17],
+    "maximum_sampled_output_age_seconds": 1.03,
+    "client_exit_code": 0,
+    "trial_log_directory": "/var/folders/fc/fbjsbs1122v0vjb_h_hw9v2m0000gp/T/eufy-intervideo-trial-ul73o2ir"
+  },
+  "compositor_fix_window_soak_before_main_thread_fix": {
+    "git_revision": "b64ec8ae732c4c40a1cc63e2eb3b4750648c91b4",
+    "vcs_modified": true,
+    "binary_sha256": "4394840f1b40a624d9b0430bea571b74532a0b0a0b56a55f6b169f95cbb0c97e",
+    "duration_seconds": 1800,
+    "samples": 180,
+    "sample_interval_seconds": 10,
+    "output_frames": [33, 27033],
+    "decoded_frames": [15, 27017],
+    "minimum_output_fps": 14.9,
+    "minimum_decoded_fps": 14.9,
+    "maximum_sampled_output_age_seconds": 0.484853,
+    "peak_rss_kib": 69924,
+    "maximum_sampled_cpu_percent": 6.8,
+    "errors": [],
+    "client_exit_code": 0,
+    "summary_file_at_trial_time": "/var/folders/fc/fbjsbs1122v0vjb_h_hw9v2m0000gp/T/eufy-mac-soak-1hajs8ug/summary.json"
+  },
+  "limits": [
+    "The output probe is upstream of the macOS display sink; displayed pixels and dropped display frames were not measured.",
+    "The 30-minute soak preceded the Darwin main-thread fix and does not qualify its final binary.",
+    "No Apple Silicon, clean-host installer, sleep/wake, or real Eufy camera run was performed."
+  ]
+}

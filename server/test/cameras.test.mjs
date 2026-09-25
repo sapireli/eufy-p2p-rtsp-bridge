@@ -61,6 +61,16 @@ test("apiShape merges stream status and rtsp url", async () => {
     streaming: true, stalls: 2, blocked: "wan-path 203.0.113.9", rtsp: "rtsp://192.168.1.10:8554/garage",
     stream: "/stream/T8410A",
   });
+  assert.equal(c.apiShape(c.getCamera("T8410A"), "::1").rtsp, "rtsp://[::1]:8554/garage");
+});
+
+test("apiShape encodes a Unicode stream key as one RTSP path segment", async () => {
+  const camera = { ...wired, name: "庭" };
+  const c = createCameras(ctxWith([camera]));
+  await c.refreshCameras();
+  const api = c.apiShape(c.getCamera(camera.sn), "192.0.2.10");
+  assert.equal(api.streamKey, "庭");
+  assert.equal(api.rtsp, "rtsp://192.0.2.10:8554/%E5%BA%AD");
 });
 
 // A battery camera's whole behaviour is its mode and whether something is holding it right now; an API
@@ -130,4 +140,112 @@ test("an explicit local power claim sets the default stream mode and API policy"
   await c.refreshCameras();
   assert.equal(c.getCamera(camera.sn).mode, "always");
   assert.equal(c.apiShape(c.getCamera(camera.sn), "192.0.2.1").powerOverride, "always-on");
+});
+
+test("a transient SDK describe error is retried before publishing the camera registry", async () => {
+  const ctx = ctxWith([wired, batt]);
+  const describe = ctx.sdk.describe;
+  const calls = [];
+  ctx.sdk.describe = async (sn) => {
+    calls.push(sn);
+    if (sn === wired.sn && calls.filter((s) => s === sn).length === 1) throw new Error("temporary SDK lookup failure");
+    return describe(sn);
+  };
+  const delays = [];
+  const cameras = createCameras(ctx, { wait: async (ms) => { delays.push(ms); } });
+  await cameras.refreshCameras();
+  assert.deepEqual(cameras.listCameras().map((c) => c.sn), [wired.sn, batt.sn]);
+  assert.deepEqual(delays, [200]);
+  assert.deepEqual(calls, [wired.sn, wired.sn, batt.sn]);
+});
+
+test("persistent describe failures have a bounded retry budget and preserve healthy cameras", async () => {
+  const ctx = ctxWith([wired, batt]);
+  ctx.sdk.describe = async (sn) => { if (sn === wired.sn) throw new Error("broken device"); return batt; };
+  const delays = [];
+  const cameras = createCameras(ctx, { wait: async (ms) => { delays.push(ms); } });
+  await cameras.refreshCameras();
+  assert.deepEqual(cameras.listCameras().map((c) => c.sn), [batt.sn]);
+  assert.deepEqual(delays, [200, 400]);
+});
+
+test("stopping discovery cancels a pending describe retry without publishing a partial registry", async () => {
+  const ctx = ctxWith([wired, batt]);
+  ctx.sdk.describe = async () => { throw new Error("temporary failure"); };
+  let waiting;
+  const cameras = createCameras(ctx, { wait: (_ms, _value, { signal }) => new Promise((resolve, reject) => {
+    waiting = true;
+    signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true });
+  }) });
+  const discovery = cameras.refreshCameras();
+  while (!waiting) await new Promise((r) => setImmediate(r));
+  cameras.stopCameraDiscovery();
+  await discovery;
+  assert.deepEqual(cameras.listCameras(), []);
+});
+
+test("periodic rediscovery retries one missing camera without replacing healthy registry entries", async () => {
+  const ctx = ctxWith([wired, batt]);
+  const describe = ctx.sdk.describe;
+  let available = false;
+  ctx.sdk.describe = async (sn) => {
+    if (sn === batt.sn && !available) throw new Error("camera temporarily unavailable");
+    return describe(sn);
+  };
+  const cameras = createCameras(ctx, { wait: async () => {} });
+  await cameras.refreshCameras();
+  const healthy = cameras.getCamera(wired.sn);
+  assert.deepEqual(cameras.missingCameraSerials(), [batt.sn]);
+  assert.deepEqual(await cameras.retryMissingCameras(async () => { throw new Error("must not publish"); }), []);
+  assert.deepEqual(cameras.missingCameraSerials(), [batt.sn]);
+  available = true;
+  assert.deepEqual(await cameras.retryMissingCameras(async () => { throw new Error("go2rtc API unavailable"); }), []);
+  assert.equal(cameras.getCamera(batt.sn), undefined, "failed media registration keeps the camera pending");
+  const added = await cameras.retryMissingCameras(async (cam, key) => {
+    assert.equal(cam.sn, batt.sn);
+    assert.equal(key, "yard");
+    assert.equal(cameras.getCamera(batt.sn), undefined, "camera stays unpublished until media registration succeeds");
+  });
+  assert.deepEqual(added.map((c) => c.sn), [batt.sn]);
+  assert.equal(cameras.getCamera(wired.sn), healthy);
+  assert.deepEqual(cameras.missingCameraSerials(), []);
+});
+
+test("overlapping rediscovery ticks register a recovered camera once", async () => {
+  const ctx = ctxWith([wired]);
+  const describe = ctx.sdk.describe;
+  let available = false;
+  ctx.sdk.describe = async (sn) => { if (!available) throw new Error("unavailable"); return describe(sn); };
+  const cameras = createCameras(ctx, { wait: async () => {} });
+  await cameras.refreshCameras();
+  available = true;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let registrations = 0;
+  const first = cameras.retryMissingCameras(async () => { registrations++; await gate; });
+  const second = cameras.retryMissingCameras(async () => { registrations++; });
+  release();
+  await Promise.all([first, second]);
+  assert.equal(registrations, 1);
+  assert.deepEqual(cameras.listCameras().map((c) => c.sn), [wired.sn]);
+});
+
+test("shutdown during go2rtc registration does not publish a recovered camera", async () => {
+  const ctx = ctxWith([wired]);
+  const describe = ctx.sdk.describe;
+  let available = false;
+  ctx.sdk.describe = async (sn) => { if (!available) throw new Error("unavailable"); return describe(sn); };
+  const cameras = createCameras(ctx, { wait: async () => {} });
+  await cameras.refreshCameras();
+  available = true;
+  let registrationStarted;
+  const started = new Promise((resolve) => { registrationStarted = resolve; });
+  const retry = cameras.retryMissingCameras(async (_cam, _key, signal) => {
+    registrationStarted();
+    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+  });
+  await started;
+  cameras.stopCameraDiscovery();
+  assert.deepEqual(await retry, []);
+  assert.deepEqual(cameras.listCameras(), []);
 });

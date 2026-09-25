@@ -1,0 +1,173 @@
+# Client configuration
+
+`eufy-wall` reads `/etc/eufy-wall.yaml` by default on Linux and `~/Library/Application Support/eufy-wall/config.yaml` on macOS. Its setup wizard, editor, renderer, validation, and apply commands use the same Go config parser. A hand-written file is fully supported:
+
+```sh
+eufy-wall config example > wall.yaml
+eufy-wall config validate wall.yaml
+eufy-wall layout preview wall.yaml --png preview.png
+eufy-wall probe wall.yaml T8214XXXXXXXXXXX
+sudo eufy-wall config apply wall.yaml
+# Or transfer a reviewed file over SSH without a config API:
+cat wall.yaml | ssh pi 'sudo eufy-wall config apply -'
+```
+
+These `sudo` examples target a Linux service install. On macOS, apply from the logged-in desktop account without `sudo` so launchd can open the window.
+
+Run `eufy-wall config explain` for a short installed field reference, or pass a YAML path such as `canvas.cols` or `tiles[0].rect.w` to explain one field. Quote paths with brackets in a shell: `eufy-wall config explain 'tiles[0].rect.w'`. The detailed values and interactions are below.
+
+For an existing unversioned bridge-backed file with `rtsp_base`, preview a lossless v2 conversion without changing the source or active config. The preview lists the derived bridge URL and each tile's explicit rectangle. URL-only offline configs cannot be converted to v2 because v2 requires bridge origins; keep those files in the supported legacy format. Then write a private candidate, review it, and use the normal apply transaction, which backs up the previous active config and rolls back a failed change:
+
+```sh
+eufy-wall config migrate legacy.yaml
+eufy-wall config migrate legacy.yaml --output migrated.yaml
+eufy-wall config validate migrated.yaml
+sudo eufy-wall config apply migrated.yaml
+```
+
+Migration rejects unknown legacy fields rather than dropping them. Candidate output is created with mode `0600` and refuses an existing path or an active `/etc/eufy-wall*.yaml` path. The preview and `--json` report omit candidate YAML so RTSP credentials in a tile URL are not printed. If a legacy `rtsp_base` includes credentials, migration rejects the derived control URL; add a credential-free `bridge_url` to the legacy file before retrying. `-` also works as migration input over stdin. Use `--instance NAME` for a named Linux display; its legacy file must already name an `output` connector.
+
+The `-` input means stdin. `config apply` stages validated YAML, checks bridge health, camera inventory, RTSP socket reachability, installed decoder elements, and the local layout, then backs up the active file. It restarts the wall, checks that the service stays active, and restores the previous config on failure. For compositor and window output, the health gate requires fresh runtime frame counters. For DRM planes, it decodes two frames from each fixed live source with the configured codec and decoder; an on-demand camera gets a bounded 20-second hold that is released afterward. These checks do not establish that a DRM plane is visible on the selected connector. `eufy-wall probe <file|-> <camera-serial>` is an optional camera check that tries both H.264 and H.265 when inventory codec data is stale. A socket check alone cannot prove video. `config recover` is run by systemd before the service starts after an interrupted apply. `eufy-wall status --json` reports the active hash, most recent backup, and last rollback reason. Keep the backup until the new layout has run on the intended hardware. The client file contains no Eufy password or token.
+
+## Complete custom layout
+
+```yaml
+schema_version: 2
+bridge_url: http://192.168.1.10:3000
+rtsp_base: rtsp://192.168.1.10:8554
+output: HDMI-A-1
+screen: {width: 1920, height: 1080}
+decoder: auto
+sink: auto
+layout: custom
+canvas: {cols: 32, rows: 32}
+tiles:
+  - id: front-door
+    camera: T8214XXXXXXXXXXX
+    rect: {x: 0, y: 0, w: 20, h: 32}
+  - id: recent-motion
+    motion: latest
+    watch: [T81A0XXXXXXXXXXX, T8425XXXXXXXXXXX]
+    blank_after_seconds: 90
+    dwell_seconds: 10
+    rect: {x: 20, y: 0, w: 12, h: 32}
+```
+
+Use a camera **serial** in `camera` and `watch`. The bridge reports its current stream key and codec at runtime. A fixed `on_demand` camera is held while visible and released when the wall stops showing it. A fixed `on_motion` camera sleeps between events. If the bridge has a retained thumbnail, a sleeping motion tile shows it until live frames arrive; otherwise the tile is dark. The GStreamer watchdog restarts a live tile whose decoded frames stall for 15 seconds. A camera's power mode is configured on the bridge; this file only chooses how to display it.
+
+## Fields and defaults
+
+| Field | Values and behavior |
+| --- | --- |
+| `schema_version` | `2` enables strict unknown-field errors and stable tile IDs. Omit for an existing legacy file. Other versions fail. |
+| `bridge_url` | HTTP(S) origin for health, camera state, WebSocket events, stills, and holds. Required in v2. No path, credentials, query, or fragment. Legacy files derive the conventional port `3000` from `rtsp_base`. |
+| `rtsp_base` | RTSP origin for video, such as `rtsp://bridge:8554`. Required in v2. A tile `url` overrides it for that tile. |
+| `output` | DRM connector name, such as `HDMI-A-1` or `DP-1`, using ASCII letters, digits, and hyphens. Empty selects the first connected HDMI output. Run one wall instance per monitor. |
+| `screen` | Optional pixel `width` and `height`; specify both or neither. When omitted the renderer reads the selected DRM mode. Preview falls back to 1920×1080 when no mode is available. |
+| `decoder` | `auto` (default), `v4l2`, `va`, `videotoolbox`, or `software`. Auto picks a decoder separately for H.264 and H.265: VideoToolbox's hardware-only `vtdec_hw` on macOS, V4L2 or VA on Linux, then software when that codec has no available hardware decoder. `software` forces CPU decoding for diagnosis. The selected elements appear in `doctor` and startup logs. The actual codec and profile must decode on the host. |
+| `sink` | `auto` (default), `planes`, `compositor`, or `window`. Auto chooses planes when a V4L2 decoder and plane IDs are supplied, otherwise compositor when installed. `window` is useful on desktop hosts. |
+| `planes` | DRM overlay plane IDs, one per tile index, used with `sink: planes`. Discover IDs with `modetest`. Linux apply checks that every selected plane can reach a common CRTC for the chosen output; the installer provides `modetest` through `libdrm-tests`. A named `output` must have a connected mode and connector ID. This read-only topology check cannot establish format/scaling support or visible pixels; run the display probe on the target host. |
+| `latency_ms` | RTSP latency; default `200`. Increase for a noisy link, decrease only after measuring drops. |
+| `layout` | `custom`, `1`, `1+5`, or a preset grid such as `2x1` or `2x2` (each side 1–6). `custom` needs v2 and `canvas`. |
+| `canvas` | `{cols, rows}` with each dimension 1–32, only for `custom`. Cells are placement units, not decoder slots. |
+| `primary_position` | `left` (default) or `right` in the `1+5` preset. |
+| `restart` | Optional `min_seconds`, `max_seconds`, and `stable_seconds`; defaults 1, 30, and 60 for pipeline backoff. |
+
+Each tile must have a stable, unique `id` in v2 (1–64 ASCII letters, digits, `_`, or `-`). A fixed tile has `camera` or an explicit `url`. `motion: latest` selects the most recently moving camera in `watch`; an empty watch set follows all enabled cameras. `blank_after_seconds: 0` keeps the last selection, while a positive value blanks after inactivity. `dwell_seconds` limits rapid switching. The optional `codec` is `h264` or `h265`, used as an offline fallback until the bridge reports the active codec. For presets, `span: {cols, rows}`, `aspect: wide|tall`, and `role: primary` affect placement. These preset fields cannot be mixed with a custom `rect`.
+
+With `layout: custom`, every tile needs `rect: {x, y, w, h}`. Coordinates start at zero. The rectangle must fit the canvas and must not overlap another tile; gaps are permitted and appear black. The renderer converts each rectangle edge to pixels independently, so 32×32 arrangements cover odd-size displays without cumulative rounding gaps. See [layouts.md](layouts.md) for editor commands and previews.
+
+## Battery, mixed-codec, and independent RTSP examples
+
+This two-tile file combines a fixed H.264 camera with a motion tile that can switch between H.264 and H.265 cameras. Replace the sample serials and addresses. The bridge inventory's active codec takes precedence over a tile's offline `codec` fallback. Configure battery power modes in the [server YAML](config-server.md); the client file only chooses where to show cameras.
+
+```yaml
+schema_version: 2
+bridge_url: http://192.168.1.10:3000
+rtsp_base: rtsp://192.168.1.10:8554
+output: HDMI-A-1
+sink: compositor
+decoder: auto
+layout: custom
+canvas: {cols: 32, rows: 32}
+tiles:
+  - id: wired-front
+    camera: T8214XXXXXXXXXXX
+    codec: h264
+    rect: {x: 0, y: 0, w: 20, h: 32}
+  - id: battery-events
+    motion: latest
+    watch: [T81A0XXXXXXXXXXX, T8425XXXXXXXXXXX]
+    blank_after_seconds: 90
+    dwell_seconds: 10
+    rect: {x: 20, y: 0, w: 12, h: 32}
+```
+
+On macOS, omit `output` from the example above and choose `sink: window` for the main desktop window.
+
+On Linux, the example above can be the default instance on `HDMI-A-1`. To drive a second connector, save this complete file as `right.yaml`:
+
+```yaml
+schema_version: 2
+bridge_url: http://192.168.1.10:3000
+rtsp_base: rtsp://192.168.1.10:8554
+output: HDMI-A-2
+sink: compositor
+layout: custom
+canvas: {cols: 32, rows: 32}
+tiles:
+  - id: garage-right
+    camera: T8425XXXXXXXXXXX
+    rect: {x: 0, y: 0, w: 32, h: 32}
+```
+
+Apply the first file normally and target the second by name. The installed `eufy-wall@.service` template runs the named client with its own `/etc/eufy-wall-right.yaml`, `/run/eufy-wall-right/status.json`, apply lock, backup, and rollback record. A named instance requires an explicit `output`; check both connectors and decoder capacity on the target hardware. If you choose `sink: planes`, allocate distinct usable DRM plane IDs to each instance. The default and named instances can run together, but multi-display performance still needs measured qualification.
+
+```sh
+sudo eufy-wall config apply left.yaml
+sudo eufy-wall config apply right.yaml --instance right
+eufy-wall status --instance right
+sudo eufy-wall health --instance right
+eufy-wall layout edit right.yaml --instance right
+```
+
+An independent RTSP source can run without a bridge using the legacy URL-only format. This example intentionally omits `schema_version`, `bridge_url`, and `rtsp_base`; v2 requires the bridge origins. Use an actual reachable RTSP URL and watch the display for frame progress after starting the wall. The `probe` subcommand requires a bridge camera serial, so it cannot probe a URL-only tile. Motion events, bridge inventory, and on-demand holds are unavailable in this mode.
+
+```yaml
+layout: 1
+sink: compositor
+tiles:
+  - url: rtsp://192.168.1.20:8554/live
+    codec: h264
+```
+
+Save that file as `offline.yaml`, then run `eufy-wall config validate offline.yaml` and `eufy-wall -config offline.yaml -dry-run` before starting the renderer with `eufy-wall -config offline.yaml`. On macOS, use `sink: window`.
+
+## Setup and offline inventory
+
+`sudo eufy-wall setup` asks for the bridge HTTP and RTSP addresses, display output, camera serials, and a starter template. It shows a summary before applying. To prepare a draft without restarting the service, pass `--output wall.draft.yaml`. On a headless host, use an answer file:
+
+```yaml
+bridge_url: http://192.168.1.10:3000
+rtsp_base: rtsp://192.168.1.10:8554
+output: HDMI-A-1
+cameras: [T8214XXXXXXXXXXX, T8425XXXXXXXXXXX]
+template: split
+probe_streams: true  # optional: decode two frames from each selected camera before apply
+# inventory_file: /tmp/cameras.json  # exported by eufy-bridge for offline setup
+# sink: planes                     # optional Linux DRM path
+# planes: [31, 32]                 # one compatible plane ID per tile when sink is planes
+```
+
+```sh
+eufy-wall setup --answers answers.yaml --output wall.draft.yaml
+eufy-wall config validate wall.draft.yaml
+```
+
+Without `inventory_file`, setup reads `/api/cameras` from the bridge. It sends no config over HTTP. Interactive setup asks whether to run decoded-frame probes; answer files opt in with `probe_streams: true`. A failed probe leaves the active config unchanged. An offline inventory cannot run a live probe until the bridge is reachable. The `one`, `split`, `four`, `1+5` (six cameras), and `motion` templates write ordinary v2 YAML that can be edited afterward. For a layout outside these templates, use `layout edit` or hand-write rectangles. An answer file can carry explicit `planes:` IDs for a Linux `sink: planes`; setup rejects too few IDs, and apply checks their DRM routing. The interactive default uses the compositor when no plane IDs are supplied. If inventory codec data is missing or stale, the bounded probe tries H.264 and H.265 with the selected decoder. A successful probe proves two decoded frames; test the actual display before relying on the wall.
+
+## Diagnostics and recovery
+
+`eufy-wall config validate <file|-> --json`, `config apply <file|-> --json`, and `doctor --json` emit a `diagnostics` array with a stable `code`, `severity`, field `path` when known, `message`, and `remedy`. YAML syntax errors include the line without echoing the source snippet. `doctor` also reports the selected screen, decoder, sink, watchdog element, renderer binary, and bridge health; it exits nonzero when a check fails. `eufy-wall -config wall.yaml -dry-run` prints the resolved GStreamer plans. A config can pass schema checks but still fail on a host with missing DRM planes, unsupported H.265 decoding, or a disconnected display. Run `probe` for stream and decoder progress, then use the target display for final checks. `journalctl -u eufy-wall -f` shows stream and pipeline recovery. If an apply fails, the command restores the prior bytes and restarts the old service; inspect the dated `.bak.*` files before deleting them.
+
+On a network outage, the wall reconnects its WebSocket and refreshes camera snapshots. Source retries use bounded backoff. Fixed on-demand holds are bounded by the bridge and expire even if the display disappears. The native compositor switches and recovers a source inside its tile without restarting unaffected tiles; verify this behavior and actual screen output on the target hardware before calling that profile supported.

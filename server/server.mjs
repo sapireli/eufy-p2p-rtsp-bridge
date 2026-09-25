@@ -3,11 +3,8 @@
 //   HTTP :3000/api/cameras   camera list for display clients       /healthz  /auth/*
 import http from "node:http";
 import fs from "node:fs";
-// Load local.env (git-ignored: EUFY_EMAIL/PASSWORD/COUNTRY) if present, so `node server.mjs` needs no
-// wrapper to see the secrets. Env already set by the shell/systemd wins — loadEnvFile does not overwrite.
-for (const f of [process.env.BRIDGE_ENV, "./local.env"]) {
-  if (f && fs.existsSync(f)) { try { process.loadEnvFile(f); } catch {} }
-}
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { loadConfig } from "./src/config.mjs";
 import { createState } from "./src/state.mjs";
 import { createSdk } from "./src/sdk-adapter.mjs";
@@ -22,134 +19,218 @@ import { createWsHub } from "./src/ws-hub.mjs";
 import { createGo2rtc } from "./src/go2rtc.mjs";
 import { createHttpHandler } from "./src/http.mjs";
 import { installRecoveryRepin } from "./src/recovery.mjs";
+import { installAuthRetry } from "./src/auth-retry.mjs";
 import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
 import { createWatchdog } from "./src/vendor/ha-bridge/watchdog.mjs";
 
-const { cfg, DEBUG } = loadConfig();
-fs.mkdirSync(cfg.dataDir, { recursive: true });
+/** Wire one bridge instance. Injecting the SDK and go2rtc runner lets startup be tested without cloud or media. */
+export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2rtcFactory = createGo2rtc, lanPreflight = reportLanPreflight, authRetryOptions, discoveryIntervalMs = 30_000 } = {}) {
+  const { cfg, DEBUG } = config ?? loadConfig();
+  fs.mkdirSync(cfg.dataDir, { recursive: true });
 
-const state = createState();
-const hooks = {};
-const { eufy, sdk } = createSdk({ cfg, DEBUG, hooks });
-const ctx = { cfg, DEBUG, eufy, sdk, state, SCHEMA_VERSION: 1, PUSH_STALL_MS: 15 * 60_000 };
+  const state = createState();
+  let stopping = false;
+  const hooks = {};
+  const { eufy, sdk } = sdkFactory({ cfg, DEBUG, hooks });
+  const ctx = { cfg, DEBUG, eufy, sdk, state, SCHEMA_VERSION: 1, PUSH_STALL_MS: 15 * 60_000 };
 
-// Vendored auth/watchdog broadcast auth changes to "clients"; we have none in phase 1 → log.
-ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);
+  // Vendored auth/watchdog broadcast auth changes to "clients"; we have none in phase 1 → log.
+  ctx.broadcast = (evt) => {
+    const { image, ...safe } = evt; // captcha image belongs in the auth response, not the service log
+    console.log(`[bridge] event ${JSON.stringify(safe)}`);
+  };
 
-ctx.lanUpgrade = createLanUpgrade(ctx);
-Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), createStreamManager(ctx), createGo2rtc(ctx), createAuth(ctx), createWatchdog(ctx));
-ctx.holds = createHolds(ctx);
-// The wall's event channel. Created before anything can emit, so an event during boot is not dropped on
-// the floor by an undefined broadcaster.
-ctx.ws = createWsHub(ctx);
-ctx.broadcastEvent = (event) => ctx.ws.broadcast(event);
+  ctx.lanUpgrade = createLanUpgrade(ctx);
+  Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), createStreamManager(ctx), go2rtcFactory(ctx), createAuth(ctx), createWatchdog(ctx));
+  ctx.holds = createHolds(ctx);
+  // The wall's event channel. Created before anything can emit, so an event during boot is not dropped on
+  // the floor by an undefined broadcaster.
+  ctx.ws = createWsHub(ctx);
+  ctx.broadcastEvent = (event) => ctx.ws.broadcast(event);
 
-/**
- * Motion takes a hold rather than starting a stream directly: see src/holds.mjs. Events arrive over push
- * independently of P2P, which is what lets a battery camera report motion while it is asleep.
- */
-// Before blaming a camera, check we can even reach its station. This host refusing to send UDP looks
-// exactly like a camera fault from the logs, and nothing downstream can recover from it.
-ctx.lanPreflight = await reportLanPreflight(cfg.lan.stationAddresses);
+  /**
+   * Motion takes a hold rather than starting a stream directly: see src/holds.mjs. Events arrive over push
+   * independently of P2P, which is what lets a battery camera report motion while it is asleep.
+   */
+  // Before blaming a camera, check we can even reach its station. This host refusing to send UDP looks
+  // exactly like a camera fault from the logs, and nothing downstream can recover from it.
+  ctx.lanPreflight = await lanPreflight(cfg.lan.stationAddresses);
 
-for (const event of cfg.defaults.motionEvents) {
-  eufy.on(event, (payload) => {
-    const sn = payload?.sn ?? payload?.deviceSn ?? payload?.device?.sn;
-    if (!sn) return;
-    const cam = ctx.getCamera?.(sn);
-    if (!cam?.enabled) return;
-    // `still` tells a wall whether GET /snapshot/<sn> has anything to show. The push that carries this
-    // event is also what delivers the thumbnail, so this is the moment it becomes true — and a tile that
-    // knows can put a picture up immediately instead of waiting out the wake.
-    ctx.sdk
-      .snapshotStored(sn)
-      .catch(() => undefined)
-      .then((jpeg) => ctx.broadcastEvent?.({ type: "motion", sn, event, still: Boolean(jpeg), at: Date.now() }));
-    if (cam.mode === "on_motion") ctx.holds.hold(sn, "motion", cam.holdSeconds);
+  for (const event of cfg.defaults.motionEvents) {
+    eufy.on(event, (payload) => {
+      const sn = payload?.sn ?? payload?.deviceSn ?? payload?.device?.sn;
+      if (!sn) return;
+      const cam = ctx.getCamera?.(sn);
+      if (!cam?.enabled) return;
+      // `still` tells a wall whether GET /snapshot/<sn> has anything to show. The push that carries this
+      // event is also what delivers the thumbnail, so this is the moment it becomes true — and a tile that
+      // knows can put a picture up immediately instead of waiting out the wake.
+      ctx.sdk
+        .snapshotStored(sn)
+        .catch(() => undefined)
+        .then((jpeg) => ctx.broadcastEvent?.({ type: "motion", sn, event, still: Boolean(jpeg), at: Date.now() }));
+      if (cam.mode === "on_motion") ctx.holds.hold(sn, "motion", cam.holdSeconds);
+    });
+  }
+  // Guard every per-camera client from the moment it exists: pins.mjs opens its P2P session (and fires
+  // p2pConnect) before the stream manager ever sees it.
+  hooks.onStreamClient = (client, sn) => ctx.attachLanGuard(client, sn);
+  // P2P-only enforcement lives in the SDK; it asks per session which stations are pinned right now.
+  hooks.lanOnlyForStation = (stationSn) => ctx.lanUpgrade?.isForced?.(stationSn);
+  installRecoveryRepin(ctx); // pins re-applied after watchdog / kicked-session re-logins
+  installAuthRetry(ctx, authRetryOptions); // cloud errors at boot or after expiry must not leave auth stuck
+
+  let rediscovering;
+  let announcePending = false;
+  ctx.rediscoverCameras = () => {
+    if (stopping || !state.flags.ready || state.flags.sessionLost || state.flags.recovering || (!ctx.missingCameraSerials().length && !announcePending)) return Promise.resolve([]);
+    if (rediscovering) return rediscovering;
+    rediscovering = (async () => {
+      const added = await ctx.retryMissingCameras((cam, key, signal) => ctx.addGo2rtcCamera(cam, key, signal));
+      if (added.length) announcePending = true;
+      for (const cam of added) {
+        if (stopping) break;
+        if (cam.enabled) {
+          await ctx.applyPins(cam.sn).catch((error) => console.error(`[bridge] ${cam.sn}: rediscovery pin failed: ${error?.message ?? error}`));
+          if (cam.mode === "always") void ctx.ensureWarm(cam.sn);
+        }
+      }
+      if (announcePending && !stopping) {
+        try {
+          ctx.broadcastEvent(await ctx.ws.snapshot()); // existing walls accept a fresh hello inventory
+          announcePending = false;
+        } catch (error) { console.error(`[bridge] camera inventory broadcast failed: ${error?.message ?? error}; will retry`); }
+      }
+      if (added.length) console.log(`[bridge] rediscovered camera(s): ${added.map((c) => c.sn).join(", ")}`);
+      if (!ctx.missingCameraSerials().length && !announcePending && state.timers.discovery) {
+        clearInterval(state.timers.discovery);
+        state.timers.discovery = undefined;
+      }
+      return added;
+    })();
+    return rediscovering.finally(() => { rediscovering = undefined; });
+  };
+
+  /** Runs once after the first successful login (re-auth calls it again and it returns immediately). */
+  let deviceStateSubscribed = false;
+  ctx.completeBoot = async function completeBoot() {
+    const { flags, timers } = state;
+    if (flags.ready || flags.booting) return;
+    flags.booting = true;
+    try {
+      if (!deviceStateSubscribed) { eufy.on("deviceState", ctx.bumpActivity); deviceStateSubscribed = true; }
+      const cams = await ctx.refreshCameras();
+      if (stopping) return;
+      const enabled = cams.filter((c) => c.enabled);
+      console.log(`[bridge] cameras: ${cams.map((c) => `${c.sn}(${c.name}${c.enabled ? "" : ", off"}${c.isDual ? ", dual" : ""})`).join(", ")}`);
+      ctx.attachLanGuard(eufy, "control");
+      ctx.lanUpgrade.start(); // pin stations LAN-first before the initial opens
+      await ctx.applyAllPins();
+      if (stopping) return;
+      await ctx.writeGo2rtc();
+      if (stopping) return;
+      ctx.startGo2rtc();
+      flags.ready = true;
+      if (ctx.missingCameraSerials().length) {
+        timers.discovery ??= setInterval(() => void ctx.rediscoverCameras().catch((error) => console.error(`[bridge] rediscovery tick failed: ${error?.message ?? error}`)), discoveryIntervalMs);
+        timers.discovery.unref?.();
+      }
+      flags.lastActivity = Date.now();
+      for (const c of enabled) if ((c.mode ?? "always") === "always") void ctx.ensureWarm(c.sn);
+      ctx.holds.start();
+      const onMotion = enabled.filter((c) => c.mode === "on_motion").map((c) => c.sn);
+      if (onMotion.length) console.log(`[bridge] on-motion cameras (idle until an event): ${onMotion.join(", ")}`);
+      timers.stream ??= setInterval(() => ctx.streamTick(), 2000);
+      timers.watchdog ??= setInterval(() => void ctx.watchdogTick(), 2 * 60_000);
+      console.log(`[bridge] ready — ${enabled.filter((c) => (c.mode ?? "always") === "always").length} always-on camera(s); RTSP at rtsp://<this-host>:8554/<sn>`);
+    } finally {
+      flags.booting = false;
+    }
+  };
+
+  eufy.on("error", (e) => {
+    console.error(`[bridge] sdk error: ${e?.message ?? e}`);
+    if (e?.name === "SessionExpiredError") ctx.maybeRecoverSession();
   });
-}
-// Guard every per-camera client from the moment it exists: pins.mjs opens its P2P session (and fires
-// p2pConnect) before the stream manager ever sees it.
-hooks.onStreamClient = (client, sn) => ctx.attachLanGuard(client, sn);
-// P2P-only enforcement lives in the SDK; it asks per session which stations are pinned right now.
-hooks.lanOnlyForStation = (stationSn) => ctx.lanUpgrade?.isForced?.(stationSn);
-installRecoveryRepin(ctx); // pins re-applied after watchdog / kicked-session re-logins
+  eufy.on("pushConnect", () => { state.flags.pushConnected = true; state.flags.pushSince = Date.now(); });
+  eufy.on("pushDisconnect", () => { state.flags.pushConnected = false; state.flags.pushSince = Date.now(); });
+  // After a re-login (kicked session / watchdog recovery) the cameras may need their pins again — a new
+  // session can lose them. Scoped to the station that actually connected: re-pinning is a SET_PAYLOAD sent
+  // to a camera MID-STREAM, so doing it for every camera on every station's connect means one camera's
+  // media session opening pokes cameras that are quietly streaming somewhere else.
+  eufy.on("p2pConnect", (stationSn) => {
+    if (!state.flags.ready) return;
+    for (const cam of ctx.listCameras?.() ?? []) {
+      if (cam.enabled && cam.stationSn === stationSn) void ctx.applyPins(cam.sn).catch(() => {});
+    }
+  });
 
-/** Runs once after the first successful login (re-auth calls it again and it returns immediately). */
-ctx.completeBoot = async function completeBoot() {
-  const { flags, timers } = state;
-  if (flags.ready || flags.booting) return;
-  flags.booting = true;
-  try {
-    eufy.on("deviceState", ctx.bumpActivity);
-    const cams = await ctx.refreshCameras();
-    const enabled = cams.filter((c) => c.enabled);
-    console.log(`[bridge] cameras: ${cams.map((c) => `${c.sn}(${c.name}${c.enabled ? "" : ", off"}${c.isDual ? ", dual" : ""})`).join(", ")}`);
-    ctx.attachLanGuard(eufy, "control");
-    ctx.lanUpgrade.start(); // pin stations LAN-first before the initial opens
-    await ctx.applyAllPins();
-    await ctx.writeGo2rtc();
-    ctx.startGo2rtc();
-    flags.ready = true;
-    flags.lastActivity = Date.now();
-    for (const c of enabled) if ((c.mode ?? "always") === "always") void ctx.ensureWarm(c.sn);
-    ctx.holds.start();
-    const onMotion = enabled.filter((c) => c.mode === "on_motion").map((c) => c.sn);
-    if (onMotion.length) console.log(`[bridge] on-motion cameras (idle until an event): ${onMotion.join(", ")}`);
-    timers.stream ??= setInterval(() => ctx.streamTick(), 2000);
-    timers.watchdog ??= setInterval(() => void ctx.watchdogTick(), 2 * 60_000);
-    console.log(`[bridge] ready — ${enabled.length} always-on camera(s); RTSP at rtsp://<this-host>:8554/<sn>`);
-  } finally {
-    flags.booting = false;
-  }
-};
+  const server = http.createServer(createHttpHandler(ctx));
+  ctx.ws.attach(server);
 
-eufy.on("error", (e) => {
-  console.error(`[bridge] sdk error: ${e?.message ?? e}`);
-  if (e?.name === "SessionExpiredError") ctx.maybeRecoverSession();
-});
-eufy.on("pushConnect", () => { state.flags.pushConnected = true; state.flags.pushSince = Date.now(); });
-eufy.on("pushDisconnect", () => { state.flags.pushConnected = false; state.flags.pushSince = Date.now(); });
-// After a re-login (kicked session / watchdog recovery) the cameras may need their pins again — a new
-// session can lose them. Scoped to the station that actually connected: re-pinning is a SET_PAYLOAD sent
-// to a camera MID-STREAM, so doing it for every camera on every station's connect means one camera's
-// media session opening pokes cameras that are quietly streaming somewhere else.
-eufy.on("p2pConnect", (stationSn) => {
-  if (!state.flags.ready) return;
-  for (const cam of ctx.listCameras?.() ?? []) {
-    if (cam.enabled && cam.stationSn === stationSn) void ctx.applyPins(cam.sn).catch(() => {});
+  let started = false;
+  async function start() {
+    if (started) throw new Error("bridge runtime already started");
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      try { server.listen(cfg.port, cfg.host, () => { server.off("error", reject); resolve(); }); }
+      catch (error) { server.off("error", reject); reject(error); }
+    });
+    started = true;
+    console.log(`[bridge] listening on ${cfg.host}:${server.address().port}`);
+    try {
+      await ctx.applyLogin(await eufy.login());
+    } catch (e) {
+      console.error(`[bridge] login failed: ${e?.message ?? e} — POST /auth/retry to try again`);
+    }
+    if (!state.flags.ready) {
+      const a = ctx.authStatus();
+      console.log(`[bridge] auth required: ${a.state} — see docs/runbook-server.md (eufy-bridge setup or POST /auth/tfa with a JSON body)`);
+      ctx.scheduleInitialLoginRetry();
+    }
   }
-});
 
-const server = http.createServer(createHttpHandler(ctx));
-ctx.ws.attach(server);
-
-async function main() {
-  server.listen(cfg.port, cfg.host, () => console.log(`[bridge] listening on ${cfg.host}:${cfg.port}`));
-  try {
-    await ctx.applyLogin(await eufy.login());
-  } catch (e) {
-    console.error(`[bridge] login failed: ${e?.message ?? e} — POST /auth/retry to try again`);
+  let stopPromise;
+  async function stop() {
+    if (stopPromise) return stopPromise;
+    stopPromise = (async () => {
+      stopping = true;
+      ctx.stopCameraDiscovery();
+      for (const t of Object.values(state.timers)) if (t) clearInterval(t);
+      ctx.stopAuthRetry();
+      ctx.ws?.close();
+      ctx.stopGo2rtc();
+      await ctx.stopAll();
+      await sdk.closeStreamClients();
+      await eufy.disconnect?.().catch(() => {});
+      if (server.listening) await new Promise((resolve) => server.close(resolve));
+    })();
+    return stopPromise;
   }
-  if (!state.flags.ready) {
-    const a = ctx.authStatus();
-    console.log(`[bridge] auth required: ${a.state} — see docs/runbook-server.md (curl /auth/status, /auth/captcha, /auth/tfa?code=…)`);
-  }
+  return { ctx, server, start, stop, address: () => server.address(), hooks };
 }
 
-async function shutdown() {
-  for (const t of Object.values(state.timers)) if (t) clearInterval(t);
-  ctx.ws?.close();
-  ctx.stopGo2rtc();
-  await ctx.stopAll();
-  await sdk.closeStreamClients();
-  await eufy.disconnect?.().catch(() => {});
-  process.exit(0);
+async function runBridge() {
+  // Env already set by the shell/systemd wins over local.env.
+  for (const f of [process.env.BRIDGE_ENV, "./local.env"]) {
+    if (f && fs.existsSync(f)) { try { process.loadEnvFile(f); } catch {} }
+  }
+  const runtime = await createBridgeRuntime();
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    await runtime.stop();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  process.on("unhandledRejection", (e) => console.error(`[bridge] unhandled rejection: ${e?.stack ?? e}`));
+  await runtime.start();
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-process.on("unhandledRejection", (e) => console.error(`[bridge] unhandled rejection: ${e?.stack ?? e}`));
 
-main().catch((e) => { console.error("[bridge] fatal:", e); process.exit(1); });
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runBridge().catch((e) => { console.error("[bridge] fatal:", e); process.exit(1); });
+}
 
 // eufy-wall: bridge entry (see docs/). Restart marker.

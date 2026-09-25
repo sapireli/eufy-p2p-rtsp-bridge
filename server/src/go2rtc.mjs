@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { parseDocument } from "yaml";
 import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
+import { urlHost } from "./url-host.mjs";
 
 /**
  * go2rtc source suffix for a camera: transcode H.265 to H.264 when asked, ALWAYS hardware-accelerated
@@ -33,8 +34,8 @@ export function hardenGo2rtcYaml(text) {
 }
 
 /**
- * Turn a camera's display name into a stream key: lowercase, words joined by `_`, nothing that would
- * need URL-escaping in an RTSP path.
+ * Turn a camera's display name into a stream key: lowercase, words joined by `_`.
+ * Unicode letters remain intact, so callers must URL-escape the key in an RTSP path.
  */
 export function streamSlug(name) {
   return String(name ?? "")
@@ -61,7 +62,10 @@ export function streamKeys(cameras) {
   const taken = new Set();
   for (const cam of cameras) {
     const slug = streamSlug(cam.name);
-    const key = slug && !taken.has(slug) ? slug : cam.sn;
+    let key = slug && !taken.has(slug) ? slug : cam.sn;
+    // A newly discovered camera must not change an existing URL, even when its serial equals an
+    // earlier name's slug. Give the newcomer a unique suffix rather than renaming the live stream.
+    for (let suffix = 2; taken.has(key); suffix++) key = `${cam.sn}_${suffix}`;
     taken.add(key);
     keys.set(cam.sn, key);
   }
@@ -74,42 +78,54 @@ export function withNamedStreams(text, cameras) {
   const streams = doc.getIn(["streams"]);
   if (!streams) return doc.toString();
   const keys = streamKeys(cameras);
+  const entries = [];
   for (const [sn, key] of keys) {
-    if (key === sn) continue;
     const source = doc.getIn(["streams", sn]);
     if (source === undefined) continue;
-    doc.deleteIn(["streams", sn]);
+    entries.push([sn, key, source]);
+  }
+  for (const [sn] of entries) doc.deleteIn(["streams", sn]);
+  for (const [, key, source] of entries) {
     doc.setIn(["streams", key], source);
   }
   return doc.toString();
 }
 
-export function createGo2rtc(ctx) {
+export function createGo2rtc(ctx, { spawnImpl = spawn, retryDelayMs = 3000, setTimer = setTimeout, clearTimer = clearTimeout, fetchImpl = fetch } = {}) {
   const { cfg, state } = ctx;
   let stopping = false;
+  let retryTimer;
+  let syncTimer;
+  let mutations = Promise.resolve();
+  function serialize(task) {
+    const result = mutations.then(task);
+    mutations = result.catch(() => {});
+    return result;
+  }
 
   /** Codec we currently believe a camera speaks (learned from its live feed, else whatever /api reported). */
   const codecOf = (sn) => state.slots.get(sn)?.codec ?? ctx.getCamera?.(sn)?.codec;
   /** The egress suffix each enabled camera should get right now, keyed by sn. */
-  function egressPlan() {
+  function egressPlan(cameras = ctx.listCameras()) {
     const plan = {};
-    for (const c of ctx.listCameras().filter((x) => x.enabled)) plan[c.sn] = egressFor(codecOf(c.sn), cfg.go2rtcTranscode);
+    for (const c of cameras.filter((x) => x.enabled)) plan[c.sn] = egressFor(codecOf(c.sn) ?? c.codec, cfg.go2rtcTranscode);
     return plan;
   }
   let lastPlan = {};
 
-  async function writeGo2rtc() {
-    const devices = ctx.listCameras().filter((c) => c.enabled).map((c) => ({ sn: c.sn, stream: `/stream/${c.sn}` }));
-    const sns = await writeGo2rtcConfig(cfg, devices);
+  async function writeGo2rtc(cameras = ctx.listCameras()) {
+    const enabled = cameras.filter((c) => c.enabled);
+    const devices = enabled.map((c) => ({ sn: c.sn, stream: `/stream/${c.sn}` }));
+    const sns = await writeGo2rtcConfig({ ...cfg, selfHost: urlHost(cfg.selfHost) }, devices);
     // The vendored generator always emits "#video=copy"; rewrite each source to this camera's egress mode.
-    const plan = egressPlan();
+    const plan = egressPlan(cameras);
     let text = hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8"));
     for (const [sn, suffix] of Object.entries(plan)) {
-      const url = `http://${cfg.selfHost}:${cfg.port}/stream/${sn}`;
+      const url = `http://${urlHost(cfg.selfHost)}:${cfg.port}/stream/${sn}`;
       const source = suffix === "#video=copy" ? url : `ffmpeg:${url}${suffix}`;
       text = text.replace(`ffmpeg:${url}#video=copy`, source);
     }
-    text = withNamedStreams(text, ctx.listCameras().filter((c) => c.enabled));
+    text = withNamedStreams(text, enabled);
     await writeFile(cfg.go2rtcConfig, text, "utf8");
     lastPlan = plan;
     const t = Object.entries(plan).filter(([, v]) => v.includes("h264#")).map(([k]) => k);
@@ -117,41 +133,100 @@ export function createGo2rtc(ctx) {
     return sns;
   }
 
+  function sourceFor(sn, suffix) {
+    const url = `http://${urlHost(cfg.selfHost)}:${cfg.port}/stream/${sn}`;
+    return suffix === "#video=copy" ? url : `ffmpeg:${url}${suffix}`;
+  }
+
+  async function putStream(cam, key, suffix, signal) {
+    const url = new URL("http://127.0.0.1:1984/api/streams");
+    url.searchParams.set("name", key);
+    url.searchParams.set("src", sourceFor(cam.sn, suffix));
+    const timeout = AbortSignal.timeout(3000);
+    const response = await fetchImpl(url, { method: "PUT", signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+    if (!response.ok) throw new Error(`go2rtc stream ${key}: HTTP ${response.status}`);
+  }
+
+  /** Add one recovered camera without restarting go2rtc or changing healthy stream URLs. */
+  function addGo2rtcCamera(cam, key, signal) {
+    return serialize(async () => {
+      if (stopping || signal?.aborted) throw new Error("camera discovery stopped");
+      if (!cam.enabled) return;
+      const suffix = egressFor(codecOf(cam.sn) ?? cam.codec, cfg.go2rtcTranscode);
+      if (state.flags.go2rtcProc) {
+        await putStream(cam, key, suffix, signal);
+        lastPlan = { ...lastPlan, [cam.sn]: suffix };
+      } else {
+        await writeGo2rtc([...ctx.listCameras(), cam]); // next child start loads the missing stream
+      }
+    });
+  }
+
   /**
    * A camera's codec is only known once its feed delivers a keyframe, which is after go2rtc was first
-   * configured. When that changes the egress mode (H.265 discovered → transcode), rewrite the config and
-   * restart go2rtc so the stream is actually served that way.
+   * configured. Update that stream through go2rtc's local API when its egress mode changes, so other
+   * cameras keep their active RTSP sessions. The API also persists the changed source in go2rtc.yaml.
    */
-  async function syncGo2rtc() {
-    if (!state.flags.ready) return;
-    const plan = egressPlan();
-    if (JSON.stringify(plan) === JSON.stringify(lastPlan)) return;
-    console.log("[bridge] go2rtc egress changed — rewriting config and restarting go2rtc");
-    await writeGo2rtc();
-    state.flags.go2rtcProc?.kill(); // exit handler restarts it
+  function syncGo2rtc() {
+    return serialize(async () => {
+      if (!state.flags.ready || stopping) return;
+      const cameras = ctx.listCameras().filter((c) => c.enabled);
+      const plan = egressPlan(cameras);
+      const changed = cameras.filter((cam) => plan[cam.sn] !== lastPlan[cam.sn]);
+      if (!changed.length) return;
+      try {
+        if (state.flags.go2rtcProc) {
+          const keys = streamKeys(cameras);
+          for (const cam of changed) {
+            await putStream(cam, keys.get(cam.sn), plan[cam.sn]);
+            lastPlan = { ...lastPlan, [cam.sn]: plan[cam.sn] };
+          }
+        } else await writeGo2rtc();
+        if (syncTimer) { clearTimer(syncTimer); syncTimer = undefined; }
+      } catch (error) {
+        if (!stopping && !syncTimer) {
+          syncTimer = setTimer(() => { syncTimer = undefined; void syncGo2rtc().catch((e) => console.error(`[bridge] go2rtc egress retry failed: ${e?.message ?? e}`)); }, retryDelayMs);
+          syncTimer?.unref?.();
+        }
+        throw error;
+      }
+    });
   }
 
   function startGo2rtc() {
     if (state.flags.go2rtcProc || stopping) return;
-    const proc = spawn(cfg.go2rtcBin, ["-config", cfg.go2rtcConfig], { stdio: ["ignore", "inherit", "inherit"] });
+    if (retryTimer) { clearTimer(retryTimer); retryTimer = undefined; }
+    let proc;
+    try { proc = spawnImpl(cfg.go2rtcBin, ["-config", cfg.go2rtcConfig], { stdio: ["ignore", "inherit", "inherit"] }); }
+    catch (error) { console.error(`[bridge] go2rtc failed to start (${error.message}) — retrying in ${retryDelayMs} ms`); scheduleRetry(); return; }
     state.flags.go2rtcProc = proc;
-    proc.on("error", (e) => {
-      console.error(`[bridge] go2rtc failed to start (${e.message}) — RTSP unavailable; HTTP /stream still works`);
-      state.flags.go2rtcProc = undefined;
-    });
-    proc.on("exit", (code, sig) => {
-      state.flags.go2rtcProc = undefined;
+    let ended = false;
+    const onEnd = (reason) => {
+      if (ended) return; // spawn failures emit error then close; schedule only one retry.
+      ended = true;
+      if (state.flags.go2rtcProc === proc) state.flags.go2rtcProc = undefined;
       if (stopping) return;
-      console.error(`[bridge] go2rtc exited (${code ?? sig}) — restarting in 3 s`);
-      setTimeout(startGo2rtc, 3000);
-    });
-    console.log(`[bridge] go2rtc started (${cfg.go2rtcBin}) — RTSP on :8554`);
+      console.error(`[bridge] go2rtc ${reason} — RTSP unavailable; retrying in ${retryDelayMs} ms`);
+      scheduleRetry();
+    };
+    proc.on("error", (error) => onEnd(`failed to start (${error.message})`));
+    proc.once("exit", (code, sig) => onEnd(`exited (${code ?? sig})`));
+    proc.once("close", (code, sig) => onEnd(`closed (${code ?? sig})`));
+    proc.once("spawn", () => console.log(`[bridge] go2rtc started (${cfg.go2rtcBin}) — RTSP on :8554`));
+  }
+
+  function scheduleRetry() {
+    if (stopping || retryTimer) return;
+    retryTimer = setTimer(() => { retryTimer = undefined; startGo2rtc(); }, retryDelayMs);
+    retryTimer?.unref?.();
   }
 
   function stopGo2rtc() {
     stopping = true;
+    if (retryTimer) { clearTimer(retryTimer); retryTimer = undefined; }
+    if (syncTimer) { clearTimer(syncTimer); syncTimer = undefined; }
     state.flags.go2rtcProc?.kill();
   }
 
-  return { writeGo2rtc, syncGo2rtc, startGo2rtc, stopGo2rtc };
+  return { writeGo2rtc, addGo2rtcCamera, syncGo2rtc, startGo2rtc, stopGo2rtc };
 }

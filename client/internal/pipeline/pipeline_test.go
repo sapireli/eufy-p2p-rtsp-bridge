@@ -25,8 +25,8 @@ func TestPlanesPipeline(t *testing.T) {
 	}
 	got := String(args)
 	want := "-e " +
-		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! v4l2h264dec ! kmssink name=sink0 plane-id=31 render-rectangle=<0,0,960,1080> force-aspect-ratio=true sync=false " +
-		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! v4l2h264dec ! kmssink name=sink1 plane-id=32 render-rectangle=<960,0,960,1080> force-aspect-ratio=true sync=false"
+		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! v4l2h264dec ! watchdog timeout=15000 ! kmssink name=sink0 plane-id=31 render-rectangle=<0,0,960,1080> force-aspect-ratio=true sync=false " +
+		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! v4l2h264dec ! watchdog timeout=15000 ! kmssink name=sink1 plane-id=32 render-rectangle=<960,0,960,1080> force-aspect-ratio=true sync=false"
 	if got != want {
 		t.Fatalf("\n got: %s\nwant: %s", got, want)
 	}
@@ -48,10 +48,12 @@ func TestCompositorPipeline(t *testing.T) {
 	}
 	got := String(args)
 	want := "-e " +
-		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! vah264dec ! videoconvert ! mix.sink_0 " +
-		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! vah264dec ! videoconvert ! mix.sink_1 " +
-		"compositor name=mix background=black sink_0::xpos=0 sink_0::ypos=0 sink_0::width=960 sink_0::height=1080 sink_0::sizing-policy=keep-aspect-ratio " +
-		"sink_1::xpos=960 sink_1::ypos=0 sink_1::width=960 sink_1::height=1080 sink_1::sizing-policy=keep-aspect-ratio " +
+		"videotestsrc is-live=true pattern=black ! video/x-raw,format=I420,width=1,height=1,framerate=1/1 ! mix.sink_0 " +
+		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! vah264dec ! watchdog timeout=15000 ! videoconvert ! mix.sink_1 " +
+		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! vah264dec ! watchdog timeout=15000 ! videoconvert ! mix.sink_2 " +
+		"compositor name=mix background=black ignore-inactive-pads=true sink_0::xpos=0 sink_0::ypos=0 sink_0::width=1920 sink_0::height=1080 " +
+		"sink_1::xpos=0 sink_1::ypos=0 sink_1::width=960 sink_1::height=1080 sink_1::sizing-policy=keep-aspect-ratio " +
+		"sink_2::xpos=960 sink_2::ypos=0 sink_2::width=960 sink_2::height=1080 sink_2::sizing-policy=keep-aspect-ratio " +
 		"! video/x-raw,width=1920,height=1080 ! kmssink sync=false"
 	if got != want {
 		t.Fatalf("\n got: %s\nwant: %s", got, want)
@@ -64,6 +66,37 @@ func TestWindowSoftware(t *testing.T) {
 	s := String(args)
 	if !strings.Contains(s, "avdec_h264") || !strings.HasSuffix(s, "! autovideosink sync=false") {
 		t.Fatalf("%s", s)
+	}
+}
+
+func TestVideoToolboxPlansAndProbeRequireHardwareOnlyDecoder(t *testing.T) {
+	c, tiles := two()
+	tiles[1].Codec = "h265"
+	args, err := Build(c, tiles, Caps{Decoder: "videotoolbox", Sink: "window", Screen: config.Screen{Width: 1920, Height: 1080}})
+	if err != nil || strings.Count(String(args), "vtdec_hw") != 2 {
+		t.Fatalf("window args=%q err=%v", String(args), err)
+	}
+	probe, err := ProbeArgs(c, "videotoolbox", "h265", "rtsp://s/B")
+	if err != nil || !strings.Contains(String(probe), "! vtdec_hw !") {
+		t.Fatalf("probe args=%q err=%v", String(probe), err)
+	}
+}
+
+func TestAutoDecodeCanMixHardwareHEVCAndSoftwareH264(t *testing.T) {
+	c, tiles := two()
+	tiles[1].Codec = "h265"
+	caps := Caps{Decoder: "auto", AutoElements: map[string]string{"h264": "avdec_h264", "h265": "v4l2slh265dec"}, Sink: "compositor", Screen: config.Screen{Width: 1920, Height: 1080}}
+	args, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	if !strings.Contains(got, "h264parse ! avdec_h264") || !strings.Contains(got, "h265parse ! v4l2slh265dec") {
+		t.Fatalf("per-codec decoder routing: %s", got)
+	}
+	probe, err := ProbeArgsForCaps(c, caps, "h265", "rtsp://s/B")
+	if err != nil || !strings.Contains(String(probe), "! v4l2slh265dec !") {
+		t.Fatalf("HEVC probe did not use hardware: %s, %v", String(probe), err)
 	}
 }
 
@@ -157,8 +190,8 @@ func TestPlansSplitPerTileOnlyForPlanes(t *testing.T) {
 	if len(planes) != 2 {
 		t.Fatalf("planes should give one process per tile, got %d", len(planes))
 	}
-	if planes[0].Name != "GARAGE" || planes[1].Name != "FRONTDOOR" {
-		t.Errorf("plans should be named for their camera: %v, %v", planes[0].Name, planes[1].Name)
+	if planes[0].Name != "tile0" || planes[1].Name != "tile1" {
+		t.Errorf("plans should be named for their tile: %v, %v", planes[0].Name, planes[1].Name)
 	}
 	// Each tile must drive its OWN plane, not the first one twice.
 	if !strings.Contains(String(planes[0].Args), "plane-id=31") || !strings.Contains(String(planes[1].Args), "plane-id=32") {
@@ -213,7 +246,7 @@ func TestStillTileRendersTheJPEGAndNeverOpensTheStream(t *testing.T) {
 			t.Errorf("missing %q in: %s", want, got)
 		}
 	}
-	for _, unwanted := range []string{"rtspsrc", "v4l2h264dec"} {
+	for _, unwanted := range []string{"rtspsrc", "v4l2h264dec", "watchdog"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("a still must not use %q: %s", unwanted, got)
 		}
@@ -227,5 +260,61 @@ func TestStillTileNeedsNoDecoderSupport(t *testing.T) {
 	tiles := []layout.Placed{{Index: 0, Camera: "A", Codec: "h265", StillURL: "http://b:3000/snapshot/A", W: 640, H: 480}}
 	if _, err := Build(c, tiles, Caps{Decoder: "v4l2", Sink: "window", Screen: config.Screen{Width: 1920, Height: 1080}}); err != nil {
 		t.Fatalf("a JPEG needs no video decoder: %v", err)
+	}
+}
+
+func TestEmptyCompositorKeepsBlackOutputInsteadOfLastCameraFrame(t *testing.T) {
+	caps := Caps{Decoder: "software", Sink: "compositor", Screen: config.Screen{Width: 640, Height: 480}}
+	args, err := Build(&config.Config{}, nil, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	for _, want := range []string{"videotestsrc is-live=true pattern=black", "mix.sink_0", "ignore-inactive-pads=true", "sink_0::width=640", "sink_0::height=480"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("empty wall lacks %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "rtspsrc") {
+		t.Errorf("empty wall opens an RTSP camera: %s", got)
+	}
+}
+
+func TestDecodedFrameProbeUsesActualCodecAndStopsAfterTwoFrames(t *testing.T) {
+	for _, tc := range []struct{ codec, depay, decoder string }{
+		{"h264", "rtph264depay", "avdec_h264"},
+		{"h265", "rtph265depay", "avdec_h265"},
+	} {
+		args, err := ProbeArgs(&config.Config{Latency: 200}, "software", tc.codec, "rtsp://bridge:8554/Front%20Door%2F1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := String(args)
+		for _, want := range []string{tc.depay, tc.decoder, "identity eos-after=2", "fakesink sync=false", "Front%20Door%2F1"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s probe lacks %s: %s", tc.codec, want, got)
+			}
+		}
+	}
+	if _, err := ProbeArgs(&config.Config{}, "software", "av1", "rtsp://bridge/A"); err == nil {
+		t.Fatal("unsupported codec reached a live probe")
+	}
+}
+
+func TestRepeatedCameraTilesHaveDistinctStablePlanNames(t *testing.T) {
+	c := &config.Config{Latency: 200, Planes: []int{31, 32}}
+	tiles := []layout.Placed{
+		{Index: 0, ID: "left", Camera: "A", URL: "rtsp://s/A", W: 960, H: 1080},
+		{Index: 1, ID: "right", Camera: "A", URL: "rtsp://s/A", X: 960, W: 960, H: 1080},
+	}
+	plans, err := Plans(c, tiles, Caps{Decoder: "software", Sink: "planes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plans[0].Name != "left" || plans[1].Name != "right" {
+		t.Fatalf("plan names: %+v", plans)
+	}
+	if !strings.Contains(String(plans[0].Args), "watchdog timeout=15000") {
+		t.Fatalf("live pipeline lacks progress watchdog: %s", String(plans[0].Args))
 	}
 }

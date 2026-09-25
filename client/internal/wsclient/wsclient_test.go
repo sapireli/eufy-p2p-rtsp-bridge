@@ -113,3 +113,38 @@ func TestStillURL(t *testing.T) {
 		t.Errorf("no bridge configured should yield no URL, got %q", got)
 	}
 }
+
+func TestExplicitControlURLKeepsPortAndTLS(t *testing.T) {
+	if got := EventURL("https://bridge.local:7443/api"); got != "wss://bridge.local:7443/ws" {
+		t.Fatalf("EventURL = %q", got)
+	}
+	if got := StillURL("https://bridge.local:7443/api", "CAM1"); got != "https://bridge.local:7443/snapshot/CAM1" {
+		t.Fatalf("StillURL = %q", got)
+	}
+	if got := EventURL("rtsp://[2001:db8::1]:8554"); got != "ws://[2001:db8::1]:3000/ws" {
+		t.Fatalf("IPv6 EventURL = %q", got)
+	}
+	if got := EventURL("ftp://bridge.local/file"); got != "" {
+		t.Fatalf("unsupported scheme = %q", got)
+	}
+}
+
+func TestReconnectBackoffResetsAfterAHealthyConnection(t *testing.T) {
+	for _, tc := range []struct {
+		current, uptime, delay, next time.Duration
+	}{
+		{16 * time.Second, stableConnection - time.Second, 16 * time.Second, 30 * time.Second},
+		{16 * time.Second, stableConnection, minBackoff, 2 * time.Second},
+		{maxBackoff, time.Second, maxBackoff, maxBackoff},
+	} {
+		delay, next := reconnectBackoff(tc.current, tc.uptime)
+		if delay != tc.delay || next != tc.next {
+			t.Errorf("reconnectBackoff(%s, %s) = %s, %s; want %s, %s", tc.current, tc.uptime, delay, next, tc.delay, tc.next)
+		}
+	}
+	for i := 0; i < 100; i++ {
+		if got := jitterBackoff(10 * time.Second); got < 8*time.Second || got > 10*time.Second {
+			t.Fatalf("jitter exceeded bounded retry window: %s", got)
+		}
+	}
+}

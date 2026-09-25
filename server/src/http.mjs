@@ -1,10 +1,30 @@
 // HTTP surface. Video is plain chunked HTTP (go2rtc pulls it); everything else is small JSON for curl,
 // the display clients (/api/cameras) and monitoring (/healthz). First-run auth is driven with curl.
+import { MAX_HOLD_SECONDS } from "./config.mjs";
 
 function json(res, code, body) {
   const s = JSON.stringify(body);
   res.writeHead(code, { "content-type": "application/json", "content-length": Buffer.byteLength(s) });
   res.end(s);
+}
+
+async function authCode(req, url) {
+  // Keep the old query form for existing callers. New setup clients use a JSON body so challenge answers
+  // stay out of access logs and URLs. Limit untrusted input before parsing it.
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk;
+    if (Buffer.byteLength(body) > 4096) throw Object.assign(new Error("auth request body exceeds 4096 bytes"), { status: 413 });
+  }
+  if (body) {
+    const type = req.headers["content-type"]?.split(";", 1)[0];
+    if (type !== "application/json") throw Object.assign(new Error("auth request body must be application/json"), { status: 415 });
+    let value;
+    try { value = JSON.parse(body); } catch { throw Object.assign(new Error("invalid JSON auth request body"), { status: 400 }); }
+    if (!value || typeof value.code !== "string") throw Object.assign(new Error("auth request body requires a string code"), { status: 400 });
+    return value.code;
+  }
+  return url.searchParams.get("code");
 }
 
 export function createHttpHandler(ctx) {
@@ -23,20 +43,20 @@ export function createHttpHandler(ctx) {
       return res.end(buf);
     }
     if (req.method !== "POST") return json(res, 405, { error: "POST required" });
-    const code = url.searchParams.get("code");
     try {
+      const code = kind === "tfa" || kind === "captcha" ? await authCode(req, url) : null;
       if (kind === "tfa") {
-        if (!/^\d{6}$/.test(code ?? "")) return json(res, 400, { error: "code must be 6 digits: POST /auth/tfa?code=123456" });
+        if (!/^\d{6}$/.test(code ?? "")) return json(res, 400, { error: "code must be 6 digits in a JSON body" });
         await ctx.applyLogin(await ctx.eufy.submitVerifyCode(code));
       } else if (kind === "captcha") {
-        if (!code) return json(res, 400, { error: "POST /auth/captcha?code=<answer>" });
+        if (!code) return json(res, 400, { error: "captcha answer required in a JSON body" });
         await ctx.applyLogin(await ctx.eufy.solveCaptcha(code));
       } else if (kind === "retry") {
         await ctx.applyLogin(await ctx.eufy.login());
       } else return json(res, 404, { error: "not found" });
       return json(res, 200, ctx.authStatus());
     } catch (e) {
-      return json(res, 502, { error: String(e?.message ?? e), auth: ctx.authStatus() });
+      return json(res, e?.status ?? 502, { error: String(e?.message ?? e), auth: ctx.authStatus() });
     }
   }
 
@@ -46,7 +66,7 @@ export function createHttpHandler(ctx) {
     } catch (e) {
       // A throw before/without a response (e.g. malformed URL or Host header) must not leave the socket
       // hanging open; once headers are out there is nothing safe left to write, so just close.
-      console.error(`[bridge] ${req.method} ${req.url}: ${e?.stack ?? e}`);
+      console.error(`[bridge] ${req.method} ${req.url?.split("?", 1)[0]}: ${e?.stack ?? e}`);
       if (res.headersSent) return res.destroy();
       return json(res, 500, { error: String(e?.message ?? e) });
     }
@@ -89,7 +109,10 @@ export function createHttpHandler(ctx) {
         return json(res, 200, { sn: arg, owner, held: ctx.holds.isHeld(arg) });
       }
       if (req.method !== "POST") return json(res, 405, { error: "use POST to take a hold, DELETE to release it" });
-      const seconds = Number(url.searchParams.get("seconds")) || undefined;
+      const requested = url.searchParams.get("seconds");
+      const seconds = requested == null ? undefined : Number(requested);
+      if (requested != null && (!Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_HOLD_SECONDS))
+        return json(res, 400, { error: `seconds must be greater than 0 and at most ${MAX_HOLD_SECONDS}` });
       const until = ctx.holds.hold(arg, owner, seconds);
       return json(res, 200, { sn: arg, owner, untilMs: until - Date.now(), owners: ctx.holds.owners(arg) });
     }

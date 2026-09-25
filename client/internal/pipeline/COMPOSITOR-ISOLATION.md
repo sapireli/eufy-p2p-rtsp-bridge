@@ -1,0 +1,17 @@
+# Compositor tile isolation and qualification
+
+Status: **implemented in the Go client; hardware qualification remains open.** `sink: compositor` and `sink: window` use `client/internal/gstnative`, which owns a stable compositor pipeline and separate source pipelines per tile. `sink: planes` uses one supervised `gst-launch-1.0` process per tile. `pipeline.Plans` still builds a single-process compositor command for dry-run diagnostics; that command is not the compositor runtime.
+
+## Runtime behavior
+
+The Go renderer keeps one permanent `appsrc` and entry queue per tile. A Go worker feeds timed black frames while the tile is idle or its source is unavailable. During a short interruption it repeats the last decoded frame, then turns black when the source is declared stalled. Each camera or retained JPEG runs in a separate pipeline ending at `appsink`; decoded frame memory is relayed to that tile's `appsrc`. Source EOS and flush events never reach the compositor. A source or codec change replaces only that source pipeline. Live sources use a decoded-buffer watchdog. The monitor checks per-tile decoded frame counters and retries stalled sources after a bounded delay; it also reloads retained JPEGs every 30 seconds because `imagefreeze` otherwise repeats its first image forever. A fatal output stall causes the wall process to exit so its service manager can restart it.
+
+The renderer writes local status with the active config hash, process ID, sink, output frame counter, and per-tile generation, state, expected-live flag, and decoded frame counter. Failed source transitions report `retrying` and do not credit old-source frames to the new expected live tile. Config apply checks fresh progress samples; a counter before the display sink is evidence of pipeline progress, not proof that pixels reached HDMI or a physical window.
+
+This implementation serializes source changes with a Go mutex and frame pushes per tile. It sets a retired source pipeline to `NULL` before releasing it. The compositor graph remains in `PLAYING` while sources retry. Device-specific interruption and resource measurements are still required before calling each target production-qualified.
+
+## Evidence and remaining gates
+
+Synthetic GStreamer tests verify that a peer tile's frame counter and generation continue through source switches, same-URL H.264-to-H.265 selection, failed source creation, retry backoff, retained-still refresh, and source recovery. Bounded local RTSP tests on an Intel Mac exercised H.264/H.265 switching and source loss/restart while a peer kept decoding. An Intel macOS window run kept output and decoded counters above 14 fps through a 30-minute synthetic H.264 soak; see `docs/evidence/macos-intel-2026-09-25-soak.json`. The output probe is upstream of the display sink, and these tests do not establish physical pixel continuity or Apple Silicon, Pi, or Debian display performance.
+
+Before qualifying a hardware profile, run the recovery and soak matrix in `docs/plug-and-play-setup-plan.md` on the physical output: source freeze, publisher/station/network failure, bridge restart, codec change, all tiles idle, compositor restart, and interrupted config apply. Record output mode, tile geometry, decoded/output frame rates, displayed frame continuity, CPU, memory, decoder load, dropped frames, and recovery time. Verify plane/CRTC reachability on the chosen connector. Keep profiles without these measurements marked unverified in the client runbook.

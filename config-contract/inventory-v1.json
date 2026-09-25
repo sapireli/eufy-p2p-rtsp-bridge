@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "exported_at": "2026-09-25T00:00:00.000Z",
+  "bridge_url": "http://bridge.local:3000",
+  "cameras": [
+    {
+      "sn": "WIRED-H264",
+      "name": "Front door",
+      "model": "T8410",
+      "modelName": "Indoor Cam",
+      "enabled": true,
+      "mode": "always",
+      "powered": true,
+      "powerOverride": "auto",
+      "dual": false,
+      "codec": "h264",
+      "streamKey": "front_door",
+      "rtsp": "rtsp://bridge.local:8554/front_door"
+    },
+    {
+      "sn": "BATTERY-DEMAND-H265",
+      "name": "Side door",
+      "model": "T8131",
+      "modelName": "Battery Cam",
+      "enabled": true,
+      "mode": "on_demand",
+      "powered": false,
+      "powerOverride": "battery",
+      "dual": true,
+      "codec": "h265",
+      "streamKey": "entry/side door #1",
+      "rtsp": "rtsp://bridge.local:8554/entry%2Fside%20door%20%231"
+    },
+    {
+      "sn": "BATTERY-MOTION-UNKNOWN",
+      "name": "Yard",
+      "model": "T8120",
+      "modelName": "Outdoor Cam",
+      "enabled": true,
+      "mode": "on_motion",
+      "powered": false,
+      "powerOverride": "auto",
+      "dual": false,
+      "codec": null,
+      "streamKey": "yard",
+      "rtsp": "rtsp://bridge.local:8554/yard"
+    }
+  ]
+}

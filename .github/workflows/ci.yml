@@ -12,22 +12,63 @@ jobs:
         with: { node-version: "24", cache: npm, cache-dependency-path: server/package-lock.json }
       - run: npm ci
       - run: npm test
+      # Node 26 can include unexecuted first-party source files in the denominator.
+      # The release workflow still tests the packaged Node 24.5 runtime.
+      - uses: actions/setup-node@v4
+        with: { node-version: '26' }
+      - run: node --experimental-test-coverage --test --test-coverage-include='server.mjs' --test-coverage-include='cli.mjs' --test-coverage-include='src/**/*.mjs' --test-coverage-exclude='src/vendor/**' --test-coverage-include-all --test-coverage-lines=80.01 test/*.test.mjs
       - run: bash -n scripts/sync-upstream.sh
+  server-package-ubuntu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: bash deploy/tests/test-packaged-server-ubuntu.sh
+        timeout-minutes: 8
   client:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults: { run: { working-directory: client } }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with: { go-version-file: client/go.mod, cache-dependency-path: client/go.sum }
+      - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgstreamer1.0-0 gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-x libdrm-tests ffmpeg xvfb
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
-      - run: go test ./... -race
+      - run: go test ./... -race -coverprofile=coverage.out
+      - run: go tool cover -func=coverage.out | awk '$1 == "total:" { seen=1; value=$3; sub(/%/, "", value); print "Go coverage:", value "%"; if (value <= 80) exit 1 } END { if (!seen) exit 1 }'
       - run: make all
+      - run: bash deploy/tests/test-linux-systemd-install.sh
+        working-directory: .
+      - run: bash deploy/tests/test-packaged-client-live-linux.sh
+        working-directory: .
+        timeout-minutes: 8
       - uses: actions/upload-artifact@v7
         with: { name: eufy-wall-binaries, path: client/bin/, retention-days: 7 }
+  macos-client:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-15]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: client/go.mod, cache-dependency-path: client/go.sum }
+      - run: brew install gstreamer
+      - run: bash deploy/tests/test-install-client-macos.sh
+      - run: go test -race ./...
+        working-directory: client
+      - run: make darwin
+        working-directory: client
+      - run: bash deploy/tests/test-packaged-client-macos.sh
   scripts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: bash -n deploy/install-server.sh deploy/install-client.sh client/spikes/spike-b.sh
+      - run: bash -n deploy/install-common.sh deploy/install-server.sh deploy/install-client.sh deploy/install-client-macos.sh deploy/package-release.sh deploy/tests/test-packaged-client-live-linux.sh client/spikes/spike-b.sh
+      - run: bash deploy/tests/test-installers.sh
+      - run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/tests -p 'test_qualify_client.py'

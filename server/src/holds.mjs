@@ -12,6 +12,8 @@
 // A hold is always bounded. An unbounded hold on a battery camera is the failure this mode exists to
 // prevent, so `seconds` is required and further motion extends the deadline rather than pinning it open.
 
+import { MAX_HOLD_SECONDS } from "./config.mjs";
+
 const TICK_MS = 1000;
 
 export function createHolds(ctx) {
@@ -20,22 +22,27 @@ export function createHolds(ctx) {
   const held = new Map();
   state.holds = held;
 
-  const now = () => Date.now();
+  const now = ctx.now ?? (() => Date.now());
   const cameraOf = (sn) => ctx.getCamera?.(sn);
 
   /** Every owner still holding `sn`, dropping any that have expired. */
   function owners(sn) {
     const m = held.get(sn);
     if (!m) return [];
-    for (const [owner, until] of m) if (until <= now()) m.delete(owner);
-    if (!m.size) held.delete(sn);
-    return [...(m?.keys() ?? [])];
+    let expired = false;
+    for (const [owner, until] of m) if (until <= now()) { m.delete(owner); expired = true; }
+    if (expired && !m.size) {
+      ctx.broadcastEvent?.({ type: "hold", sn, until: 0, owners: [] });
+      stop(sn, "hold expired");
+    }
+    return [...m.keys()];
   }
 
   const isHeld = (sn) => owners(sn).length > 0;
 
   /** When the last hold on `sn` expires, or 0 if it is not held. */
   function heldUntil(sn) {
+    if (!owners(sn).length) return 0;
     const m = held.get(sn);
     if (!m?.size) return 0;
     return Math.max(...m.values());
@@ -50,7 +57,10 @@ export function createHolds(ctx) {
   function hold(sn, owner, seconds) {
     const cam = cameraOf(sn);
     if (!cam?.enabled) return 0;
-    const secs = Number(seconds) > 0 ? Number(seconds) : (cam.holdSeconds ?? cfg.defaults.holdSeconds);
+    owners(sn); // expire an old hold before deciding whether this one needs to wake the camera
+    const secs = Number(seconds ?? cam.holdSeconds ?? cfg.defaults.holdSeconds);
+    if (!Number.isFinite(secs) || secs <= 0 || secs > MAX_HOLD_SECONDS)
+      throw new Error(`hold seconds must be greater than 0 and at most ${MAX_HOLD_SECONDS}`);
     const until = now() + secs * 1000;
     const m = held.get(sn) ?? held.set(sn, new Map()).get(sn);
     const had = m.size > 0;
@@ -65,6 +75,7 @@ export function createHolds(ctx) {
 
   /** Drop one owner's hold. The stream stops only once nobody is holding it. */
   function release(sn, owner) {
+    owners(sn);
     const m = held.get(sn);
     if (!m?.delete(owner)) return;
     ctx.broadcastEvent?.({ type: "hold", sn, until: heldUntil(sn), owners: owners(sn) });
@@ -101,9 +112,7 @@ export function createHolds(ctx) {
 
   /** Expire holds whose deadline has passed. */
   function tick() {
-    for (const sn of [...held.keys()]) {
-      if (owners(sn).length === 0) stop(sn, "hold expired");
-    }
+    for (const sn of [...held.keys()]) owners(sn);
   }
 
   function status() {
