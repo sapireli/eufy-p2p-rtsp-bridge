@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,6 +48,34 @@ func TestSetupFromOfflineInventoryCreatesValidatedDraft(t *testing.T) {
 	}
 	if err := setupWall(context.Background(), []string{"--answers", answers, "--output", draft}, strings.NewReader(""), &out); err == nil {
 		t.Fatal("setup overwrote existing draft")
+	}
+}
+
+func TestSetupProbeFailureLeavesNoDraftOrActiveConfig(t *testing.T) {
+	draft := filepath.Join(t.TempDir(), "draft.yaml")
+	a := setupAnswers{BridgeURL: "http://bridge.local:3000", RTSPBase: "rtsp://bridge.local:8554", Cameras: []string{"A"}, Template: "one", ProbeStreams: true}
+	available := []setupCamera{{SN: "A", Mode: "on_demand", Codec: "h264", StreamKey: "door"}}
+	var out bytes.Buffer
+	called := 0
+	err := finishSetup(context.Background(), a, available, draft, &out, func(_ context.Context, _ *config.Config, sn string, _ io.Writer) error {
+		called++
+		if sn != "A" {
+			t.Errorf("probed unexpected camera %q", sn)
+		}
+		return errors.New("no frames")
+	})
+	if err == nil || !strings.Contains(err.Error(), "no config applied") || called != 1 {
+		t.Fatalf("failed probe was not enforced: called=%d err=%v", called, err)
+	}
+	if _, err := os.Stat(draft); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed probe created a draft: %v", err)
+	}
+	err = finishSetup(context.Background(), a, available, draft, &out, func(context.Context, *config.Config, string, io.Writer) error { return nil })
+	if err != nil {
+		t.Fatalf("healthy probe did not permit draft: %v", err)
+	}
+	if _, err := os.Stat(draft); err != nil {
+		t.Fatalf("draft missing after healthy probe: %v", err)
 	}
 }
 
@@ -123,7 +153,7 @@ func TestInteractiveSetupCanSaveDraftAndRejectApply(t *testing.T) {
 	}))
 	defer srv.Close()
 	draft := filepath.Join(t.TempDir(), "wall.draft.yaml")
-	answers := srv.URL + "\n\n\nA\n\n"
+	answers := srv.URL + "\n\n\nA\n\n\n"
 	var out bytes.Buffer
 	if err := setupWall(context.Background(), []string{"--output", draft}, strings.NewReader(answers), &out); err != nil {
 		t.Fatal(err)

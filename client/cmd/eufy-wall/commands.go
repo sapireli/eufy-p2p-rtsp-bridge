@@ -25,6 +25,15 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 	switch args[0] {
 	case "setup":
 		return true, setupWall(context.Background(), args[1:], in, out)
+	case "probe":
+		if len(args) != 3 {
+			return true, errors.New("usage: eufy-wall probe <file|-> <camera-serial>")
+		}
+		c, err := parseClientInput(args[1], in)
+		if err != nil {
+			return true, err
+		}
+		return true, probeFrames(context.Background(), c, args[2], out)
 	case "config":
 		if len(args) < 2 {
 			return true, errors.New("usage: eufy-wall config validate|apply|recover|example ...")
@@ -155,7 +164,7 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 	}
 }
 
-const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  config validate <file|->\n  config apply <file|->\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  status [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
+const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|->\n  config apply <file|->\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  status [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
 
 func readClientInput(path string, in io.Reader) ([]byte, error) {
 	if path == "-" {

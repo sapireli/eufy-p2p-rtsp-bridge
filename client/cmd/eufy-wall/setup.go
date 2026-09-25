@@ -27,14 +27,16 @@ type setupAnswers struct {
 	Template      string   `yaml:"template"`
 	Decoder       string   `yaml:"decoder"`
 	Sink          string   `yaml:"sink"`
+	ProbeStreams  bool     `yaml:"probe_streams"`
 }
 
 type setupCamera struct {
-	SN      string `json:"sn"`
-	Name    string `json:"name"`
-	Codec   string `json:"codec"`
-	Mode    string `json:"mode"`
-	Powered bool   `json:"powered"`
+	SN        string `json:"sn"`
+	Name      string `json:"name"`
+	Codec     string `json:"codec"`
+	Mode      string `json:"mode"`
+	Powered   bool   `json:"powered"`
+	StreamKey string `json:"streamKey"`
 }
 
 type setupTile struct {
@@ -286,6 +288,14 @@ func setupWall(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 			a.Template = "one"
 		}
 		_, _ = fmt.Fprintf(out, "Bridge: %s\nRTSP: %s\nOutput: %s\nCameras: %s\nTemplate: %s\n", a.BridgeURL, a.RTSPBase, a.Output, strings.Join(a.Cameras, ", "), a.Template)
+		probeAnswer, err := ask("Decode two frames from each selected camera before applying? (yes/no)", "no")
+		if err != nil {
+			return err
+		}
+		if probeAnswer != "yes" && probeAnswer != "no" {
+			return errors.New("probe choice must be yes or no")
+		}
+		a.ProbeStreams = probeAnswer == "yes"
 		if outputPath == "" {
 			confirmed, err := ask("Apply this config and restart eufy-wall? (yes/no)", "no")
 			if err != nil {
@@ -295,7 +305,7 @@ func setupWall(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 				return errors.New("setup cancelled; no config changed")
 			}
 		}
-		return finishSetup(a, cameras, outputPath, out)
+		return finishSetup(ctx, a, cameras, outputPath, out, probeFrames)
 	}
 	if a.BridgeURL == "" || a.RTSPBase == "" {
 		return errors.New("bridge_url and rtsp_base are required in setup answers")
@@ -304,13 +314,24 @@ func setupWall(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 	if err != nil {
 		return err
 	}
-	return finishSetup(a, cameras, outputPath, out)
+	return finishSetup(ctx, a, cameras, outputPath, out, probeFrames)
 }
 
-func finishSetup(a setupAnswers, cameras []setupCamera, outputPath string, out io.Writer) error {
+func finishSetup(ctx context.Context, a setupAnswers, cameras []setupCamera, outputPath string, out io.Writer, probe func(context.Context, *config.Config, string, io.Writer) error) error {
 	b, err := setupYAML(a, cameras)
 	if err != nil {
 		return err
+	}
+	if a.ProbeStreams {
+		c, err := config.Parse(b)
+		if err != nil {
+			return err
+		}
+		for _, serial := range a.Cameras {
+			if err := probe(ctx, c, serial, out); err != nil {
+				return fmt.Errorf("probe %s failed; no config applied: %w", serial, err)
+			}
+		}
 	}
 	if outputPath != "" {
 		if _, err := os.Stat(outputPath); err == nil {

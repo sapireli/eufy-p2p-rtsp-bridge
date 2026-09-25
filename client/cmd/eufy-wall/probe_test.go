@@ -1,0 +1,102 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"eufy-wall/internal/config"
+	"eufy-wall/internal/pipeline"
+)
+
+func TestBatteryFrameProbeUsesCurrentCodecAndReleasesBoundedHold(t *testing.T) {
+	var mu sync.Mutex
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		methods = append(methods, r.Method)
+		mu.Unlock()
+		if r.URL.Query().Get("seconds") != "20" || r.URL.Query().Get("owner") == "" {
+			t.Errorf("hold lacked bounded owner and lifetime: %s", r.URL.String())
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c := &config.Config{BridgeURL: srv.URL, RTSPBase: "rtsp://bridge:8554", Latency: 200}
+	cam := setupCamera{SN: "BAT", Mode: "on_demand", Codec: "h265", StreamKey: "Front Door/1"}
+	codec, err := probeClientCamera(context.Background(), c, "BAT", []setupCamera{cam}, "software", func(_ context.Context, args []string) error {
+		command := pipeline.String(args)
+		for _, want := range []string{"Front%20Door%2F1", "rtph265depay", "avdec_h265", "identity eos-after=2"} {
+			if !strings.Contains(command, want) {
+				t.Errorf("frame probe lacks %q: %s", want, command)
+			}
+		}
+		return nil
+	})
+	if err != nil || codec != "h265" {
+		t.Fatalf("probe codec=%q err=%v", codec, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(methods) != 2 || methods[0] != http.MethodPost || methods[1] != http.MethodDelete {
+		t.Fatalf("battery hold calls = %v", methods)
+	}
+}
+
+func TestFrameProbeReleasesHoldAfterDecodeFailureAndRejectsBadInventory(t *testing.T) {
+	var mu sync.Mutex
+	methods := []string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		methods = append(methods, r.Method)
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c := &config.Config{BridgeURL: srv.URL, RTSPBase: "rtsp://bridge:8554", Latency: 200}
+	cam := setupCamera{SN: "BAT", Mode: "on_motion", StreamKey: "door"}
+	_, err := probeClientCamera(context.Background(), c, "BAT", []setupCamera{cam}, "software", func(context.Context, []string) error { return errors.New("no frames") })
+	if err == nil || !strings.Contains(err.Error(), "no decoded frame progress") {
+		t.Fatalf("decode failure was hidden: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(methods) != 2 || methods[1] != http.MethodDelete {
+		t.Fatalf("failed probe retained a hold: %v", methods)
+	}
+	if _, err := probeClientCamera(context.Background(), c, "MISSING", []setupCamera{cam}, "software", nil); err == nil || !strings.Contains(err.Error(), "absent") {
+		t.Fatalf("missing camera accepted: %v", err)
+	}
+	cam.StreamKey = ""
+	if _, err := probeClientCamera(context.Background(), c, "BAT", []setupCamera{cam}, "software", nil); err == nil || !strings.Contains(err.Error(), "stream key") {
+		t.Fatalf("camera without RTSP path accepted: %v", err)
+	}
+}
+
+func TestFrameProbeRejectsFailedHoldBeforeOpeningRTSP(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
+	defer srv.Close()
+	c := &config.Config{BridgeURL: srv.URL, RTSPBase: "rtsp://bridge:8554", Latency: 200}
+	called := false
+	_, err := probeClientCamera(context.Background(), c, "BAT", []setupCamera{{SN: "BAT", Mode: "on_demand", StreamKey: "door"}}, "software", func(context.Context, []string) error {
+		called = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 503") || called {
+		t.Fatalf("failed hold launched a stream: called=%v err=%v", called, err)
+	}
+}
+
+func TestProbeOutputIsBounded(t *testing.T) {
+	output := &boundedProbeOutput{}
+	if n, err := output.Write([]byte(strings.Repeat("x", 1<<20))); err != nil || n != 1<<20 {
+		t.Fatalf("log writer n=%d err=%v", n, err)
+	}
+	if output.buf.Len() != 64*1024 {
+		t.Fatalf("probe log grew without bound: %d", output.buf.Len())
+	}
+}
