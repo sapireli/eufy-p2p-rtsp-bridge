@@ -51,9 +51,11 @@ func runCommandTarget(args []string, in io.Reader, out io.Writer, target clientT
 		return true, probeFrames(context.Background(), c, args[2], out)
 	case "config":
 		if len(args) < 2 {
-			return true, errors.New("usage: eufy-wall config validate|apply|recover|example ...")
+			return true, errors.New("usage: eufy-wall config validate|apply|migrate|recover|example ...")
 		}
 		switch args[1] {
+		case "migrate":
+			return true, migrateClientCommand(args[2:], in, out, target)
 		case "explain":
 			if len(args) > 3 {
 				return true, errors.New("usage: eufy-wall config explain [field]")
@@ -171,7 +173,7 @@ func runCommandTarget(args []string, in io.Reader, out io.Writer, target clientT
 	}
 }
 
-const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|-> [--json]\n  config apply <file|-> [--json]\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  health\n  status [--json]\n\nUse --instance NAME with a Linux display command for a separate service and config.\nRenderer flags: -config, -instance, -dry-run, -print-layout\n"
+const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|-> [--json]\n  config apply <file|-> [--json]\n  config migrate <legacy-file|-> [--output candidate.yaml] [--json]\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  health\n  status [--json]\n\nUse --instance NAME with a Linux display command for a separate service and config.\nRenderer flags: -config, -instance, -dry-run, -print-layout\n"
 
 func readClientInput(path string, in io.Reader) ([]byte, error) {
 	var source io.Reader = in
@@ -197,9 +199,6 @@ func parseClientInput(path string, in io.Reader) (*config.Config, error) {
 	b, err := readClientInput(path, in)
 	if err != nil {
 		return nil, err
-	}
-	if len(b) > 4<<20 {
-		return nil, errors.New("config exceeds 4 MiB")
 	}
 	c, err := config.Parse(b)
 	if err != nil {

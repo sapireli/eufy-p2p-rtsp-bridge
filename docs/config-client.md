@@ -14,6 +14,17 @@ cat wall.yaml | ssh pi 'sudo eufy-wall config apply -'
 
 Run `eufy-wall config explain` for a short installed field reference, or pass a YAML path such as `canvas.cols` or `tiles[0].rect.w` to explain one field. The detailed values and interactions are below.
 
+For an existing unversioned file, preview a lossless v2 conversion without changing the source or active config. The preview lists the derived bridge URL and each tile's explicit rectangle. Then write a private candidate, review it, and use the normal apply transaction, which backs up the previous active config and rolls back a failed change:
+
+```sh
+eufy-wall config migrate legacy.yaml
+eufy-wall config migrate legacy.yaml --output migrated.yaml
+eufy-wall config validate migrated.yaml
+sudo eufy-wall config apply migrated.yaml
+```
+
+Migration rejects unknown legacy fields rather than dropping them. Candidate output is created with mode `0600` and refuses an existing path or an active `/etc/eufy-wall*.yaml` path. The preview and `--json` report omit candidate YAML so RTSP credentials in a tile URL are not printed. `-` also works as migration input over stdin. Use `--instance NAME` for a named Linux display; its legacy file must already name an `output` connector.
+
 The `-` input means stdin. `config apply` stages validated YAML, checks bridge health, camera inventory, RTSP socket reachability, installed decoder elements, and the local layout, then backs up the active file. It restarts the wall, checks that the service stays active, and restores the previous config on failure. For compositor and window output, the health gate requires fresh runtime frame counters. For DRM planes, it decodes two frames from each fixed live source with the configured codec and decoder; an on-demand camera gets a bounded 20-second hold that is released afterward. These checks do not establish that a DRM plane is visible on the selected connector. `eufy-wall probe <file|-> <camera-serial>` is an optional camera check that tries both H.264 and H.265 when inventory codec data is stale. A socket check alone cannot prove video. `config recover` is run by systemd before the service starts after an interrupted apply. `eufy-wall status --json` reports the active hash, most recent backup, and last rollback reason. Keep the backup until the new layout has run on the intended hardware. The client file contains no Eufy password or token.
 
 ## Complete custom layout
