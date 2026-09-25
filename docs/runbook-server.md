@@ -1,8 +1,8 @@
 # Server runbook: eufy-wall-bridge
 
-## Supported install targets and release files
+## Release install targets and files
 
-The release workflow publishes `eufy-wall-bridge-vX.Y.Z-linux-amd64.tar.gz` and `...-arm64.tar.gz`, plus `SHA256SUMS`. These cover Debian x86-64 and 64-bit ARM hosts; a Raspberry Pi 1 cannot run this server artifact. Each archive carries Node 24.5.0, go2rtc 1.9.14, the pinned production npm dependencies, the bridge, a systemd unit, an example config, and the installer. The host needs Debian/Ubuntu with systemd; the installer adds `ffmpeg` and CA certificates from apt when absent. The target does not run npm or build a Git dependency.
+The release workflow publishes `eufy-wall-bridge-vX.Y.Z-linux-amd64.tar.gz` and `...-arm64.tar.gz`, plus `SHA256SUMS`. These cover Debian x86-64 and 64-bit ARM architecture families; a Raspberry Pi 1 cannot run this server artifact. Packaging and synthetic installer checks do not establish clean-host or live-camera support, and no server device or soak profile has been qualified yet. Each archive carries Node 24.5.0, go2rtc 1.9.14, the pinned production npm dependencies, the bridge, a systemd unit, an example config, and the installer. The host needs Debian/Ubuntu with systemd; the installer adds `ffmpeg` and CA certificates from apt when absent. The target does not run npm or build a Git dependency.
 
 Choose a release tag from [GitHub Releases](https://github.com/sapireli/eufy-p2p-rtsp-bridge/releases). Replace `vX.Y.Z` below with that exact tag. On the server:
 
