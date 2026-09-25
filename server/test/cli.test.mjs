@@ -46,6 +46,24 @@ test("validate accepts file and stdin with the same strict schema", async (t) =>
   assert.equal(await readFile(file, "utf8"), "schema_version: 2\nport: 3000\n");
 });
 
+test("public config commands do not read the installed credentials file", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ewb-cli-env-access-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const candidate = join(dir, "candidate.yaml");
+  await writeFile(candidate, "schema_version: 1\nport: 3000\n");
+  // A directory is unreadable as an env file even when tests run as root.
+  const env = { BRIDGE_ENV: dir, BRIDGE_CONFIG: join(dir, "active.yaml") };
+  for (const args of [["config", "example"], ["config", "explain", "port"], ["config", "migrate", candidate], []]) {
+    const result = await run(args, { env });
+    assert.equal(result.code, 0, `${args.join(" ")}: ${result.err}`);
+  }
+  const validation = await run(["config", "validate", candidate, "--json"], { env });
+  assert.equal(validation.code, 1);
+  const diagnostic = JSON.parse(validation.err).diagnostics[0];
+  assert.equal(diagnostic.code, "CONFIG_SECRETS_UNREADABLE");
+  assert.match(diagnostic.remedy, /sudo/);
+});
+
 test("mistyped config commands fail before touching the active file", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "ewb-cli-args-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

@@ -32,7 +32,7 @@ sudo eufy-bridge setup --answers ./answers.yaml
 
 `host` is the local IPv4 address where the bridge listens after login, or `0.0.0.0` for all interfaces. `client_host` is the hostname or IPv4 address printed in URLs for display clients; it must be reachable by those clients. Setup checks that a specific bind address belongs to the server and that the selected LAN CIDR contains a local interface. `probe_streams` is optional: `true` probes all enabled cameras, `false` skips probes, and a serial list probes only those cameras. An interactive setup asks which cameras to probe; a noninteractive setup skips probes unless the answer file selects them. Each selected probe checks the RTSP video description and a bounded live bridge stream, then releases any temporary hold on a sleeping camera. A camera that cannot be woken or streamed makes setup fail and roll back, so choose probes deliberately for battery cameras.
 
-For hand-edited config, use `eufy-bridge config example` to print the versioned template and `eufy-bridge config explain cameras` for short inline help. The runtime file is `/etc/eufy-wall-bridge.yaml` in a release install, overridable with `BRIDGE_CONFIG`. The environment file is `/etc/eufy-wall-bridge.env`, overridable with `BRIDGE_ENV`. Shell or systemd environment values take precedence over YAML credentials.
+For hand-edited config, use `eufy-bridge config example` to print the versioned template and `eufy-bridge config explain cameras` for short inline help; neither command reads the credentials file. The runtime file is `/etc/eufy-wall-bridge.yaml` in a release install, overridable with `BRIDGE_CONFIG`. The environment file is `/etc/eufy-wall-bridge.env`, overridable with `BRIDGE_ENV`. It is root-owned and mode `0600`, so run commands that validate or use the installed credentials with `sudo`. Shell or systemd environment values take precedence over YAML credentials.
 
 `config explain` covers every strict v2 YAML field and its defaults or allowed values. For a camera entry, use its serial in the path, for example `eufy-bridge config explain cameras.T8214XXXXXXXXXXX.mode`; `eufy-bridge config explain lan.upgrade.window_ms` explains a nested timing field. An unknown path fails instead of returning generic help.
 
@@ -62,12 +62,12 @@ go2rtc:
 ```
 
 ```sh
-eufy-bridge config validate ./bridge.yaml
+sudo eufy-bridge config validate ./bridge.yaml
 sudo eufy-bridge config apply ./bridge.yaml
 cat ./bridge.yaml | ssh server 'sudo eufy-bridge config apply -'
-eufy-bridge status --json
-eufy-bridge doctor
-eufy-bridge inventory export cameras.json --host 192.168.1.10
+sudo eufy-bridge status --json
+sudo eufy-bridge doctor
+sudo eufy-bridge inventory export cameras.json --host 192.168.1.10
 ```
 
 `config validate` is offline: it checks YAML structure and the bridge's config rules, using available environment credentials. `config apply` reads a file or stdin once, validates it, keeps a dated backup, atomically replaces the active file, restarts the service, and waits up to 30 seconds for `/healthz` to report authenticated health. If that check fails, it restores the prior file, restarts the service again, retains the failed candidate, records the reason in `<config>.apply-status.json`, and exits nonzero. Reapplying identical bytes skips a restart. `status` shows the last rollback; `doctor` checks Node, config, go2rtc, and live bridge health. `--json` is supported on the noninteractive commands.
@@ -77,8 +77,8 @@ eufy-bridge inventory export cameras.json --host 192.168.1.10
 To upgrade an unversioned or `schema_version: 1` file:
 
 ```sh
-eufy-bridge config migrate ./old-bridge.yaml --output ./bridge-v2.yaml
-eufy-bridge config validate ./bridge-v2.yaml
+sudo eufy-bridge config migrate ./old-bridge.yaml --output ./bridge-v2.yaml
+sudo eufy-bridge config validate ./bridge-v2.yaml
 sudo eufy-bridge config apply ./bridge-v2.yaml
 ```
 

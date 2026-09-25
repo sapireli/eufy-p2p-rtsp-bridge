@@ -27,7 +27,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const service = "eufy-wall-bridge.service";
 const target = process.env.BRIDGE_CONFIG || (existsSync("/etc/eufy-wall-bridge.yaml") ? "/etc/eufy-wall-bridge.yaml" : "./config.yaml");
 const envPath = process.env.BRIDGE_ENV || (existsSync("/etc/eufy-wall-bridge.env") || target.startsWith("/etc/") ? "/etc/eufy-wall-bridge.env" : "./local.env");
-if (existsSync(envPath)) process.loadEnvFile(envPath);
+
+function loadSecrets() {
+  if (!existsSync(envPath)) return;
+  try { process.loadEnvFile(envPath); }
+  catch (cause) {
+    const error = new Error(`cannot read credentials file ${envPath}; run this command with sudo or set BRIDGE_ENV to a readable file`, { cause });
+    error.code = "CONFIG_SECRETS_UNREADABLE";
+    throw error;
+  }
+}
 
 function emit(data, asJson) {
   stdout.write(asJson ? `${JSON.stringify(data, null, 2)}\n` : `${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n`);
@@ -261,6 +270,7 @@ async function main() {
   }
   if (verb === "config" && sub === "validate") {
     if (clean.length !== 3 || !path || (path.startsWith("-") && path !== "-")) throw new Error("usage: eufy-bridge config validate <file|-> [--json]");
+    loadSecrets();
     const text = await input(path);
     const { cfg } = loadConfig({ rawText: text });
     return emit({ ok: true, schemaVersion: parse(text)?.schema_version ?? 1, cameras: Object.keys(cfg.cameras).length, path: path ?? null, diagnostics: [] }, asJson);
@@ -287,6 +297,7 @@ async function main() {
   }
   if (verb === "config" && sub === "apply") {
     if (clean.length !== 3 || !path || (path.startsWith("-") && path !== "-")) throw new Error("usage: eufy-bridge config apply <file|-> [--json]");
+    loadSecrets();
     const text = await input(path);
     return emit({ ok: true, ...await applyConfig({ target, yamlText: text, restart, health }), diagnostics: [] }, asJson);
   }
@@ -296,6 +307,7 @@ async function main() {
   }
   if (verb === "status") {
     if (clean.length !== 1) throw new Error("usage: eufy-bridge status [--json]");
+    loadSecrets();
     const config = existsSync(target) ? { path: target, ...(await applyStatus(target) ?? {}) } : { path: target, missing: true };
     let live;
     try { const h = await local("/healthz"); live = { ok: h.ok, auth: { state: h.auth?.state }, cameras: h.cameras, go2rtc: h.go2rtc, stalled: h.stalled }; } catch (error) { live = { ok: false, error: error.message }; }
@@ -303,6 +315,7 @@ async function main() {
   }
   if (verb === "doctor") {
     if (clean.length !== 1) throw new Error("usage: eufy-bridge doctor [--json]");
+    loadSecrets();
     const checks = [];
     checks.push({ code: "NODE_VERSION", ok: supportedNode(process.versions.node), detail: process.version });
     checks.push({ code: "CONFIG_FILE", ok: existsSync(target), detail: target });
@@ -322,6 +335,7 @@ async function main() {
     if (!path || path.startsWith("--") ||
       !(clean.length === 3 || clean.length === 5 && clean[3] === "--host" && clean[4] && !clean[4].startsWith("--")))
       throw new Error("usage: eufy-bridge inventory export <file> [--host address] [--json]");
+    loadSecrets();
     const hostFlag = clean.indexOf("--host");
     const host = hostFlag >= 0 ? clean[hostFlag + 1] : (process.env.BRIDGE_PUBLIC_HOST || interfaces()[0]?.address);
     if (!host || !/^[a-zA-Z0-9.:-]+$/.test(host)) throw new Error("inventory export needs a valid --host or a detected LAN address");
@@ -337,6 +351,7 @@ async function main() {
   if (verb === "setup") {
     if (!(clean.length === 1 || clean.length === 3 && clean[1] === "--answers" && clean[2] && !clean[2].startsWith("--")))
       throw new Error("usage: eufy-bridge setup [--answers file] [--json]");
+    loadSecrets();
     return setup(clean.slice(1), asJson);
   }
   emit("Usage: eufy-bridge setup [--answers file] | doctor | status | inventory export <file> | config example|explain [path]|validate <file|->|migrate <legacy-file|-> [--output candidate.yaml]|apply <file|-> [--json]", false);

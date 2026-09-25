@@ -61,12 +61,12 @@ No result from this clean-host sequence has been recorded yet. Keep VM installer
 
 ## First setup
 
-Run `sudo eufy-bridge setup` for the interactive path; it enables the service after login and health checks succeed. Or edit `/etc/eufy-wall-bridge.env` and write your own `/etc/eufy-wall-bridge.yaml` through `config apply`. The environment file is root-owned and mode `0600`; its installed example contains only commented credentials, so setup prompts for the real account. Use a dedicated Eufy account; sharing the phone app account can evict the bridge session. The installer keeps `/etc/eufy-wall-bridge.example.yaml` separate and does not replace an existing active config. The CLI accepts custom YAML files and standard input:
+Run `sudo eufy-bridge setup` for the interactive path; it enables the service after login and health checks succeed. For manual setup, first set `EUFY_EMAIL`, `EUFY_PASSWORD`, and `EUFY_COUNTRY` in `/etc/eufy-wall-bridge.env`, then apply your own YAML. The environment file is root-owned and mode `0600`; its installed example contains only commented credentials. Use a dedicated Eufy account; sharing the phone app account can evict the bridge session. The installer keeps `/etc/eufy-wall-bridge.example.yaml` separate and does not replace an existing active config. `config example` and `config explain` need no access to credentials; run validation and apply with `sudo` so they can read the installed environment file. The CLI accepts custom YAML files and standard input:
 
 ```sh
 eufy-bridge config example > bridge.yaml
 # Replace the example LAN, camera serials, and any credentials with your own values.
-eufy-bridge config validate bridge.yaml
+sudo eufy-bridge config validate bridge.yaml
 sudo eufy-bridge config apply bridge.yaml
 # Or from a workstation: cat bridge.yaml | ssh server 'sudo eufy-bridge config apply -'
 sudo systemctl enable eufy-wall-bridge
@@ -74,7 +74,7 @@ sudo eufy-bridge doctor
 sudo eufy-bridge status
 ```
 
-See [server config reference](config-server.md) for every field and defaults. For a fresh manual install, set `EUFY_EMAIL`, `EUFY_PASSWORD`, and `EUFY_COUNTRY` in `/etc/eufy-wall-bridge.env`, set `lan.cidr` in the YAML, then run `sudo systemctl enable --now eufy-wall-bridge`. Keep the HTTP and RTSP ports on a trusted LAN; they do not authenticate remote clients.
+See [server config reference](config-server.md) for every field and defaults. For a fresh manual install, set `lan.cidr` in the YAML, then run `sudo systemctl enable --now eufy-wall-bridge` after successful apply. Keep the HTTP and RTSP ports on a trusted LAN; they do not authenticate remote clients.
 
 When auth requests 2FA or captcha, use the local CLI wizard. For a manual recovery, check `curl -fsS http://127.0.0.1:3000/auth/status`. Challenge answers belong in POST bodies; do not put them in URL query strings or shell history. A captured session is stored under `/var/lib/eufy-wall-bridge/`.
 
