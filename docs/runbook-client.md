@@ -57,7 +57,7 @@ Use a Debian amd64 systemd VM or host and two verified client archives (A then B
 3. Save `sha256sum /etc/systemd/system/eufy-wall.service`. On a host with a healthy running wall, install B and verify the active release, stable service, and fresh frames on screen. Run B's installer with `--rollback`; confirm A, the saved unit hash, and fresh frames. Repeat from a deliberately stopped service and confirm it stays stopped.
 4. Restore the VM snapshot for an offline trial. Preinstall GStreamer and DRM packages, transfer a separately verified archive and digest, disconnect external network, and run `--trusted-sha256 DIGEST --no-apt --verify-only` before installing. A wrong digest must fail before the release pointer or unit changes.
 
-No result from this clean-host sequence has been recorded yet. The existing synthetic installer tests cover integrity and rollback helpers, not a live Debian systemd install.
+No result from this clean-host sequence has been recorded yet. CI is configured to run an Ubuntu 24.04 systemd transaction with a stub wall process, including a named instance upgrade, rollback, and injected health failure. Its first runner result is still pending; even a passing result will not establish a live Debian display install or video recovery.
 
 ## First setup and manual YAML
 
