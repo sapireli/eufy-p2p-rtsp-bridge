@@ -15,16 +15,23 @@ import (
 )
 
 func clientHealth(out io.Writer) error {
-	data, err := readClientInput(clientConfigPath, nil)
-	if err != nil {
-		return err
-	}
 	var service interface {
 		Healthy() error
 		FramesHealthy([]byte) error
 	} = systemdWallService{}
 	if runtime.GOOS == "darwin" {
 		service = launchdWallService{}
+	}
+	return clientHealthAt(clientConfigPath, out, service)
+}
+
+func clientHealthAt(path string, out io.Writer, service interface {
+	Healthy() error
+	FramesHealthy([]byte) error
+}) error {
+	data, err := readClientInput(path, nil)
+	if err != nil {
+		return err
 	}
 	if err := service.Healthy(); err != nil {
 		return err
@@ -75,6 +82,13 @@ func launchdPID(report string) (int, error) {
 }
 
 func clientFramesHealthy(data []byte, pid int) error {
+	return clientFramesHealthyAt(data, pid, clientRuntimeStatusPath(), func(c *config.Config) (string, error) {
+		caps, err := detect.Resolve(c, detect.HasElement, detect.FileExists)
+		return caps.Sink, err
+	})
+}
+
+func clientFramesHealthyAt(data []byte, pid int, statusPath string, resolveSink func(*config.Config) (string, error)) error {
 	c, err := config.Parse(data)
 	if err != nil {
 		return err
@@ -84,11 +98,11 @@ func clientFramesHealthy(data []byte, pid int) error {
 			c.Screen = screen
 		}
 	}
-	caps, err := detect.Resolve(c, detect.HasElement, detect.FileExists)
+	sink, err := resolveSink(c)
 	if err != nil {
 		return err
 	}
-	if caps.Sink == "planes" {
+	if sink == "planes" {
 		return nil // Planes still use independently supervised gst-launch processes.
 	}
 	ids := make([]string, 0, len(c.Tiles))
@@ -97,10 +111,10 @@ func clientFramesHealthy(data []byte, pid int) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 22*time.Second)
 	defer cancel()
-	if err := awaitRuntimeProgress(ctx, clientRuntimeStatusPath(), pid, clientSHA256(data), caps.Sink, ids, 500*time.Millisecond); err != nil {
+	if err := awaitRuntimeProgress(ctx, statusPath, pid, clientSHA256(data), sink, ids, 500*time.Millisecond); err != nil {
 		return err
 	}
-	status, err := readRuntimeWallStatus(clientRuntimeStatusPath())
+	status, err := readRuntimeWallStatus(statusPath)
 	if err != nil {
 		return err
 	}
