@@ -1,6 +1,7 @@
 // Camera registry: SDK device list ∩ config → the set of cameras this bridge serves, plus the /api shape.
 
 import { streamKeys } from "./go2rtc.mjs";
+import { setTimeout as sleep } from "node:timers/promises";
 
 /** Dual-lens models → the SET_PAYLOAD sub-command that sets their composed view (from bropat's client). */
 export const DUAL_MODELS = {
@@ -16,20 +17,36 @@ export const DUAL_MODELS = {
 /** Config names → wire `video_type` values (bropat DualCamWatchViewMode states). */
 export const DUAL_VIEW_VALUES = { "pip-tl": 2, "pip-tr": 3, "pip-bl": 4, "pip-br": 5, split: 12, single: 0 };
 
-export function createCameras(ctx) {
+export function createCameras(ctx, { describeAttempts = 3, describeRetryMs = 200, wait = sleep } = {}) {
   let cache = [];
+  const discovery = new AbortController();
+
+  async function describeCamera(sn) {
+    for (let attempt = 1; attempt <= describeAttempts && !discovery.signal.aborted; attempt++) {
+      try {
+        const result = await ctx.sdk.describe(sn);
+        if (!result || typeof result !== "object") throw new Error("SDK returned no device description");
+        return result;
+      } catch (error) {
+        if (discovery.signal.aborted) return null;
+        console.error(`[bridge] ${sn}: describe attempt ${attempt}/${describeAttempts} failed: ${error?.message ?? error}`);
+        if (attempt === describeAttempts) break;
+        try { await wait(describeRetryMs * 2 ** (attempt - 1), undefined, { signal: discovery.signal }); }
+        catch (waitError) { if (discovery.signal.aborted) return null; throw waitError; }
+      }
+    }
+    if (!discovery.signal.aborted) console.error(`[bridge] ${sn}: camera omitted after ${describeAttempts} describe attempts; check SDK connectivity and restart after recovery`);
+    return null;
+  }
 
   async function refreshCameras() {
+    if (discovery.signal.aborted) return cache;
     const devices = await ctx.eufy.getDevices();
     const out = [];
     for (const d of devices) {
-      let m;
-      try {
-        m = await ctx.sdk.describe(d.sn);
-      } catch (e) {
-        console.error(`[bridge] ${d.sn}: describe failed: ${e?.message ?? e}`);
-        continue;
-      }
+      if (discovery.signal.aborted) return cache;
+      const m = await describeCamera(d.sn);
+      if (!m) continue;
       if (!m.isCamera) continue;
       const c = ctx.cfg.cameras[m.sn] ?? {};
       const powered = m.powerTier === "wired";
@@ -68,7 +85,7 @@ export function createCameras(ctx) {
         dualView: isDual ? (c.dualView ?? ctx.cfg.defaults.dualView) : null,
       });
     }
-    cache = out;
+    if (!discovery.signal.aborted) cache = out;
     return out;
   }
 
@@ -113,5 +130,5 @@ export function createCameras(ctx) {
     };
   }
 
-  return { refreshCameras, listCameras, getCamera, apiShape, streamKeyFor };
+  return { refreshCameras, stopCameraDiscovery: () => discovery.abort(), listCameras, getCamera, apiShape, streamKeyFor };
 }

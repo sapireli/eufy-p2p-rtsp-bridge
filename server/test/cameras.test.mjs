@@ -131,3 +131,45 @@ test("an explicit local power claim sets the default stream mode and API policy"
   assert.equal(c.getCamera(camera.sn).mode, "always");
   assert.equal(c.apiShape(c.getCamera(camera.sn), "192.0.2.1").powerOverride, "always-on");
 });
+
+test("a transient SDK describe error is retried before publishing the camera registry", async () => {
+  const ctx = ctxWith([wired, batt]);
+  const describe = ctx.sdk.describe;
+  const calls = [];
+  ctx.sdk.describe = async (sn) => {
+    calls.push(sn);
+    if (sn === wired.sn && calls.filter((s) => s === sn).length === 1) throw new Error("temporary SDK lookup failure");
+    return describe(sn);
+  };
+  const delays = [];
+  const cameras = createCameras(ctx, { wait: async (ms) => { delays.push(ms); } });
+  await cameras.refreshCameras();
+  assert.deepEqual(cameras.listCameras().map((c) => c.sn), [wired.sn, batt.sn]);
+  assert.deepEqual(delays, [200]);
+  assert.deepEqual(calls, [wired.sn, wired.sn, batt.sn]);
+});
+
+test("persistent describe failures have a bounded retry budget and preserve healthy cameras", async () => {
+  const ctx = ctxWith([wired, batt]);
+  ctx.sdk.describe = async (sn) => { if (sn === wired.sn) throw new Error("broken device"); return batt; };
+  const delays = [];
+  const cameras = createCameras(ctx, { wait: async (ms) => { delays.push(ms); } });
+  await cameras.refreshCameras();
+  assert.deepEqual(cameras.listCameras().map((c) => c.sn), [batt.sn]);
+  assert.deepEqual(delays, [200, 400]);
+});
+
+test("stopping discovery cancels a pending describe retry without publishing a partial registry", async () => {
+  const ctx = ctxWith([wired, batt]);
+  ctx.sdk.describe = async () => { throw new Error("temporary failure"); };
+  let waiting;
+  const cameras = createCameras(ctx, { wait: (_ms, _value, { signal }) => new Promise((resolve, reject) => {
+    waiting = true;
+    signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true });
+  }) });
+  const discovery = cameras.refreshCameras();
+  while (!waiting) await new Promise((r) => setImmediate(r));
+  cameras.stopCameraDiscovery();
+  await discovery;
+  assert.deepEqual(cameras.listCameras(), []);
+});

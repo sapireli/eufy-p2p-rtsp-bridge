@@ -29,6 +29,7 @@ export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2r
   fs.mkdirSync(cfg.dataDir, { recursive: true });
 
   const state = createState();
+  let stopping = false;
   const hooks = {};
   const { eufy, sdk } = sdkFactory({ cfg, DEBUG, hooks });
   const ctx = { cfg, DEBUG, eufy, sdk, state, SCHEMA_VERSION: 1, PUSH_STALL_MS: 15 * 60_000 };
@@ -88,12 +89,15 @@ export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2r
     try {
       if (!deviceStateSubscribed) { eufy.on("deviceState", ctx.bumpActivity); deviceStateSubscribed = true; }
       const cams = await ctx.refreshCameras();
+      if (stopping) return;
       const enabled = cams.filter((c) => c.enabled);
       console.log(`[bridge] cameras: ${cams.map((c) => `${c.sn}(${c.name}${c.enabled ? "" : ", off"}${c.isDual ? ", dual" : ""})`).join(", ")}`);
       ctx.attachLanGuard(eufy, "control");
       ctx.lanUpgrade.start(); // pin stations LAN-first before the initial opens
       await ctx.applyAllPins();
+      if (stopping) return;
       await ctx.writeGo2rtc();
+      if (stopping) return;
       ctx.startGo2rtc();
       flags.ready = true;
       flags.lastActivity = Date.now();
@@ -155,6 +159,8 @@ export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2r
   async function stop() {
     if (stopPromise) return stopPromise;
     stopPromise = (async () => {
+      stopping = true;
+      ctx.stopCameraDiscovery();
       for (const t of Object.values(state.timers)) if (t) clearInterval(t);
       ctx.stopAuthRetry();
       ctx.ws?.close();

@@ -134,6 +134,20 @@ test("a transient camera list failure at boot retries without duplicate activity
   assert.deepEqual(stats().go2rtcWrites, 1);
 });
 
+test("shutdown during camera rediscovery cannot publish readiness or start media", async (t) => {
+  const { runtime, sdk, stats } = await fixture(t, { devices: [{ sn: "BAT" }] });
+  let describeStarted;
+  const called = new Promise((resolve) => { describeStarted = resolve; });
+  sdk.describe = async () => { describeStarted(); throw new Error("temporary camera lookup failure"); };
+  const start = runtime.start();
+  await called;
+  await runtime.stop();
+  await start;
+  assert.equal(runtime.ctx.state.flags.ready, false);
+  assert.equal(stats().go2rtcWrites, 0);
+  assert.equal(stats().go2rtcStarts, 0);
+});
+
 test("an invalid listener setting rejects start before login", async (t) => {
   const { runtime, config } = await fixture(t);
   config.cfg.port = -1;
