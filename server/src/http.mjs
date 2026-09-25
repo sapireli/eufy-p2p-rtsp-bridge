@@ -1,5 +1,6 @@
 // HTTP surface. Video is plain chunked HTTP (go2rtc pulls it); everything else is small JSON for curl,
 // the display clients (/api/cameras) and monitoring (/healthz). First-run auth is driven with curl.
+import { MAX_HOLD_SECONDS } from "./config.mjs";
 
 function json(res, code, body) {
   const s = JSON.stringify(body);
@@ -108,7 +109,10 @@ export function createHttpHandler(ctx) {
         return json(res, 200, { sn: arg, owner, held: ctx.holds.isHeld(arg) });
       }
       if (req.method !== "POST") return json(res, 405, { error: "use POST to take a hold, DELETE to release it" });
-      const seconds = Number(url.searchParams.get("seconds")) || undefined;
+      const requested = url.searchParams.get("seconds");
+      const seconds = requested == null ? undefined : Number(requested);
+      if (requested != null && (!Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_HOLD_SECONDS))
+        return json(res, 400, { error: `seconds must be greater than 0 and at most ${MAX_HOLD_SECONDS}` });
       const until = ctx.holds.hold(arg, owner, seconds);
       return json(res, 200, { sn: arg, owner, untilMs: until - Date.now(), owners: ctx.holds.owners(arg) });
     }

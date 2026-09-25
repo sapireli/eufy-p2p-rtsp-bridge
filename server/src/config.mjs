@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 
 const CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
+export const MAX_HOLD_SECONDS = 3_600;
 
 /** True for a well-formed IPv4 CIDR: four 0–255 octets and a 0–32 prefix length (the regex only checks shape). */
 export function isValidCidr(v) {
@@ -78,7 +79,10 @@ export function parseConfigText(text) {
   if (raw.port != null && (!Number.isInteger(raw.port) || raw.port < 1 || raw.port > 65535)) throw new Error("port must be an integer from 1 to 65535");
   if (raw.poll_ms != null) positiveNumber(raw.poll_ms, "poll_ms");
   if (raw.go2rtc?.transcode != null && !["never", "auto", "always"].includes(raw.go2rtc.transcode)) throw new Error("go2rtc.transcode must be never, auto, or always");
-  if (raw.defaults?.hold_seconds != null) positiveNumber(raw.defaults.hold_seconds, "defaults.hold_seconds");
+  if (raw.defaults?.hold_seconds != null) {
+    positiveNumber(raw.defaults.hold_seconds, "defaults.hold_seconds");
+    if (raw.defaults.hold_seconds > MAX_HOLD_SECONDS) throw new Error(`defaults.hold_seconds must be at most ${MAX_HOLD_SECONDS}`);
+  }
   if (raw.defaults?.motion_events != null && (!Array.isArray(raw.defaults.motion_events) || !raw.defaults.motion_events.every((x) => typeof x === "string"))) throw new Error("defaults.motion_events must be a list of event names");
   for (const key of ["stall_ms", "gap_ms", "exit_after_ms", "recreate_client_after"]) if (raw.stall?.[key] != null) positiveNumber(raw.stall[key], `stall.${key}`);
   if (raw.stall?.backoff_ms != null && (!Array.isArray(raw.stall.backoff_ms) || !raw.stall.backoff_ms.length || raw.stall.backoff_ms.some((x) => typeof x !== "number" || !Number.isFinite(x) || x <= 0))) throw new Error("stall.backoff_ms must be a nonempty list of positive milliseconds");
@@ -109,7 +113,7 @@ function cameraEntry(sn, raw) {
   }
   if (raw.hold_seconds != null) {
     const n = Number(raw.hold_seconds);
-    if (!Number.isFinite(n) || n <= 0) throw new Error(`cameras.${sn}.hold_seconds must be a positive number of seconds`);
+    if (!Number.isFinite(n) || n <= 0 || n > MAX_HOLD_SECONDS) throw new Error(`cameras.${sn}.hold_seconds must be a positive number of seconds, at most ${MAX_HOLD_SECONDS}`);
     out.holdSeconds = n;
   }
   if (raw.codec != null) {

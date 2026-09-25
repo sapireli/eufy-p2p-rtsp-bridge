@@ -12,6 +12,8 @@
 // A hold is always bounded. An unbounded hold on a battery camera is the failure this mode exists to
 // prevent, so `seconds` is required and further motion extends the deadline rather than pinning it open.
 
+import { MAX_HOLD_SECONDS } from "./config.mjs";
+
 const TICK_MS = 1000;
 
 export function createHolds(ctx) {
@@ -56,7 +58,9 @@ export function createHolds(ctx) {
     const cam = cameraOf(sn);
     if (!cam?.enabled) return 0;
     owners(sn); // expire an old hold before deciding whether this one needs to wake the camera
-    const secs = Number(seconds) > 0 ? Number(seconds) : (cam.holdSeconds ?? cfg.defaults.holdSeconds);
+    const secs = Number(seconds ?? cam.holdSeconds ?? cfg.defaults.holdSeconds);
+    if (!Number.isFinite(secs) || secs <= 0 || secs > MAX_HOLD_SECONDS)
+      throw new Error(`hold seconds must be greater than 0 and at most ${MAX_HOLD_SECONDS}`);
     const until = now() + secs * 1000;
     const m = held.get(sn) ?? held.set(sn, new Map()).get(sn);
     const had = m.size > 0;

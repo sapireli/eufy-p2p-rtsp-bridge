@@ -105,6 +105,14 @@ test("a disabled camera cannot be held", () => {
   assert.deepEqual(started, []);
 });
 
+test("hold duration cannot be infinite or outlive the safety limit", () => {
+  const { holds, started } = ctxWith({ BATT: battery });
+  for (const seconds of [Infinity, 3_601, NaN, 0, -1])
+    assert.throws(() => holds.hold("BATT", "client", seconds), /hold seconds/);
+  assert.deepEqual(started, []);
+  assert.ok(Number.isFinite(holds.hold("BATT", "client", 3_600)));
+});
+
 // The SDK bounds a battery camera's continuous stream and warns before auto-stopping it. Extending is
 // only right while something still wants the camera; otherwise the notice is correct and we let it stop.
 test("the battery budget is extended while held, and not otherwise", () => {

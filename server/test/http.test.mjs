@@ -91,6 +91,18 @@ test("auth endpoints drive login", async () => {
   });
 });
 
+test("hold endpoint rejects infinite or excessive lifetimes before waking a camera", async () => {
+  const calls = [];
+  const ctx = ctxWith({ holds: { hold: (sn, owner, seconds) => { calls.push({ sn, owner, seconds }); return Date.now() + seconds * 1000; }, owners: () => ["client"] } });
+  await withServer(ctx, async (base) => {
+    for (const seconds of ["Infinity", "1e309", "3601", "0", "bad"])
+      assert.equal((await fetch(`${base}/hold/A?owner=client&seconds=${seconds}`, { method: "POST" })).status, 400, seconds);
+    assert.equal(calls.length, 0);
+    assert.equal((await fetch(`${base}/hold/A?owner=client&seconds=60`, { method: "POST" })).status, 200);
+    assert.deepEqual(calls, [{ sn: "A", owner: "client", seconds: 60 }]);
+  });
+});
+
 test("a synchronous throw inside the handler answers 500 instead of hanging the socket", async () => {
   const ctx = ctxWith({ listCameras: () => { throw new Error("boom"); } });
   const logs = [];

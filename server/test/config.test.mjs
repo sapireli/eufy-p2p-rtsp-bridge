@@ -102,5 +102,7 @@ test("versioned config rejects unknown fields and unsafe numeric values", () => 
   assert.throws(() => parseConfigText("schema_version: 2\ngo2rtc: { transcode: cpu }\n"), /transcode/);
   assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "schema_version: 2\ncameras: { A: { enabled: nope } }\n" }), /enabled/);
   assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "schema_version: 2\ncameras: { A: null }\n" }), /cameras\.A must be a mapping/);
+  assert.throws(() => parseConfigText("defaults: { hold_seconds: 3601 }\n"), /defaults.hold_seconds must be at most 3600/);
+  assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "cameras: { A: { hold_seconds: 3601 } }\n" }), /cameras.A.hold_seconds.*at most 3600/);
   assert.equal(loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "schema_version: 2\n" }).cfg.port, 3000);
 });
