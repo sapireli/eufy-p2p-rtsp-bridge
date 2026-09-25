@@ -108,7 +108,7 @@ tiles:
     rect: {x: 0, y: 0, w: 32, h: 32}
 ```
 
-Apply the first file normally and target the second by name. The installed `eufy-wall@.service` template runs the named client with its own `/etc/eufy-wall-right.yaml`, `/run/eufy-wall-right/status.json`, apply lock, backup, and rollback record. A named instance requires an explicit `output`; check both connectors and decoder capacity on the target hardware. The default and named instances can run together, but multi-display performance still needs measured qualification.
+Apply the first file normally and target the second by name. The installed `eufy-wall@.service` template runs the named client with its own `/etc/eufy-wall-right.yaml`, `/run/eufy-wall-right/status.json`, apply lock, backup, and rollback record. A named instance requires an explicit `output`; check both connectors and decoder capacity on the target hardware. If you choose `sink: planes`, allocate distinct usable DRM plane IDs to each instance. The default and named instances can run together, but multi-display performance still needs measured qualification.
 
 ```sh
 sudo eufy-wall config apply left.yaml
