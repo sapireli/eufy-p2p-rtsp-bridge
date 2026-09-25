@@ -5,6 +5,7 @@ Eufy cameras → RTSP (server) → grid on a Raspberry Pi's HDMI (client). No Do
 - `server/` — Node 24 bridge on [`@mega-yfue/eufy-sdk`](https://github.com/mega-yfue/eufy-sdk) with go2rtc for RTSP. Runbook: `docs/runbook-server.md`.
 - `client/` — Go `eufy-wall`: layout → one GStreamer pipeline → KMS. Runbook: `docs/runbook-client.md`.
 - Design: `docs/superpowers/specs/2026-09-18-eufy-wall-design.md`.
+- Proposed plug-and-play setup and terminal layout plan: `docs/plug-and-play-setup-plan.md`.
 
 ## Upstream
 - `@mega-yfue/eufy-sdk` is pinned to the fork's `eufy-wall` branch in `server/package-lock.json`. The contract test in `server/test/sdk-contract.test.mjs` checks the installed API and the P2P fixes when that pin moves.
