@@ -180,6 +180,9 @@ func Parse(data []byte) (*Config, error) {
 	if c.Screen.Width < 0 || c.Screen.Height < 0 || (c.Screen.Width == 0) != (c.Screen.Height == 0) {
 		return nil, fmt.Errorf("config: screen.width and screen.height must both be positive or both omitted")
 	}
+	if c.Output != "" && !validOutputName(c.Output) {
+		return nil, fmt.Errorf("config: output must be a DRM connector name using ASCII letters, digits, or hyphens (got %q)", c.Output)
+	}
 	if c.Layout == "1+5" {
 		switch c.PrimaryPosition {
 		case "left", "right":
@@ -310,6 +313,18 @@ func validTileID(s string) bool {
 	}
 	for _, c := range s {
 		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func validOutputName(s string) bool {
+	if len(s) > 64 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
 			return false
 		}
 	}

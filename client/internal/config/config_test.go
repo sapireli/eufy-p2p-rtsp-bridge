@@ -85,6 +85,7 @@ func TestValidation(t *testing.T) {
 		"no base no url":  "layout: 1\ntiles: [{camera: A}]\n",
 		"bad aspect":      "rtsp_base: rtsp://x\nlayout: 1\ntiles: [{camera: A, aspect: square}]\n",
 		"bad sink":        "rtsp_base: rtsp://x\nlayout: 1\nsink: magic\ntiles: [{camera: A}]\n",
+		"unsafe output":   "rtsp_base: rtsp://x\nlayout: 1\noutput: ../HDMI-A-1\ntiles: [{camera: A}]\n",
 		"too many tiles":  "rtsp_base: rtsp://x\nlayout: 2x2\ntiles: [{camera: A},{camera: B},{camera: C},{camera: D},{camera: E}]\n",
 		"restart min 0":   "rtsp_base: rtsp://x\nlayout: 1\nrestart: {min_seconds: 0}\ntiles: [{camera: A}]\n",
 		"restart min<0":   "rtsp_base: rtsp://x\nlayout: 1\nrestart: {min_seconds: -5}\ntiles: [{camera: A}]\n",
