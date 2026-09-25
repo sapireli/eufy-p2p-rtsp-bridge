@@ -51,6 +51,54 @@ async function processStartToken(pid) {
   } catch { return null; }
 }
 
+async function ownerIsRunning(owner, ownerStart) {
+  if (!Number.isInteger(owner) || owner <= 0) return false;
+  try { process.kill(owner, 0); }
+  catch (error) {
+    if (error.code === "ESRCH") return false;
+    if (error.code === "EPERM") return true;
+    throw error;
+  }
+  const currentStart = await processStartToken(owner);
+  return !ownerStart || !currentStart || ownerStart === currentStart;
+}
+
+async function createLock(path) {
+  const dir = dirname(path);
+  const staged = join(dir, `.${basename(path)}.${randomUUID()}.tmp`);
+  const handle = await fs.open(staged, "wx", 0o600);
+  try {
+    await handle.writeFile(JSON.stringify({ owner: process.pid, ownerStart: await processStartToken(process.pid) }) + "\n");
+    await handle.sync();
+  } catch (error) {
+    await handle.close();
+    await fs.unlink(staged).catch(() => {});
+    throw error;
+  }
+  await handle.close();
+  let linked = false;
+  try { await fs.link(staged, path); linked = true; await syncDir(dir); }
+  catch (error) { if (linked) await fs.unlink(path).catch(() => {}); throw error; }
+  finally { await fs.unlink(staged).catch(() => {}); }
+}
+
+async function recoverStaleLock(path) {
+  let raw;
+  try { raw = await fs.readFile(path, "utf8"); }
+  catch (error) { if (error.code === "ENOENT") return { recovered: false }; throw error; }
+  let owner;
+  try {
+    owner = raw.trim().startsWith("{") ? JSON.parse(raw) : { owner: Number(raw.trim()) };
+  } catch { throw new Error(`invalid config apply lock ${path}; inspect it before removal`); }
+  if (!Number.isInteger(owner.owner) || owner.owner <= 0 || (owner.ownerStart != null && typeof owner.ownerStart !== "string")) {
+    throw new Error(`invalid config apply lock ${path}; inspect it before removal`);
+  }
+  if (await ownerIsRunning(owner.owner, owner.ownerStart)) return { recovered: false, inProgress: true };
+  await fs.unlink(path);
+  await syncDir(dirname(path));
+  return { recovered: true, staleLock: true };
+}
+
 /** Apply a validated candidate, restart the service, and restore the previous bytes on failure. */
 async function applyConfigLocked({ target, yamlText, env = process.env, restart, health, now = () => Date.now() }) {
   if (!target || typeof yamlText !== "string") throw new Error("target path and YAML text are required");
@@ -94,19 +142,17 @@ async function applyConfigLocked({ target, yamlText, env = process.env, restart,
 export async function applyConfig(options) {
   if (!options?.target) throw new Error("target path is required");
   const lockPath = `${options.target}.apply-lock`;
-  let lock;
+  const recovery = await recoverInterruptedApply(options.target);
+  if (recovery.inProgress) throw new Error(`another config apply holds ${lockPath}; check the running process before removing a stale lock`);
   try {
-    lock = await fs.open(lockPath, "wx", 0o600);
+    await createLock(lockPath);
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
     throw new Error(`another config apply holds ${lockPath}; check the running process before removing a stale lock`);
   }
   try {
-    await lock.writeFile(`${process.pid}\n`);
-    await lock.sync();
     return await applyConfigLocked(options);
   } finally {
-    await lock.close();
     await fs.unlink(lockPath).catch(() => {});
   }
 }
@@ -116,16 +162,9 @@ export async function recoverInterruptedApply(target) {
   const pendingPath = `${target}.apply-pending.json`;
   let pending;
   try { pending = JSON.parse(await fs.readFile(pendingPath, "utf8")); }
-  catch (error) { if (error.code === "ENOENT") return { recovered: false }; throw error; }
+  catch (error) { if (error.code === "ENOENT") return recoverStaleLock(`${target}.apply-lock`); throw error; }
   if (pending.target !== target || !pending.failed) throw new Error("invalid pending apply journal");
-  if (Number.isInteger(pending.owner) && pending.owner > 0) {
-    try {
-      process.kill(pending.owner, 0);
-      const currentStart = await processStartToken(pending.owner);
-      if (!pending.ownerStart || !currentStart || pending.ownerStart === currentStart) return { recovered: false, inProgress: true };
-    }
-    catch (error) { if (error.code !== "ESRCH") throw error; }
-  }
+  if (await ownerIsRunning(pending.owner, pending.ownerStart)) return { recovered: false, inProgress: true };
   const candidate = await readOptional(target);
   if (candidate) await atomicWrite(pending.failed, candidate, { mode: pending.mode, uid: pending.uid, gid: pending.gid });
   const backup = pending.backup ? await fs.readFile(pending.backup) : null;

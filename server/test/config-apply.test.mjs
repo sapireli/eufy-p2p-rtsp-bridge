@@ -88,6 +88,49 @@ test("recover detects PID reuse with a different Linux process start token", asy
   assert.equal(await fs.readFile(target, "utf8"), GOOD);
 });
 
+test("recover clears a dead pre-journal lock without touching the active config", async (t) => {
+  const dir = await fs.mkdtemp(join(os.tmpdir(), "ewb-apply-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const target = join(dir, "bridge.yaml");
+  await fs.writeFile(target, GOOD);
+  await fs.writeFile(`${target}.apply-lock`, "99999999\n"); // legacy lock format
+  assert.deepEqual(await recoverInterruptedApply(target), { recovered: true, staleLock: true });
+  assert.equal(await fs.readFile(target, "utf8"), GOOD);
+  await assert.rejects(fs.stat(`${target}.apply-lock`), { code: "ENOENT" });
+});
+
+test("apply repairs a dead pre-journal lock before changing config", async (t) => {
+  const dir = await fs.mkdtemp(join(os.tmpdir(), "ewb-apply-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const target = join(dir, "bridge.yaml");
+  await fs.writeFile(target, GOOD);
+  await fs.writeFile(`${target}.apply-lock`, JSON.stringify({ owner: 99999999, ownerStart: "old" }));
+  const result = await applyConfig({ target, yamlText: NEXT, env: ENV, restart: async () => {}, health: async () => {} });
+  assert.equal(result.changed, true);
+  assert.equal(await fs.readFile(target, "utf8"), NEXT);
+  await assert.rejects(fs.stat(`${target}.apply-lock`), { code: "ENOENT" });
+});
+
+test("recover preserves a live pre-journal lock and refuses malformed ownership", async (t) => {
+  const dir = await fs.mkdtemp(join(os.tmpdir(), "ewb-apply-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const target = join(dir, "bridge.yaml");
+  await fs.writeFile(`${target}.apply-lock`, JSON.stringify({ owner: process.pid }));
+  assert.deepEqual(await recoverInterruptedApply(target), { recovered: false, inProgress: true });
+  await assert.rejects(applyConfig({ target, yamlText: GOOD, env: ENV, restart: async () => {}, health: async () => {} }), /another config apply/);
+  await fs.writeFile(`${target}.apply-lock`, "not-a-pid");
+  await assert.rejects(recoverInterruptedApply(target), /invalid config apply lock/);
+});
+
+test("recover detects reused PID in a pre-journal lock on Linux", async (t) => {
+  try { await fs.readFile("/proc/self/stat"); } catch { t.skip("Linux procfs required"); return; }
+  const dir = await fs.mkdtemp(join(os.tmpdir(), "ewb-apply-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const target = join(dir, "bridge.yaml");
+  await fs.writeFile(`${target}.apply-lock`, JSON.stringify({ owner: process.pid, ownerStart: "not-this-start" }));
+  assert.deepEqual(await recoverInterruptedApply(target), { recovered: true, staleLock: true });
+});
+
 test("concurrent apply refuses to overwrite the active transaction", async (t) => {
   const dir = await fs.mkdtemp(join(os.tmpdir(), "ewb-apply-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
