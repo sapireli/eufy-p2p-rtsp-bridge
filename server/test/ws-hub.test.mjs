@@ -10,7 +10,7 @@ import { createHolds } from "../src/holds.mjs";
  * cover the properties a tile depends on: it is told the current state on connect (not just future
  * events), every event reaches every client, and a client going away never affects the others.
  */
-async function withHub(t, cameras = []) {
+async function withHub(t, cameras = [], options = {}) {
   const ctx = {
     cfg: { defaults: { holdSeconds: 60 } },
     state: { streaming: new Set(), timers: {} },
@@ -20,7 +20,7 @@ async function withHub(t, cameras = []) {
     stopCamera: () => {},
   };
   ctx.holds = createHolds(ctx);
-  const hub = createWsHub(ctx);
+  const hub = createWsHub(ctx, options);
   ctx.broadcastEvent = (e) => hub.broadcast(e);
   const server = http.createServer((_, res) => res.end("ok"));
   hub.attach(server);
@@ -121,4 +121,53 @@ test("hello uses live codec and falls back to configured codec", async (t) => {
   ctx.streamStatus = (sn) => sn === "GAR" ? { codec: "h265" } : {};
   const [hello] = await collect(url, 1);
   assert.deepEqual(hello.cameras.map((c) => c.codec), ["h265", "h265"]);
+});
+
+test("quiet connections receive application heartbeats and remain connected", async (t) => {
+  const { hub, url } = await withHub(t, [], { heartbeatMs: 20 });
+  const ws = new WebSocket(url);
+  const messages = await new Promise((resolve, reject) => {
+    const got = [];
+    const timer = setTimeout(() => reject(new Error("heartbeat timeout")), 500);
+    ws.on("message", (raw) => {
+      got.push(JSON.parse(raw.toString()));
+      if (got.length === 3) { clearTimeout(timer); resolve(got); }
+    });
+    ws.on("error", reject);
+  });
+  assert.deepEqual(messages.map((m) => m.type), ["hello", "heartbeat", "heartbeat"]);
+  assert.ok(messages[2].at >= messages[1].at);
+  assert.equal(ws.readyState, WebSocket.OPEN);
+  assert.equal(hub.clientCount(), 1, "the socket remains live while the client answers control pings");
+  ws.close();
+});
+
+test("a peer that stops answering pings is evicted within two heartbeat ticks", async (t) => {
+  const { hub, url } = await withHub(t, [], { heartbeatMs: 20 });
+  const ws = new WebSocket(url, { autoPong: false });
+  await new Promise((resolve) => ws.on("open", resolve));
+  await new Promise((resolve) => ws.on("close", resolve));
+  assert.equal(hub.clientCount(), 0);
+});
+
+test("events arriving while hello is built are replayed after hello", async (t) => {
+  const { ctx, url } = await withHub(t, [battery]);
+  let release;
+  ctx.sdk = { snapshotStored: () => new Promise((resolve) => { release = resolve; }) };
+  const received = collect(url, 2, 1000);
+  for (let i = 0; i < 50 && !release; i++) await new Promise((r) => setTimeout(r, 2));
+  assert.ok(release, "hello snapshot is in progress");
+  ctx.broadcastEvent({ type: "motion", sn: "BATT", event: "motion" });
+  release(undefined);
+  const messages = await received;
+  assert.deepEqual(messages.map((m) => m.type), ["hello", "motion"]);
+});
+
+test("a failed hello snapshot closes only that connection", async (t) => {
+  const { ctx, hub, url } = await withHub(t, []);
+  ctx.listCameras = () => { throw new Error("inventory unavailable"); };
+  const ws = new WebSocket(url);
+  const code = await new Promise((resolve) => ws.on("close", resolve));
+  assert.equal(code, 1011);
+  assert.equal(hub.clientCount(), 0);
 });

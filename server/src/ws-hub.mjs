@@ -6,6 +6,7 @@
 //   motion       {sn, event, at}                a camera reported something
 //   hold         {sn, until, owners}            a hold was taken, extended or released
 //   streamState  {sn, state: idle|live, codec?} whether there is video to show right now
+//   heartbeat    {at}                           application-level liveness for quiet walls
 //
 // Read-only deliberately. A client that wants to *request* a stream does it over HTTP (POST /hold/<sn>),
 // which keeps this a one-way fan-out with no command parsing, no auth surface and no per-client state to
@@ -17,10 +18,12 @@
 import { WebSocketServer } from "ws";
 
 const HEARTBEAT_MS = 30_000;
+const MAX_PENDING_EVENTS = 256;
 
-export function createWsHub(ctx) {
+export function createWsHub(ctx, { heartbeatMs = HEARTBEAT_MS } = {}) {
   /** @type {Set<import("ws").WebSocket>} */
   const clients = new Set();
+  const pending = new Map(); // events received while a client's async hello snapshot is being built
   let wss;
   let heartbeat;
 
@@ -58,7 +61,13 @@ export function createWsHub(ctx) {
   /** Fan one event out to every connected client. Never throws: a broken client must not break a stream. */
   function broadcast(event) {
     const msg = { at: Date.now(), ...event };
-    for (const ws of clients) send(ws, msg);
+    for (const ws of clients) {
+      const queue = pending.get(ws);
+      if (queue) {
+        if (queue.length >= MAX_PENDING_EVENTS) { pending.delete(ws); clients.delete(ws); ws.close(1013, "hello backlog exceeded"); }
+        else queue.push(msg);
+      } else send(ws, msg);
+    }
     return msg;
   }
 
@@ -66,13 +75,19 @@ export function createWsHub(ctx) {
     wss = new WebSocketServer({ server, path: "/ws" });
     wss.on("connection", (ws) => {
       clients.add(ws);
+      pending.set(ws, []);
       ws.isAlive = true;
       ws.on("pong", () => {
         ws.isAlive = true;
       });
-      ws.on("close", () => clients.delete(ws));
-      ws.on("error", () => clients.delete(ws));
-      snapshot().then((hello) => send(ws, hello));
+      ws.on("close", () => { clients.delete(ws); pending.delete(ws); });
+      ws.on("error", () => { clients.delete(ws); pending.delete(ws); });
+      snapshot().then((hello) => {
+        if (!clients.has(ws)) return;
+        send(ws, hello);
+        for (const event of pending.get(ws) ?? []) send(ws, event);
+        pending.delete(ws);
+      }).catch(() => { pending.delete(ws); clients.delete(ws); ws.close(1011, "hello failed"); });
     });
     // A wall display that loses power or its network leaves a socket that never closes; without this the
     // server accumulates them and keeps serialising events to nobody.
@@ -89,12 +104,14 @@ export function createWsHub(ctx) {
         }
         ws.isAlive = false;
         try {
+          // Control pings detect dead peers; a JSON heartbeat also completes the Go client's Read call.
+          send(ws, { type: "heartbeat", at: Date.now() });
           ws.ping();
         } catch {
           /* dropped on the next sweep */
         }
       }
-    }, HEARTBEAT_MS);
+    }, heartbeatMs);
     heartbeat.unref?.();
     return wss;
   }
@@ -110,6 +127,7 @@ export function createWsHub(ctx) {
       }
     }
     clients.clear();
+    pending.clear();
     wss?.close();
     wss = undefined;
   }
