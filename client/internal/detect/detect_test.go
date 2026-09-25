@@ -71,7 +71,7 @@ func TestResolve(t *testing.T) {
 
 func TestCheckNativeElements(t *testing.T) {
 	required := map[string]bool{
-		"compositor": true, "appsink": true, "appsrc": true,
+		"compositor": true, "appsink": true, "appsrc": true, "watchdog": true,
 		"videoconvert": true, "videoscale": true, "videorate": true,
 		"autovideosink": true,
 	}
@@ -81,7 +81,7 @@ func TestCheckNativeElements(t *testing.T) {
 			t.Fatalf("complete %s host: %v", sink, err)
 		}
 	}
-	for _, missing := range []string{"appsink", "appsrc", "videoconvert", "videoscale", "videorate"} {
+	for _, missing := range []string{"watchdog", "appsink", "appsrc", "videoconvert", "videoscale", "videorate"} {
 		required[missing] = false
 		if err := CheckNativeElements("compositor", has); err == nil {
 			t.Fatalf("missing %s was accepted", missing)
@@ -92,7 +92,10 @@ func TestCheckNativeElements(t *testing.T) {
 	if err := CheckNativeElements("window", has); err == nil {
 		t.Fatal("window sink without autovideosink was accepted")
 	}
-	if err := CheckNativeElements("planes", func(string) bool { return false }); err != nil {
+	if err := CheckNativeElements("planes", func(string) bool { return false }); err == nil {
+		t.Fatal("planes must require the decoded-buffer watchdog")
+	}
+	if err := CheckNativeElements("planes", func(name string) bool { return name == "watchdog" }); err != nil {
 		t.Fatalf("planes must not require compositor plugins: %v", err)
 	}
 }

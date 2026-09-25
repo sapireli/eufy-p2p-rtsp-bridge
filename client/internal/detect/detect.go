@@ -119,9 +119,12 @@ func HasElement(name string) bool {
 	return exec.Command("gst-inspect-1.0", "--exists", name).Run() == nil
 }
 
-// CheckNativeElements verifies the plugins used by the in-process compositor.
-// A planes wall and offline layout commands do not need these elements.
+// CheckNativeElements verifies plugins needed by the selected live renderer.
+// Offline layout commands do not need these elements.
 func CheckNativeElements(sink string, has func(string) bool) error {
+	if (sink == "planes" || sink == "compositor" || sink == "window") && !has("watchdog") {
+		return fmt.Errorf("GStreamer watchdog is missing (install gstreamer1.0-plugins-bad or Homebrew GStreamer)")
+	}
 	if sink != "compositor" && sink != "window" {
 		return nil
 	}
