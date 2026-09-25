@@ -82,6 +82,14 @@ test("a name that slugs to nothing or collides falls back to the serial", () => 
   assert.equal(keys.get("T8030C"), "T8030C");
 });
 
+test("a camera name cannot claim another camera's serial fallback", () => {
+  const cameras = [{ sn: "alpha", name: "Beta" }, { sn: "beta", name: "Beta" }];
+  const keys = streamKeys(cameras);
+  assert.deepEqual([...keys.values()], ["alpha", "beta"]);
+  const yaml = "streams:\n  alpha: source-alpha\n  beta: source-beta\n";
+  assert.deepEqual(parse(withNamedStreams(yaml, cameras)).streams, { alpha: "source-alpha", beta: "source-beta" });
+});
+
 test("the source is carried across unchanged, including its transcode suffix", () => {
   const yaml = "streams:\n  T8425B: ffmpeg:http://127.0.0.1:3000/stream/T8425B#video=h264#hardware\n";
   const out = withNamedStreams(yaml, [{ sn: "T8425B", name: "Garage Cam" }]);

@@ -59,9 +59,10 @@ export function streamSlug(name) {
 export function streamKeys(cameras) {
   const keys = new Map();
   const taken = new Set();
+  const serials = new Set(cameras.map((cam) => cam.sn));
   for (const cam of cameras) {
     const slug = streamSlug(cam.name);
-    const key = slug && !taken.has(slug) ? slug : cam.sn;
+    const key = slug && !taken.has(slug) && (!serials.has(slug) || slug === cam.sn) ? slug : cam.sn;
     taken.add(key);
     keys.set(cam.sn, key);
   }
