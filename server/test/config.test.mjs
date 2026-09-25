@@ -70,6 +70,13 @@ test("missing config file → env-only config", () => {
   assert.equal(cfg.lan.force, false);
 });
 
+test("go2rtc dials the configured bind address when the bridge listens only on LAN", () => {
+  const env = { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" };
+  assert.equal(loadConfig({ env, rawText: "schema_version: 2\nhost: 192.0.2.10\n" }).cfg.selfHost, "192.0.2.10");
+  assert.equal(loadConfig({ env, rawText: "schema_version: 2\nhost: 0.0.0.0\n" }).cfg.selfHost, "127.0.0.1");
+  assert.equal(loadConfig({ env: { ...env, BRIDGE_SELF_HOST: "192.0.2.20" }, rawText: "schema_version: 2\nhost: 192.0.2.10\n" }).cfg.selfHost, "192.0.2.20");
+});
+
 test("dual view is only written when the operator asks for it", () => {
   const off = loadConfig({ env: {}, configPath: tmpYaml(`eufy: { email: a@b.c, password: p, country: US }\n`) }).cfg;
   assert.equal(off.defaults.dualView, null, "nothing set → the bridge writes nothing to the camera");

@@ -135,13 +135,14 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
   const raw = rawText !== undefined ? parseConfigText(rawText) : (existsSync(configPath) ? parseConfigText(readFileSync(configPath, "utf8")) : {});
   const dataDir = resolve(env.BRIDGE_DATA_DIR || raw.data_dir || "./data");
   const lanRaw = raw.lan ?? {};
+  const host = env.BRIDGE_HOST || raw.host || "0.0.0.0";
   const cfg = {
     email: env.EUFY_EMAIL || raw.eufy?.email,
     password: env.EUFY_PASSWORD || raw.eufy?.password,
     country: env.EUFY_COUNTRY || raw.eufy?.country || "US",
-    host: env.BRIDGE_HOST || raw.host || "0.0.0.0",
+    host,
     port: Number(env.BRIDGE_PORT || raw.port || 3000),
-    selfHost: env.BRIDGE_SELF_HOST || raw.self_host || "127.0.0.1", // what go2rtc dials to reach us
+    selfHost: env.BRIDGE_SELF_HOST || raw.self_host || (host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host), // what go2rtc dials to reach us
     dataDir,
     session: resolve(dataDir, ".eufy-session.json"),
     go2rtcConfig: resolve(dataDir, "go2rtc.yaml"),
