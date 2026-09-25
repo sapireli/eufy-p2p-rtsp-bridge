@@ -34,8 +34,8 @@ export function hardenGo2rtcYaml(text) {
 }
 
 /**
- * Turn a camera's display name into a stream key: lowercase, words joined by `_`, nothing that would
- * need URL-escaping in an RTSP path.
+ * Turn a camera's display name into a stream key: lowercase, words joined by `_`.
+ * Unicode letters remain intact, so callers must URL-escape the key in an RTSP path.
  */
 export function streamSlug(name) {
   return String(name ?? "")

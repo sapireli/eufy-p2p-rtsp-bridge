@@ -70,6 +70,8 @@ eufy-bridge inventory export cameras.json --host 192.168.1.10
 
 `config validate` is offline: it checks YAML structure and the bridge's config rules, using available environment credentials. `config apply` reads a file or stdin once, validates it, keeps a dated backup, atomically replaces the active file, restarts the service, and waits up to 30 seconds for `/healthz` to report authenticated health. If that check fails, it restores the prior file, restarts the service again, retains the failed candidate, records the reason in `<config>.apply-status.json`, and exits nonzero. Reapplying identical bytes skips a restart. `status` shows the last rollback; `doctor` checks Node, config, go2rtc, and live bridge health. `--json` is supported on the noninteractive commands.
 
+`config validate`, `config apply`, and `config migrate` accept at most 1 MiB of YAML from either a file or stdin.
+
 To upgrade an unversioned or `schema_version: 1` file:
 
 ```sh
