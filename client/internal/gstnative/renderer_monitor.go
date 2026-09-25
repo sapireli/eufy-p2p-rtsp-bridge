@@ -1,7 +1,6 @@
 package gstnative
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -60,9 +59,9 @@ func (r *Renderer) monitor() {
 					r.reportError(err)
 				}
 				last := r.output.last.Load()
-				if time.Since(r.started) > 20*time.Second &&
-					(last == 0 || time.Since(time.Unix(0, last)) > 20*time.Second) {
-					r.reportError(errors.New("native compositor output has produced no frames for 20 seconds"))
+				if time.Since(r.started) > r.options.outputStallAfter &&
+					(last == 0 || time.Since(time.Unix(0, last)) > r.options.outputStallAfter) {
+					r.reportError(fmt.Errorf("native compositor output has produced no frames for %s", r.options.outputStallAfter))
 				}
 			}
 			r.mu.Unlock()

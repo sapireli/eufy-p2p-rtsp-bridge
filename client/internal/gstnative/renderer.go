@@ -21,17 +21,18 @@ import (
 // Options identify the active config and the local status file. The private fields let package
 // tests exercise live switching with synthetic sources and a headless sink.
 type Options struct {
-	StatusPath   string
-	ConfigSHA256 string
-	Initial      []layout.Placed
-	sink         string
-	source       func(layout.Placed) (string, error)
-	stallAfter   time.Duration
-	retryAfter   time.Duration
-	startupAfter time.Duration
-	monitorEvery time.Duration
-	stillRefresh time.Duration
-	api          *gstAPI
+	StatusPath       string
+	ConfigSHA256     string
+	Initial          []layout.Placed
+	sink             string
+	source           func(layout.Placed) (string, error)
+	stallAfter       time.Duration
+	retryAfter       time.Duration
+	startupAfter     time.Duration
+	monitorEvery     time.Duration
+	outputStallAfter time.Duration
+	stillRefresh     time.Duration
+	api              *gstAPI
 }
 
 type frameCounter struct {
@@ -132,6 +133,9 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 	}
 	if opts.monitorEvery <= 0 {
 		opts.monitorEvery = 2 * time.Second
+	}
+	if opts.outputStallAfter <= 0 {
+		opts.outputStallAfter = 20 * time.Second
 	}
 	if opts.stillRefresh <= 0 {
 		opts.stillRefresh = 30 * time.Second
