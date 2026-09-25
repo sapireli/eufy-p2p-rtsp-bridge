@@ -149,6 +149,11 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 			return true, errors.New("usage: eufy-wall doctor [--json]")
 		}
 		return true, clientDoctor(len(args) == 2, out)
+	case "health":
+		if len(args) != 1 {
+			return true, errors.New("usage: eufy-wall health")
+		}
+		return true, clientHealth(out)
 	case "status":
 		if len(args) > 2 || len(args) == 2 && args[1] != "--json" {
 			return true, errors.New("usage: eufy-wall status [--json]")
@@ -169,7 +174,7 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 	}
 }
 
-const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|->\n  config apply <file|->\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  status [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
+const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|->\n  config apply <file|->\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  health\n  status [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
 
 func readClientInput(path string, in io.Reader) ([]byte, error) {
 	var source io.Reader = in

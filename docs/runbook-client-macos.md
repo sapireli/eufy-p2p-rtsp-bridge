@@ -50,9 +50,9 @@ The wizard writes `~/Library/Application Support/eufy-wall/config.yaml`, starts 
 
 ## Upgrade and rollback
 
-Download and verify the next tag, then run that archive's installer with the same `--artifact`, `--checksums`, and trusted digest options. It snapshots the previous plist and active release, switches the `current` link, restarts a loaded agent, and waits for a stable launchd PID. If activation fails, it restores the old binary and exact plist. Run `bash eufy-wall-client/deploy/install-client-macos.sh --rollback` to select the previous release later. The installer preserves an unloaded agent's state. Configuration apply has its own YAML backup and health rollback in the client binary.
+Download and verify the next tag, then run that archive's installer with the same `--artifact`, `--checksums`, and trusted digest options. It snapshots the previous plist and active release, switches the `current` link, restarts a loaded agent, waits for a stable launchd PID, then runs `eufy-wall health` to verify display and live-tile frame progress. If activation or frame progress fails, it restores the old binary and exact plist. Run `bash eufy-wall-client/deploy/install-client-macos.sh --rollback` to select the previous release later. The installer preserves an unloaded agent's state. Configuration apply has its own YAML backup and health rollback in the client binary.
 
-Inspect `~/Library/Application Support/eufy-wall/wall.err.log`, `eufy-wall status --json`, and `launchctl print "gui/$(id -u)/com.eufy.wall"` if the window does not appear. A stable launchd PID alone does not prove fresh decoded or displayed frames. Use the client setup probe and observe the actual window after every Mac upgrade; record Intel and Apple Silicon results separately.
+Inspect `~/Library/Application Support/eufy-wall/wall.err.log`, `eufy-wall status --json`, `eufy-wall health`, and `launchctl print "gui/$(id -u)/com.eufy.wall"` if the window does not appear. Use the client setup probe and observe the actual window after every Mac upgrade; record Intel and Apple Silicon results separately.
 
 ## Qualification evidence
 

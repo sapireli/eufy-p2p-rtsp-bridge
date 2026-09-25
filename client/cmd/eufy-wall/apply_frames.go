@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +13,28 @@ import (
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/detect"
 )
+
+func clientHealth(out io.Writer) error {
+	data, err := readClientInput(clientConfigPath, nil)
+	if err != nil {
+		return err
+	}
+	var service interface {
+		Healthy() error
+		FramesHealthy([]byte) error
+	} = systemdWallService{}
+	if runtime.GOOS == "darwin" {
+		service = launchdWallService{}
+	}
+	if err := service.Healthy(); err != nil {
+		return err
+	}
+	if err := service.FramesHealthy(data); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, "health check passed")
+	return err
+}
 
 func (systemdWallService) FramesHealthy(data []byte) error {
 	b, err := exec.Command("systemctl", "show", "--property=MainPID", "--value", "eufy-wall").Output()

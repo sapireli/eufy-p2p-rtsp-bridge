@@ -69,7 +69,7 @@ func TestEmbeddedExampleAndCommandErrors(t *testing.T) {
 	if strings.Contains(strings.ToLower(out.String()), "password:") {
 		t.Fatal("example embeds password")
 	}
-	for _, args := range [][]string{{"config"}, {"config", "unknown"}, {"layout"}, {"doctor", "--bad"}, {"unknown"}} {
+	for _, args := range [][]string{{"config"}, {"config", "unknown"}, {"layout"}, {"doctor", "--bad"}, {"health", "--bad"}, {"unknown"}} {
 		if handled, err := runCommand(args, strings.NewReader(""), &out); !handled || err == nil {
 			t.Fatalf("command %v: handled=%v err=%v", args, handled, err)
 		}

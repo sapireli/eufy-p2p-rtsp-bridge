@@ -41,7 +41,7 @@ make_archive() {
   printf '%s\n' "$arch" > "$scratch/eufy-wall-client/ARCH"
   printf 'darwin\n' > "$scratch/eufy-wall-client/OS"
   printf 'schema_version: 2\n' > "$scratch/eufy-wall-client/config.example.yaml"
-  printf '#!/bin/sh\necho %s\n' "$version" > "$scratch/eufy-wall-client/eufy-wall"
+  printf '#!/bin/sh\nif [ "${1:-}" = health ]; then\n  echo %s >> "$LAUNCHCTL_TEST_DIR/health"\n  if [ -f "$LAUNCHCTL_TEST_DIR/fail-health-next" ]; then rm "$LAUNCHCTL_TEST_DIR/fail-health-next"; exit 1; fi\nfi\n' "$version" > "$scratch/eufy-wall-client/eufy-wall"
   chmod 755 "$scratch/eufy-wall-client/eufy-wall"
   cp "$repo/deploy/install-client-macos.sh" "$scratch/eufy-wall-client/deploy/"
   local archive="$scratch/eufy-wall-$version-darwin-$arch.tar.gz"
@@ -105,6 +105,7 @@ launchctl bootstrap "gui/$(id -u)" "$plist"
 install_release "$archive_b"
 [[ $(cat "$base/current/VERSION") == v1.2.4 && $(cat "$base/previous/VERSION") == v1.2.3 ]]
 [[ -f $LAUNCHCTL_TEST_DIR/loaded ]]
+grep -q '^v1.2.4$' "$LAUNCHCTL_TEST_DIR/health"
 [[ $(shasum -a 256 "$base/previous-plist") == "$before" ]]
 b_plist_hash=$(shasum -a 256 "$plist")
 
@@ -125,4 +126,12 @@ reject install_release "$archive_c"
 bash "$repo/deploy/install-client-macos.sh" --rollback
 [[ $(cat "$base/current/VERSION") == v1.2.3 && -f $LAUNCHCTL_TEST_DIR/loaded ]]
 [[ $(shasum -a 256 "$plist") == "$before" ]]
+
+# A running process with stalled frames must fail the upgrade and restore the prior binary.
+archive_d=$(make_archive v1.2.7)
+touch "$LAUNCHCTL_TEST_DIR/fail-health-next"
+reject install_release "$archive_d"
+[[ $(cat "$base/current/VERSION") == v1.2.3 && -f $LAUNCHCTL_TEST_DIR/loaded ]]
+grep -q '^v1.2.7$' "$LAUNCHCTL_TEST_DIR/health"
+[[ $(tail -n 1 "$LAUNCHCTL_TEST_DIR/health") == v1.2.3 ]]
 echo 'macOS installer tests passed'

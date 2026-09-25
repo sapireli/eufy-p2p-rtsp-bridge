@@ -94,7 +94,8 @@ wait_running() {
 restart_loaded() {
   if loaded; then launchctl bootout "$label" || return 1; fi
   launchctl bootstrap "$domain" "$plist" || return 1
-  wait_running
+  wait_running || return 1
+  "$current/eufy-wall" health >/dev/null
 }
 restore_previous() {
   local target=$1 snapshot=$2 was_loaded=$3
@@ -105,6 +106,7 @@ restore_previous() {
   if [[ $was_loaded == 1 ]]; then
     launchctl bootstrap "$domain" "$plist" || die 'prior launchd job could not be restored'
     wait_running || die 'prior launchd job did not remain running'
+    "$current/eufy-wall" health >/dev/null || die 'prior wall did not regain frame progress'
   else
     launchctl disable "$label" || die 'could not leave the restored launchd job disabled'
   fi
