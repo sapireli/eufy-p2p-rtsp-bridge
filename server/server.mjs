@@ -24,7 +24,7 @@ import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
 import { createWatchdog } from "./src/vendor/ha-bridge/watchdog.mjs";
 
 /** Wire one bridge instance. Injecting the SDK and go2rtc runner lets startup be tested without cloud or media. */
-export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2rtcFactory = createGo2rtc, lanPreflight = reportLanPreflight, authRetryOptions } = {}) {
+export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2rtcFactory = createGo2rtc, lanPreflight = reportLanPreflight, authRetryOptions, discoveryIntervalMs = 30_000 } = {}) {
   const { cfg, DEBUG } = config ?? loadConfig();
   fs.mkdirSync(cfg.dataDir, { recursive: true });
 
@@ -80,6 +80,37 @@ export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2r
   installRecoveryRepin(ctx); // pins re-applied after watchdog / kicked-session re-logins
   installAuthRetry(ctx, authRetryOptions); // cloud errors at boot or after expiry must not leave auth stuck
 
+  let rediscovering;
+  let announcePending = false;
+  ctx.rediscoverCameras = () => {
+    if (stopping || !state.flags.ready || state.flags.sessionLost || state.flags.recovering || (!ctx.missingCameraSerials().length && !announcePending)) return Promise.resolve([]);
+    if (rediscovering) return rediscovering;
+    rediscovering = (async () => {
+      const added = await ctx.retryMissingCameras((cam, key, signal) => ctx.addGo2rtcCamera(cam, key, signal));
+      if (added.length) announcePending = true;
+      for (const cam of added) {
+        if (stopping) break;
+        if (cam.enabled) {
+          await ctx.applyPins(cam.sn).catch((error) => console.error(`[bridge] ${cam.sn}: rediscovery pin failed: ${error?.message ?? error}`));
+          if (cam.mode === "always") void ctx.ensureWarm(cam.sn);
+        }
+      }
+      if (announcePending && !stopping) {
+        try {
+          ctx.broadcastEvent(await ctx.ws.snapshot()); // existing walls accept a fresh hello inventory
+          announcePending = false;
+        } catch (error) { console.error(`[bridge] camera inventory broadcast failed: ${error?.message ?? error}; will retry`); }
+      }
+      if (added.length) console.log(`[bridge] rediscovered camera(s): ${added.map((c) => c.sn).join(", ")}`);
+      if (!ctx.missingCameraSerials().length && !announcePending && state.timers.discovery) {
+        clearInterval(state.timers.discovery);
+        state.timers.discovery = undefined;
+      }
+      return added;
+    })();
+    return rediscovering.finally(() => { rediscovering = undefined; });
+  };
+
   /** Runs once after the first successful login (re-auth calls it again and it returns immediately). */
   let deviceStateSubscribed = false;
   ctx.completeBoot = async function completeBoot() {
@@ -100,6 +131,10 @@ export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2r
       if (stopping) return;
       ctx.startGo2rtc();
       flags.ready = true;
+      if (ctx.missingCameraSerials().length) {
+        timers.discovery ??= setInterval(() => void ctx.rediscoverCameras().catch((error) => console.error(`[bridge] rediscovery tick failed: ${error?.message ?? error}`)), discoveryIntervalMs);
+        timers.discovery.unref?.();
+      }
       flags.lastActivity = Date.now();
       for (const c of enabled) if ((c.mode ?? "always") === "always") void ctx.ensureWarm(c.sn);
       ctx.holds.start();

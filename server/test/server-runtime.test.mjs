@@ -5,10 +5,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LoginStatus } from "@mega-yfue/eufy-sdk";
+import WebSocket from "ws";
 import { createBridgeRuntime } from "../server.mjs";
 import { loadConfig } from "../src/config.mjs";
 
-async function fixture(t, { login, devices = [], authRetryOptions } = {}) {
+async function fixture(t, { login, devices = [], authRetryOptions, discoveryIntervalMs } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "ewb-runtime-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const config = loadConfig({ env: { EUFY_EMAIL: "test@example.com", EUFY_PASSWORD: "secret" }, rawText: "schema_version: 2\nhost: 127.0.0.1\n" });
@@ -25,6 +26,7 @@ async function fixture(t, { login, devices = [], authRetryOptions } = {}) {
   }
   const eufy = new FakeEufy();
   let go2rtcWrites = 0, go2rtcStarts = 0, closedClients = 0;
+  const go2rtcAdded = [];
   const sdk = {
     LoginStatus,
     describe: async (sn) => ({ sn, name: "Door", model: "T8214", modelName: "Door", isCamera: true, battery: true, powerTier: "battery" }),
@@ -34,12 +36,13 @@ async function fixture(t, { login, devices = [], authRetryOptions } = {}) {
   const runtime = await createBridgeRuntime({
     config,
     sdkFactory: () => ({ eufy, sdk }),
-    go2rtcFactory: () => ({ writeGo2rtc: async () => { go2rtcWrites++; }, startGo2rtc: () => { go2rtcStarts++; }, stopGo2rtc: () => {} }),
+    go2rtcFactory: () => ({ writeGo2rtc: async () => { go2rtcWrites++; }, addGo2rtcCamera: async (cam, key) => { go2rtcAdded.push({ sn: cam.sn, key }); }, startGo2rtc: () => { go2rtcStarts++; }, stopGo2rtc: () => {} }),
     lanPreflight: async () => [],
     authRetryOptions,
+    discoveryIntervalMs,
   });
   t.after(() => runtime.stop());
-  return { runtime, eufy, sdk, config, stats: () => ({ go2rtcWrites, go2rtcStarts, closedClients }) };
+  return { runtime, eufy, sdk, config, go2rtcAdded, stats: () => ({ go2rtcWrites, go2rtcStarts, closedClients }) };
 }
 
 test("runtime starts an authenticated HTTP bridge, handles motion, and shuts down cleanly", async (t) => {
@@ -146,6 +149,52 @@ test("shutdown during camera rediscovery cannot publish readiness or start media
   assert.equal(runtime.ctx.state.flags.ready, false);
   assert.equal(stats().go2rtcWrites, 0);
   assert.equal(stats().go2rtcStarts, 0);
+});
+
+test("periodic rediscovery adds a recovered camera to existing WebSocket clients without restarting healthy media", async (t) => {
+  const { runtime, sdk, go2rtcAdded, stats } = await fixture(t, {
+    devices: [{ sn: "HEALTHY" }, { sn: "MISSING" }], discoveryIntervalMs: 30,
+  });
+  const describe = sdk.describe;
+  let available = false;
+  sdk.describe = async (sn) => {
+    if (sn === "MISSING" && !available) throw new Error("temporarily unavailable");
+    return describe(sn);
+  };
+  await runtime.start();
+  assert.deepEqual(runtime.ctx.missingCameraSerials(), ["MISSING"]);
+  const ws = new WebSocket(`ws://127.0.0.1:${runtime.address().port}/ws`);
+  t.after(() => ws.terminate());
+  const hellos = [];
+  ws.on("message", (data) => { const message = JSON.parse(data); if (message.type === "hello") hellos.push(message); });
+  await new Promise((resolve, reject) => { ws.once("open", resolve); ws.once("error", reject); });
+  const waitFor = async (predicate) => {
+    const deadline = Date.now() + 1500;
+    while (!predicate() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(predicate(), "expected rediscovery and WebSocket inventory update");
+  };
+  await waitFor(() => hellos.length === 1);
+  assert.deepEqual(hellos[0].cameras.map((c) => c.sn), ["HEALTHY"]);
+  const healthyKey = hellos[0].cameras[0].streamKey;
+  available = true;
+  runtime.ctx.state.flags.sessionLost = true;
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(hellos.length, 1, "rediscovery pauses while cloud auth is lost");
+  runtime.ctx.state.flags.sessionLost = false;
+  const snapshot = runtime.ctx.ws.snapshot;
+  let failSnapshot = true;
+  runtime.ctx.ws.snapshot = async () => {
+    if (failSnapshot) { failSnapshot = false; throw new Error("temporary snapshot error"); }
+    return snapshot();
+  };
+  await waitFor(() => hellos.length >= 2);
+  assert.deepEqual(hellos.at(-1).cameras.map((c) => c.sn), ["HEALTHY", "MISSING"]);
+  assert.equal(hellos.at(-1).cameras[0].streamKey, healthyKey);
+  assert.deepEqual(go2rtcAdded, [{ sn: "MISSING", key: "MISSING" }]);
+  assert.equal(stats().go2rtcWrites, 1);
+  assert.equal(stats().go2rtcStarts, 1);
+  assert.deepEqual(runtime.ctx.missingCameraSerials(), []);
+  assert.equal(runtime.ctx.state.timers.discovery, undefined, "finished discovery clears its periodic timer");
 });
 
 test("an invalid listener setting rejects start before login", async (t) => {

@@ -19,13 +19,47 @@ export const DUAL_VIEW_VALUES = { "pip-tl": 2, "pip-tr": 3, "pip-bl": 4, "pip-br
 
 export function createCameras(ctx, { describeAttempts = 3, describeRetryMs = 200, wait = sleep } = {}) {
   let cache = [];
+  let missing = new Map();
+  let discovering;
   const discovery = new AbortController();
+
+  function cameraEntry(d, m) {
+    const c = ctx.cfg.cameras[m.sn] ?? {};
+    const powered = m.powerTier === "wired";
+    const enabled = c.enabled ?? true;
+    const mode = c.mode ?? (powered ? "always" : "on_motion");
+    const modelKey = String(m.model ?? "").slice(0, 5).toUpperCase();
+    const isDual = modelKey in DUAL_MODELS;
+    if (!powered && mode === "always")
+      throw new Error(`cameras.${m.sn}.mode=always requires power_override: always-on for a battery-budgeted camera`);
+    const stationSn = d.raw?.parent_sn || d.stationSn || d.raw?.station_sn || m.sn;
+    return {
+      sn: m.sn,
+      name: c.name ?? m.name,
+      model: m.model,
+      modelName: m.modelName,
+      stationSn,
+      standalone: stationSn === m.sn,
+      battery: m.battery,
+      powered,
+      powerOverride: m.powerOverride ?? "auto",
+      enabled,
+      mode,
+      holdSeconds: c.holdSeconds ?? ctx.cfg.defaults.holdSeconds,
+      quality: c.quality ?? ctx.cfg.defaults.quality ?? null,
+      codec: c.codec,
+      isDual,
+      viewModeCmd: isDual ? DUAL_MODELS[modelKey] : null,
+      dualView: isDual ? (c.dualView ?? ctx.cfg.defaults.dualView) : null,
+    };
+  }
 
   async function describeCamera(sn) {
     for (let attempt = 1; attempt <= describeAttempts && !discovery.signal.aborted; attempt++) {
       try {
         const result = await ctx.sdk.describe(sn);
         if (!result || typeof result !== "object") throw new Error("SDK returned no device description");
+        if (result.sn !== sn) throw new Error(`SDK returned serial ${result.sn ?? "missing"} for ${sn}`);
         return result;
       } catch (error) {
         if (discovery.signal.aborted) return null;
@@ -35,7 +69,7 @@ export function createCameras(ctx, { describeAttempts = 3, describeRetryMs = 200
         catch (waitError) { if (discovery.signal.aborted) return null; throw waitError; }
       }
     }
-    if (!discovery.signal.aborted) console.error(`[bridge] ${sn}: camera omitted after ${describeAttempts} describe attempts; check SDK connectivity and restart after recovery`);
+    if (!discovery.signal.aborted) console.error(`[bridge] ${sn}: camera omitted after ${describeAttempts} describe attempts; periodic discovery will retry`);
     return null;
   }
 
@@ -43,50 +77,42 @@ export function createCameras(ctx, { describeAttempts = 3, describeRetryMs = 200
     if (discovery.signal.aborted) return cache;
     const devices = await ctx.eufy.getDevices();
     const out = [];
+    const failed = new Map();
     for (const d of devices) {
       if (discovery.signal.aborted) return cache;
       const m = await describeCamera(d.sn);
-      if (!m) continue;
+      if (!m) { failed.set(d.sn, d); continue; }
       if (!m.isCamera) continue;
-      const c = ctx.cfg.cameras[m.sn] ?? {};
-      const powered = m.powerTier === "wired";
-      // A battery camera is enabled now, but it does not stream continuously: its mode decides when.
-      // Phase 1 skipped them outright because always-on is the only thing it could do with one.
-      const enabled = c.enabled ?? true;
-      const mode = c.mode ?? (powered ? "always" : "on_motion");
-      const modelKey = String(m.model ?? "").slice(0, 5).toUpperCase();
-      const isDual = modelKey in DUAL_MODELS;
-      if (!powered && mode === "always")
-        throw new Error(`cameras.${m.sn}.mode=always requires power_override: always-on for a battery-budgeted camera`);
-      // Parent station (HomeBase) serial; equals the camera's own sn for a standalone camera. Used to
-      // serialise per-HomeBase P2P session opens (so their level-2 E2E keys don't race) and to decide
-      // which cameras need the local-port sweep (HomeBase-attached only).
-      const stationSn = d.raw?.parent_sn || d.stationSn || d.raw?.station_sn || m.sn;
-      out.push({
-        sn: m.sn,
-        name: c.name ?? m.name,
-        model: m.model,
-        modelName: m.modelName,
-        stationSn,
-        standalone: stationSn === m.sn,
-        battery: m.battery,
-        powered,
-        powerOverride: m.powerOverride ?? "auto",
-        enabled,
-        mode,
-        holdSeconds: c.holdSeconds ?? ctx.cfg.defaults.holdSeconds,
-        quality: c.quality ?? ctx.cfg.defaults.quality ?? null,
-        // Declared codec, if the operator set one. go2rtc prefers what a live feed actually reported and
-        // falls back to this, so declaring it only removes the cold-start probe — it cannot be wrong for
-        // long if it disagrees with the device.
-        codec: c.codec,
-        isDual,
-        viewModeCmd: isDual ? DUAL_MODELS[modelKey] : null,
-        dualView: isDual ? (c.dualView ?? ctx.cfg.defaults.dualView) : null,
-      });
+      out.push(cameraEntry(d, m));
     }
-    if (!discovery.signal.aborted) cache = out;
+    if (!discovery.signal.aborted) { cache = out; missing = failed; }
     return out;
+  }
+
+  function retryMissingCameras(onFound) {
+    if (discovering) return discovering;
+    discovering = (async () => {
+      const added = [];
+      for (const [sn, d] of missing) {
+        if (discovery.signal.aborted) break;
+        try {
+          const m = await ctx.sdk.describe(sn);
+          if (!m || m.sn !== sn) throw new Error("SDK returned an invalid device description");
+          if (!m.isCamera) { missing.delete(sn); continue; }
+          const cam = cameraEntry(d, m);
+          const key = cam.enabled ? streamKeys([...cache.filter((c) => c.enabled), cam]).get(sn) : sn;
+          await onFound(cam, key, discovery.signal);
+          if (discovery.signal.aborted) break;
+          cache = [...cache, cam];
+          missing.delete(sn);
+          added.push(cam);
+        } catch (error) {
+          if (!discovery.signal.aborted) console.error(`[bridge] ${sn}: rediscovery failed: ${error?.message ?? error}; will retry`);
+        }
+      }
+      return added;
+    })();
+    return discovering.finally(() => { discovering = undefined; });
   }
 
   const listCameras = () => cache;
@@ -130,5 +156,5 @@ export function createCameras(ctx, { describeAttempts = 3, describeRetryMs = 200
     };
   }
 
-  return { refreshCameras, stopCameraDiscovery: () => discovery.abort(), listCameras, getCamera, apiShape, streamKeyFor };
+  return { refreshCameras, retryMissingCameras, missingCameraSerials: () => [...missing.keys()], stopCameraDiscovery: () => discovery.abort(), listCameras, getCamera, apiShape, streamKeyFor };
 }

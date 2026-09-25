@@ -173,3 +173,69 @@ test("stopping discovery cancels a pending describe retry without publishing a p
   await discovery;
   assert.deepEqual(cameras.listCameras(), []);
 });
+
+test("periodic rediscovery retries one missing camera without replacing healthy registry entries", async () => {
+  const ctx = ctxWith([wired, batt]);
+  const describe = ctx.sdk.describe;
+  let available = false;
+  ctx.sdk.describe = async (sn) => {
+    if (sn === batt.sn && !available) throw new Error("camera temporarily unavailable");
+    return describe(sn);
+  };
+  const cameras = createCameras(ctx, { wait: async () => {} });
+  await cameras.refreshCameras();
+  const healthy = cameras.getCamera(wired.sn);
+  assert.deepEqual(cameras.missingCameraSerials(), [batt.sn]);
+  assert.deepEqual(await cameras.retryMissingCameras(async () => { throw new Error("must not publish"); }), []);
+  assert.deepEqual(cameras.missingCameraSerials(), [batt.sn]);
+  available = true;
+  assert.deepEqual(await cameras.retryMissingCameras(async () => { throw new Error("go2rtc API unavailable"); }), []);
+  assert.equal(cameras.getCamera(batt.sn), undefined, "failed media registration keeps the camera pending");
+  const added = await cameras.retryMissingCameras(async (cam, key) => {
+    assert.equal(cam.sn, batt.sn);
+    assert.equal(key, "yard");
+    assert.equal(cameras.getCamera(batt.sn), undefined, "camera stays unpublished until media registration succeeds");
+  });
+  assert.deepEqual(added.map((c) => c.sn), [batt.sn]);
+  assert.equal(cameras.getCamera(wired.sn), healthy);
+  assert.deepEqual(cameras.missingCameraSerials(), []);
+});
+
+test("overlapping rediscovery ticks register a recovered camera once", async () => {
+  const ctx = ctxWith([wired]);
+  const describe = ctx.sdk.describe;
+  let available = false;
+  ctx.sdk.describe = async (sn) => { if (!available) throw new Error("unavailable"); return describe(sn); };
+  const cameras = createCameras(ctx, { wait: async () => {} });
+  await cameras.refreshCameras();
+  available = true;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let registrations = 0;
+  const first = cameras.retryMissingCameras(async () => { registrations++; await gate; });
+  const second = cameras.retryMissingCameras(async () => { registrations++; });
+  release();
+  await Promise.all([first, second]);
+  assert.equal(registrations, 1);
+  assert.deepEqual(cameras.listCameras().map((c) => c.sn), [wired.sn]);
+});
+
+test("shutdown during go2rtc registration does not publish a recovered camera", async () => {
+  const ctx = ctxWith([wired]);
+  const describe = ctx.sdk.describe;
+  let available = false;
+  ctx.sdk.describe = async (sn) => { if (!available) throw new Error("unavailable"); return describe(sn); };
+  const cameras = createCameras(ctx, { wait: async () => {} });
+  await cameras.refreshCameras();
+  available = true;
+  let registrationStarted;
+  const started = new Promise((resolve) => { registrationStarted = resolve; });
+  const retry = cameras.retryMissingCameras(async (_cam, _key, signal) => {
+    registrationStarted();
+    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+  });
+  await started;
+  cameras.stopCameraDiscovery();
+  assert.deepEqual(await retry, []);
+  assert.deepEqual(cameras.listCameras(), []);
+});
