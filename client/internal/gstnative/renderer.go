@@ -21,18 +21,19 @@ import (
 // Options identify the active config and the local status file. The private fields let package
 // tests exercise live switching with synthetic sources and a headless sink.
 type Options struct {
-	StatusPath       string
-	ConfigSHA256     string
-	Initial          []layout.Placed
-	sink             string
-	source           func(layout.Placed) (string, error)
-	stallAfter       time.Duration
-	retryAfter       time.Duration
-	startupAfter     time.Duration
-	monitorEvery     time.Duration
-	outputStallAfter time.Duration
-	stillRefresh     time.Duration
-	api              *gstAPI
+	StatusPath         string
+	ConfigSHA256       string
+	Initial            []layout.Placed
+	sink               string
+	source             func(layout.Placed) (string, error)
+	stallAfter         time.Duration
+	retryAfter         time.Duration
+	startupAfter       time.Duration
+	startupOutputAfter time.Duration
+	monitorEvery       time.Duration
+	outputStallAfter   time.Duration
+	stillRefresh       time.Duration
+	api                *gstAPI
 }
 
 type frameCounter struct {
@@ -131,6 +132,9 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 	if opts.startupAfter <= 0 {
 		opts.startupAfter = 10 * time.Second
 	}
+	if opts.startupOutputAfter <= 0 {
+		opts.startupOutputAfter = 5 * time.Second
+	}
 	if opts.monitorEvery <= 0 {
 		opts.monitorEvery = 2 * time.Second
 	}
@@ -178,13 +182,13 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 		r.closeNative()
 		return nil, errors.New("native renderer failed to start GStreamer pipeline")
 	}
-	for _, id := range r.order {
-		s := r.slots[id]
-		s.blackStop, s.blackDone = make(chan struct{}), make(chan struct{})
-		go pumpBlack(a, s)
-	}
+	r.startBlackPumps()
 	// Permanent feeds render black immediately. Camera pipelines start after the
 	// compositor so a slow RTSP handshake cannot delay other tiles.
+	if err := r.startOutput(); err != nil {
+		r.closeNative()
+		return nil, err
+	}
 	initial := opts.Initial
 	if initial == nil {
 		initial = tiles

@@ -153,11 +153,8 @@ func (r *Renderer) closeNative() {
 	if r.pipeline == 0 {
 		return
 	}
+	r.stopBlackPumps()
 	for _, s := range r.slots {
-		if s.blackStop != nil {
-			close(s.blackStop)
-			<-s.blackDone
-		}
 		r.removeSource(s)
 		s.clearLastFrame(a)
 		if s.blackBuffer != 0 {
