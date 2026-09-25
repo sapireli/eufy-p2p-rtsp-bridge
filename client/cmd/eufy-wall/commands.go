@@ -66,18 +66,10 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 			}
 			return true, nil
 		case "validate":
-			if len(args) != 3 {
-				return true, errors.New("usage: eufy-wall config validate <file|->")
+			if len(args) != 3 && (len(args) != 4 || args[3] != "--json") {
+				return true, errors.New("usage: eufy-wall config validate <file|-> [--json]")
 			}
-			c, err := parseClientInput(args[2], in)
-			if err != nil {
-				return true, err
-			}
-			if _, err := placeForValidation(c); err != nil {
-				return true, err
-			}
-			_, _ = fmt.Fprintln(out, "config valid")
-			return true, nil
+			return true, validateClientCommand(args[2], in, out, len(args) == 4)
 		case "example":
 			if len(args) != 2 {
 				return true, errors.New("usage: eufy-wall config example")
@@ -85,10 +77,10 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 			_, err := out.Write(config.Example())
 			return true, err
 		case "apply":
-			if len(args) != 3 {
-				return true, errors.New("usage: eufy-wall config apply <file|->")
+			if len(args) != 3 && (len(args) != 4 || args[3] != "--json") {
+				return true, errors.New("usage: eufy-wall config apply <file|-> [--json]")
 			}
-			return true, applyClientConfig(args[2], in, out)
+			return true, applyClientCommand(args[2], in, out, len(args) == 4)
 		case "recover":
 			if len(args) != 2 {
 				return true, errors.New("usage: eufy-wall config recover")
@@ -174,7 +166,7 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 	}
 }
 
-const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|->\n  config apply <file|->\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  health\n  status [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
+const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|-> [--json]\n  config apply <file|-> [--json]\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  health\n  status [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
 
 func readClientInput(path string, in io.Reader) ([]byte, error) {
 	var source io.Reader = in
@@ -220,15 +212,16 @@ func placeForValidation(c *config.Config) ([]layout.Placed, error) {
 }
 
 type doctorReport struct {
-	Screen      config.Screen `json:"screen"`
-	Decoder     string        `json:"decoder,omitempty"`
-	Sink        string        `json:"sink,omitempty"`
-	Watchdog    bool          `json:"watchdog"`
-	GstLaunch   bool          `json:"gstLaunch"`
-	Launchd     bool          `json:"launchd,omitempty"`
-	BridgeReady bool          `json:"bridgeReady"`
-	ConfigValid bool          `json:"configValid"`
-	Problems    []string      `json:"problems"`
+	Screen      config.Screen      `json:"screen"`
+	Decoder     string             `json:"decoder,omitempty"`
+	Sink        string             `json:"sink,omitempty"`
+	Watchdog    bool               `json:"watchdog"`
+	GstLaunch   bool               `json:"gstLaunch"`
+	Launchd     bool               `json:"launchd,omitempty"`
+	BridgeReady bool               `json:"bridgeReady"`
+	ConfigValid bool               `json:"configValid"`
+	Problems    []string           `json:"problems"`
+	Diagnostics []clientDiagnostic `json:"diagnostics"`
 }
 
 func clientDoctor(jsonOutput bool, out io.Writer) error {
@@ -309,6 +302,14 @@ func clientDoctorAtWithScreen(path string, jsonOutput bool, out io.Writer, scree
 					report.Problems = append(report.Problems, "launchd agent is not running: "+err.Error())
 				}
 			}
+		}
+	}
+	report.Diagnostics = make([]clientDiagnostic, 0, len(report.Problems))
+	for i, problem := range report.Problems {
+		d := diagnosticForClient(problem, "doctor")
+		report.Diagnostics = append(report.Diagnostics, d)
+		if d.Code == "CONFIG_YAML_INVALID" {
+			report.Problems[i] = d.Message // Do not echo a YAML source snippet containing a secret.
 		}
 	}
 	if jsonOutput {

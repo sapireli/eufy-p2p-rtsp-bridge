@@ -154,6 +154,9 @@ func TestDoctorReportsStructuredProblemsAndCommandHelp(t *testing.T) {
 	if report.Problems == nil {
 		t.Fatal("doctor must include a problems array")
 	}
+	if len(report.Diagnostics) != len(report.Problems) {
+		t.Fatalf("doctor diagnostics do not match problems: %+v", report)
+	}
 	out.Reset()
 	if handled, err := runCommand([]string{"help"}, strings.NewReader(""), &out); !handled || err != nil || !strings.Contains(out.String(), "layout edit") {
 		t.Fatalf("help: %v %v %q", handled, err, out.String())
