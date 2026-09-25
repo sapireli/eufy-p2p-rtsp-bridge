@@ -1,4 +1,6 @@
-// Package pipeline renders the wall as gst-launch-1.0 arguments. Two sink strategies:
+// Package pipeline builds gst-launch-1.0 arguments for the planes runtime and diagnostics.
+// The compositor and window runtimes use gstnative to switch source bins in one Go-owned pipeline.
+// Two Linux sink strategies:
 //
 //	planes:     one kmssink per tile on its own DRM overlay plane (the Pi's HVS composites for free)
 //	compositor: N decoders → compositor → one kmssink (CPU/GPU composite; works everywhere)
@@ -62,14 +64,14 @@ type Plan struct {
 	Args []string
 }
 
-// Plans returns the processes this wall needs.
+// Plans returns gst-launch processes for the planes runtime, or one diagnostic plan for
+// compositor/window. The live compositor/window runtime uses gstnative instead.
 //
 // With sink=planes each tile owns a DRM overlay plane and is genuinely independent, so it gets its own
 // process: one camera dropping out then restarts one tile instead of every tile, and a tile can be
 // started, stopped or repointed on its own — which is what a wall with motion tiles needs.
 //
-// A compositor mixes every tile into one frame, so its tiles cannot be split; that wall is one process
-// and changing any tile restarts all of them. This is the honest trade of the two sinks, not a gap.
+// A diagnostic compositor plan remains one gst-launch process and cannot switch a tile by itself.
 func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 	if caps.Sink != "planes" {
 		args, err := Build(c, tiles, caps)
@@ -122,10 +124,9 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 	args := []string{"-e"}
 	src := func(i int, t layout.Placed) []string {
 		if t.StillURL != "" {
-			// One JPEG held on screen as a video stream. `imagefreeze` repeats the single frame forever, so
-			// this costs nothing once it has decoded. If the bridge has no thumbnail yet the request 404s
-			// and the process exits; the supervisor's backoff retries it, which is also how the tile picks
-			// up a newer still after the next event.
+			// One JPEG held on screen as a video stream. `imagefreeze` repeats the first frame forever.
+			// The planes dynamic coordinator periodically changes the URL to restart only this tile and
+			// fetch a newer retained still; failed requests are retried by the process supervisor.
 			return []string{
 				"souphttpsrc", "location=" + t.StillURL, "is-live=false", fmt.Sprintf("name=src%d", i),
 				"!", "jpegdec", "!", "imagefreeze", "!", "videoconvert",
