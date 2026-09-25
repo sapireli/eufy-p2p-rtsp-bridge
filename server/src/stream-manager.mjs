@@ -192,6 +192,12 @@ export function createStreamManager(ctx) {
       feed.on("close", onEnd("feed closed"));
     } catch (e) {
       console.error(`[bridge] ${sn}: open failed: ${e?.message ?? e}`);
+      if (stopped || !wanted(sn)) {
+        state.starting.delete(sn);
+        slot.failures = 0;
+        slot.firstFailureAt = 0;
+        return;
+      }
       noteFailure(slot);
       scheduleReopen(slot, "open failed");
     }
@@ -234,8 +240,9 @@ export function createStreamManager(ctx) {
       const since = Math.max(slot.lastBytesAt, slot.startedAt);
       const silent = since ? now - since : 0;
       const stallMs = globalThis.__ewStallMs ?? cfg.stall.stallMs; // runtime-tunable for multi-channel tests
-      if (slot.feed && silent >= stallMs && !wanted(slot.sn)) {
-        closeFeed(slot); // its hold went away mid-stream; stopping is not a stall
+      if (!wanted(slot.sn)) {
+        if (slot.feed) closeFeed(slot); // its hold went away mid-stream; stopping is not a stall
+        slot.firstFailureAt = 0;
         continue;
       }
       if (slot.feed && silent >= stallMs) {
