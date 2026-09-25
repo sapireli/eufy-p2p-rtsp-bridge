@@ -127,6 +127,16 @@ func TestScreenForNamedOutput(t *testing.T) {
 	if id, ok := ConnectorID(root, "HDMI-A-2"); !ok || id != 41 {
 		t.Errorf("connector id = %d ok=%v, want 41", id, ok)
 	}
+	if id, err := SelectedConnector(root, "HDMI-A-2"); err != nil || id != 41 {
+		t.Fatalf("selected connector = %d, %v", id, err)
+	}
+	if _, err := SelectedConnector(root, "HDMI-A-9"); err == nil {
+		t.Fatal("absent named output would silently target first HDMI")
+	}
+	write("card0-DP-1", "1920x1080\n", "")
+	if _, err := SelectedConnector(root, "DP-1"); err == nil {
+		t.Fatal("named output with no connector ID would silently target first HDMI")
+	}
 	if _, ok := ConnectorID(root, ""); ok {
 		t.Error("no output named: there is no connector to pin")
 	}

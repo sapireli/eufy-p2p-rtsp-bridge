@@ -77,11 +77,11 @@ func runWall(cfgPath string, dryRun, printLayout bool) {
 		log.Fatalf("[wall] %v", err)
 	}
 	if runtime.GOOS == "linux" && caps.Sink != "window" {
-		if id, ok := detect.ConnectorID("/", c.Output); ok {
+		if id, err := detect.SelectedConnector("/", c.Output); err != nil {
+			log.Fatalf("[wall] %v", err)
+		} else if id > 0 {
 			caps.ConnectorID = id
 			log.Printf("[wall] rendering on output %s (connector %d)", c.Output, id)
-		} else if c.Output != "" {
-			log.Printf("[wall] output %s: no connector id in sysfs — kmssink will pick the first connected output", c.Output)
 		}
 	}
 	tiles, err := layout.Place(c, c.Screen)

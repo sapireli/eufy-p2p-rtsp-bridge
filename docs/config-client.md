@@ -51,7 +51,7 @@ Use a camera **serial** in `camera` and `watch`. The bridge reports its current 
 | `screen` | Optional pixel `width` and `height`; specify both or neither. When omitted the renderer reads the selected DRM mode. Preview falls back to 1920×1080 when no mode is available. |
 | `decoder` | `auto` (default), `v4l2`, `va`, or `software`. Auto prefers a Pi V4L2 decoder, then VA, then software according to installed elements. The actual codec must be supported by the chosen decoder. |
 | `sink` | `auto` (default), `planes`, `compositor`, or `window`. Auto chooses planes when a V4L2 decoder and plane IDs are supplied, otherwise compositor when installed. `window` is useful on desktop hosts. |
-| `planes` | DRM overlay plane IDs, one per tile index, used with `sink: planes`. Discover IDs with `modetest` and verify they work on the chosen connector. An explicit `output` is passed to kmssink when its connector ID is available. |
+| `planes` | DRM overlay plane IDs, one per tile index, used with `sink: planes`. Discover IDs with `modetest` and verify they work on the chosen connector. A named Linux DRM `output` must have a connected mode and connector ID; otherwise apply fails rather than showing video on another screen. |
 | `latency_ms` | RTSP latency; default `200`. Increase for a noisy link, decrease only after measuring drops. |
 | `layout` | `custom`, `1`, `1+5`, or a preset grid such as `2x1` or `2x2` (each side 1–6). `custom` needs v2 and `canvas`. |
 | `canvas` | `{cols, rows}` with each dimension 1–32, only for `custom`. Cells are placement units, not decoder slots. |

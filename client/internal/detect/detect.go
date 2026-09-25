@@ -177,3 +177,19 @@ func ConnectorID(fsRoot, output string) (int, bool) {
 	}
 	return 0, false
 }
+
+// SelectedConnector refuses to silently route a named DRM output to the first connected screen.
+// An explicit output must have both a mode and an ID kmssink can select.
+func SelectedConnector(fsRoot, output string) (int, error) {
+	if output == "" {
+		return 0, nil
+	}
+	if _, ok := ScreenFor(fsRoot, output); !ok {
+		return 0, fmt.Errorf("output %q has no connected DRM mode; check the cable and output name", output)
+	}
+	id, ok := ConnectorID(fsRoot, output)
+	if !ok {
+		return 0, fmt.Errorf("output %q has no DRM connector ID; kmssink cannot select it safely", output)
+	}
+	return id, nil
+}

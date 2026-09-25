@@ -143,6 +143,11 @@ func validateClientConfig(b []byte, host bool) error {
 			if !detect.HasElement("kmssink") {
 				return errors.New("GStreamer kmssink is missing")
 			}
+			if runtime.GOOS == "linux" {
+				if _, err := detect.SelectedConnector("/", c.Output); err != nil {
+					return err
+				}
+			}
 		}
 		if _, err := pipeline.Plans(c, placed, caps); err != nil {
 			return err
