@@ -85,9 +85,10 @@ test("a name that slugs to nothing or collides falls back to the serial", () => 
 test("a camera name cannot claim another camera's serial fallback", () => {
   const cameras = [{ sn: "alpha", name: "Beta" }, { sn: "beta", name: "Beta" }];
   const keys = streamKeys(cameras);
-  assert.deepEqual([...keys.values()], ["alpha", "beta"]);
+  assert.deepEqual([...keys.values()], ["beta", "beta_2"]);
+  assert.equal(streamKeys(cameras.slice(0, 1)).get("alpha"), keys.get("alpha"), "a recovered camera cannot rename an existing stream");
   const yaml = "streams:\n  alpha: source-alpha\n  beta: source-beta\n";
-  assert.deepEqual(parse(withNamedStreams(yaml, cameras)).streams, { alpha: "source-alpha", beta: "source-beta" });
+  assert.deepEqual(parse(withNamedStreams(yaml, cameras)).streams, { beta: "source-alpha", beta_2: "source-beta" });
 });
 
 test("the source is carried across unchanged, including its transcode suffix", () => {
@@ -100,6 +101,91 @@ test("streamSlug makes URL-safe keys", () => {
   assert.equal(streamSlug("Solar Wall Light Cam"), "solar_wall_light_cam");
   assert.equal(streamSlug("  Garage – Interior/Door  "), "garage_interior_door");
   assert.equal(streamSlug(""), "");
+});
+
+test("recovered camera is registered through loopback go2rtc without restarting healthy streams", async () => {
+  const calls = [];
+  let killed = 0;
+  const state = createState();
+  state.flags.go2rtcProc = { kill: () => { killed++; } };
+  const cfg = { go2rtcConfig: "/tmp/unused-go2rtc.yaml", selfHost: "127.0.0.1", port: 3000, go2rtcTranscode: "never" };
+  const go2rtc = createGo2rtc({ cfg, state, listCameras: () => [{ sn: "A", name: "Healthy", enabled: true }] }, {
+    fetchImpl: async (url, options) => { calls.push({ url: new URL(url), options }); return { ok: true }; },
+  });
+  await go2rtc.addGo2rtcCamera({ sn: "B", name: "Recovered", enabled: true }, "recovered");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url.origin, "http://127.0.0.1:1984");
+  assert.equal(calls[0].url.searchParams.get("name"), "recovered");
+  assert.equal(calls[0].url.searchParams.get("src"), "http://127.0.0.1:3000/stream/B");
+  assert.equal(calls[0].options.method, "PUT");
+  assert.equal(killed, 0);
+});
+
+test("failed go2rtc registration is reported so rediscovery can retry", async () => {
+  const state = createState();
+  state.flags.go2rtcProc = { kill: () => {} };
+  const cfg = { go2rtcConfig: "/tmp/unused-go2rtc.yaml", selfHost: "127.0.0.1", port: 3000, go2rtcTranscode: "never" };
+  const go2rtc = createGo2rtc({ cfg, state, listCameras: () => [] }, { fetchImpl: async () => ({ ok: false, status: 503 }) });
+  await assert.rejects(go2rtc.addGo2rtcCamera({ sn: "B", enabled: true }, "b"), /HTTP 503/);
+});
+
+test("recovered camera is written to next go2rtc config while the child is down", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ewb-go2rtc-recover-"));
+  const cfg = { go2rtcConfig: join(dir, "go2rtc.yaml"), selfHost: "127.0.0.1", port: 3000, go2rtcTranscode: "never" };
+  const healthy = { sn: "A", name: "Healthy", enabled: true };
+  const recovered = { sn: "B", name: "Recovered", enabled: true };
+  const go2rtc = createGo2rtc({ cfg, state: createState(), listCameras: () => [healthy] }, { fetchImpl: () => { throw new Error("must not call API while stopped"); } });
+  await go2rtc.addGo2rtcCamera(recovered, "recovered");
+  assert.deepEqual(parse(readFileSync(cfg.go2rtcConfig, "utf8")).streams, {
+    healthy: "http://127.0.0.1:3000/stream/A",
+    recovered: "http://127.0.0.1:3000/stream/B",
+  });
+});
+
+test("a newly learned codec updates only that go2rtc stream and leaves the child running", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ewb-go2rtc-codec-"));
+  const cameras = [{ sn: "A", name: "Healthy", enabled: true }, { sn: "B", name: "Recovered", enabled: true }];
+  const state = createState();
+  const calls = [];
+  let killed = 0;
+  const cfg = { go2rtcConfig: join(dir, "go2rtc.yaml"), selfHost: "127.0.0.1", port: 3000, go2rtcTranscode: "auto" };
+  const go2rtc = createGo2rtc({ cfg, state, listCameras: () => cameras }, {
+    fetchImpl: async (url) => { calls.push(new URL(url)); return { ok: true }; },
+  });
+  await go2rtc.writeGo2rtc();
+  state.flags.ready = true;
+  state.flags.go2rtcProc = { kill: () => { killed++; } };
+  state.slots.set("B", { codec: "h265" });
+  await go2rtc.syncGo2rtc();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].searchParams.get("name"), "recovered");
+  assert.equal(calls[0].searchParams.get("src"), "ffmpeg:http://127.0.0.1:3000/stream/B#video=h264#hardware");
+  assert.equal(killed, 0);
+});
+
+test("failed codec update retries without restarting go2rtc", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ewb-go2rtc-codec-"));
+  const state = createState();
+  const timers = [];
+  let calls = 0;
+  const cfg = { go2rtcConfig: join(dir, "go2rtc.yaml"), selfHost: "127.0.0.1", port: 3000, go2rtcTranscode: "auto" };
+  const camera = { sn: "B", name: "Recovered", enabled: true };
+  const go2rtc = createGo2rtc({ cfg, state, listCameras: () => [camera] }, {
+    fetchImpl: async () => ({ ok: ++calls > 1, status: 503 }),
+    setTimer: (fn) => { const timer = { fn, cleared: false }; timers.push(timer); return timer; },
+    clearTimer: (timer) => { timer.cleared = true; },
+  });
+  await go2rtc.writeGo2rtc();
+  state.flags.ready = true;
+  state.flags.go2rtcProc = { kill: () => {} };
+  state.slots.set("B", { codec: "h265" });
+  await assert.rejects(go2rtc.syncGo2rtc(), /HTTP 503/);
+  assert.equal(timers.length, 1);
+  timers[0].fn();
+  await go2rtc.syncGo2rtc();
+  assert.equal(calls, 2);
+  go2rtc.stopGo2rtc();
+  assert.equal(timers[0].cleared, false, "completed retry leaves no pending timer");
 });
 
 test("a real missing go2rtc binary schedules a retry after error and close", async () => {
