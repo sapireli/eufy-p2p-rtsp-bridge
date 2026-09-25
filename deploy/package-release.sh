@@ -47,7 +47,7 @@ elif [[ $kind == client ]]; then
   mkdir -p "$root/deploy"
   cp "$repo/client/bin/eufy-wall-$arch" "$root/eufy-wall"
   cp "$repo/client/config.example.yaml" "$root/config.example.yaml"
-  cp "$repo/deploy/eufy-wall.service" "$repo/deploy/install-client.sh" "$repo/deploy/install-common.sh" "$root/deploy/"
+  cp "$repo/deploy/eufy-wall.service" "$repo/deploy/install-client.sh" "$repo/deploy/install-common.sh" "$repo/deploy/qualify-client.py" "$root/deploy/"
   chmod 755 "$root/eufy-wall"
   name="eufy-wall-${version}-linux-${arch}.tar.gz"
 else

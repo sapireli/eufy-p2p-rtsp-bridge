@@ -86,6 +86,45 @@ Two physical outputs should run separate wall instances with separate config fil
 
 On macOS, the Go binary can preview layouts with GStreamer installed through Homebrew and `sink: window`, `decoder: software`, and an explicit screen size. The Linux release installer and KMS sinks do not apply there.
 
+## Repeatable hardware qualification
+
+The release installs `/opt/eufy-wall/current/deploy/qualify-client.py` for Raspberry Pi 1, 3, 4, 5 and Debian x86-64 trials. It requires Python 3.7 or later, GStreamer with [fpsdisplaysink](https://gstreamer.freedesktop.org/documentation/debugutilsbad/fpsdisplaysink.html) (`gstreamer1.0-plugins-bad`), `gst-launch-1.0`, and `modetest` for plane inventory. It changes no configuration and never restarts a service or network connection. It reads model, OS, kernel, connected DRM outputs and modes, numeric plane IDs, and GStreamer element availability. Its own single-stream RTSP probe records advertised codec and frame size when available, cumulative rendered and dropped frames, FPS, and the probe process's CPU and resident memory. The default `fakesink` measures decode progress without taking the display; `kmssink` displays that one stream and needs the wall service stopped. Neither probe proves that a multi-tile layout works.
+
+Use an unauthenticated LAN RTSP URL from your bridge. The prompt keeps it out of shell history; GStreamer receives it in a process argument that local users may be able to see while the probe runs. The script rejects URLs with embedded credentials and never saves the URL or raw GStreamer log. It prints a Markdown row and writes an allowlisted JSON report; review the report before sharing it.
+
+```sh
+printf 'Bridge RTSP URL: '
+IFS= read -r QUALIFY_RTSP_URL
+export QUALIFY_RTSP_URL
+python3 /opt/eufy-wall/current/deploy/qualify-client.py \
+  --duration 60 --output "$HOME/eufy-wall-probe.json"
+unset QUALIFY_RTSP_URL
+```
+
+For the physical display probe, check that `eufy-wall` is active and that the operator has reserved a 60-second screen interruption. This example always starts the service again, even when the probe fails. The `wall` service account has the installed video and render group access.
+
+```sh
+printf 'Bridge RTSP URL: '
+IFS= read -r QUALIFY_RTSP_URL
+export QUALIFY_RTSP_URL
+(
+  set -e
+  sudo systemctl is-active --quiet eufy-wall
+  trap 'sudo systemctl start eufy-wall' EXIT
+  sudo systemctl stop eufy-wall
+  sudo --preserve-env=QUALIFY_RTSP_URL -u wall \
+    python3 /opt/eufy-wall/current/deploy/qualify-client.py \
+      --sink kmssink --duration 60 --output /tmp/eufy-wall-kms-probe.json
+)
+unset QUALIFY_RTSP_URL
+```
+
+For a 30-minute soak, use `--duration 1800` while watching the actual wall separately. A successful single-stream probe is still marked **unverified**. Record the configured tile count, codecs, sizes, connector, sink, and visual frame continuity in the trial notes. The JSON's CPU and memory numbers cover only the probe's `gst-launch-1.0` process, not the full wall, bridge, or kernel decoder.
+
+For recovery, add `QUALIFY_BRIDGE_URL=http://SERVER_IP:3000` and `--recovery-event bridge_restart --recovery-duration 120` to the first command. Wait for “Bridge baseline ready” before restarting `eufy-wall-bridge` on the server. The watcher times the first failed `/healthz` poll through two successful polls and records whether the wall service remained active. For `network_interruption`, disconnect the client network link manually for at most 10 seconds, reconnect it, and use that event name. The script does not initiate either fault. Its recovery number is HTTP reachability, not resumed video. Watch the display and separately record the time to fresh frames and whether unaffected tiles kept rendering.
+
+Camera and station power cycles are manual gates: with an operator present, cycle one device at a time, note the exact start/return times, and confirm fresh frames and motion holds after recovery. The harness does not switch device power. Never mark a profile qualified from the generated row alone; attach the report and visual/recovery notes to a measured row below.
+
 ## Recovery
 
 If the screen is black, inspect `eufy-wall doctor`, `journalctl`, output ownership (`video` and `render` groups), and whether another compositor holds DRM. A missing GStreamer decoder or watchdog plugin needs its corresponding OS package. A camera that stops delivering frames should be detected by the runtime progress watchdog; confirm the recovery in the journal. If an upgrade fails, use the installer `--rollback` and inspect the current binary symlink with `readlink /opt/eufy-wall/current`.
