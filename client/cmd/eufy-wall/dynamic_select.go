@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
+	"time"
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/layout"
@@ -66,11 +68,18 @@ func tilesFor(c *config.Config, tiles []layout.Placed, showing, content map[int]
 }
 
 func plansForTiles(c *config.Config, caps pipeline.Caps, live []layout.Placed) []pipeline.Plan {
+	return plansForTilesAt(c, caps, live, time.Now())
+}
+
+func plansForTilesAt(c *config.Config, caps pipeline.Caps, live []layout.Placed, now time.Time) []pipeline.Plan {
 	if caps.Sink == "planes" {
 		// Each plane is an independent process. A late codec change or bad URL on one camera must not
 		// tear down the other cameras while that tile waits for a compatible decoder or source.
 		plans := make([]pipeline.Plan, 0, len(live))
 		for _, tile := range live {
+			if tile.StillURL != "" {
+				tile.StillURL = planeStillURL(tile.StillURL, now)
+			}
 			one, err := pipeline.Plans(c, []layout.Placed{tile}, caps)
 			if err != nil {
 				log.Printf("[wall] tile %s cannot build pipeline: %v", tile.ID, err)
@@ -86,6 +95,19 @@ func plansForTiles(c *config.Config, caps pipeline.Caps, live []layout.Placed) [
 		return nil
 	}
 	return plans
+}
+
+// imagefreeze repeats its first JPEG forever. A changed source URL makes the planes manager
+// restart only this still tile at the next refresh boundary and fetch the current retained JPEG.
+func planeStillURL(raw string, now time.Time) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	q := u.Query()
+	q.Set("_wall_refresh", fmt.Sprint(now.Unix()/30))
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // describe renders what the wall is showing as one line, so the log says why a tile changed rather than
