@@ -1,6 +1,13 @@
-# Remaining hardware qualification tasks
+# Remaining work and hardware qualification
 
 Status: open. Resume this checklist before declaring the plug-and-play release production ready. The software CI and synthetic RTSP trials recorded in the [setup plan](plug-and-play-setup-plan.md) do not measure physical pixels, Raspberry Pi decoder capacity, or real Eufy camera behavior.
+
+## Next explicit goal: native planes worker with decoder recovery
+
+- [ ] Replace `gst-launch` for live `sink: planes` tiles with an internal `eufy-wall` worker process per tile. Keep one OS process per plane so a crashing GStreamer plugin cannot take down every tile. Preserve the current DRM connector, CRTC, plane, rectangle, source-switch, restart-backoff, and shutdown behavior. Keep `gst-launch` available for dry-run diagnostics while the native path is qualified.
+- [ ] In each worker, observe compressed buffers reaching the selected decoder, decoded-frame progress, and structured GStreamer bus errors. For `decoder: auto`, prefer the hardware element for the tile's actual codec and switch that tile to an available software decoder only when active input demonstrates a decoder failure or stall. A publisher outage, RTSP timeout, or absent packets must keep the hardware choice; explicit decoder modes must never switch silently.
+- [ ] Publish the actual decoder, fallback reason, source generation, input/output frame progress, and recovery state through local status and logs. Retry a failed worker with bounded backoff; return a same-source tile to hardware only after a bounded successful probe, without interrupting peer tiles. Avoid parsing `gst-launch` console text as a health signal.
+- [ ] Add adversarial unit and headless integration tests for rejected codec/profile, pre-buffer negotiation failure, silent decode stall, no-packet network outage, worker crash/restart, source codec change, and peer isolation. Then run visible multi-tile DRM trials on Pi 1/3/4/5 and Debian amd64 before making the native planes worker the default. Record any hardware-specific limit below.
 
 ## Test inventory and evidence
 
