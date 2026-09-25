@@ -1,6 +1,6 @@
 # Client configuration
 
-`eufy-wall` reads `/etc/eufy-wall.yaml` by default. Its setup wizard, editor, renderer, validation, and apply commands use the same Go config parser. A hand-written file is fully supported:
+`eufy-wall` reads `/etc/eufy-wall.yaml` by default on Linux and `~/Library/Application Support/eufy-wall/config.yaml` on macOS. Its setup wizard, editor, renderer, validation, and apply commands use the same Go config parser. A hand-written file is fully supported:
 
 ```sh
 eufy-wall config example > wall.yaml

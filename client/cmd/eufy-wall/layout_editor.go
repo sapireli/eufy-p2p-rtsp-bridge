@@ -300,7 +300,7 @@ const editorHelp = `Commands (all keyboard accessible; exact grid coordinates ar
   png <path>                  Save numbered preview PNG
   inventory [exported.json]   Load bridge or offline camera inventory
   save [path]                 Save a draft (default: eufy-wall.draft.yaml)
-  apply                       Validate and safely apply to /etc/eufy-wall.yaml
+  apply                       Validate and safely apply to the active client config
   help | quit                 Show help or exit without changing active config
 
 `
