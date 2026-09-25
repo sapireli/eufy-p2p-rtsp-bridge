@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Local setup and configuration command for the Node bridge. It never accepts network config writes.
 import fs from "node:fs/promises";
-import { existsSync, readFileSync, constants } from "node:fs";
+import { createReadStream, existsSync, readFileSync, constants } from "node:fs";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,16 +35,20 @@ function fail(message, asJson, diagnostic) {
   process.exitCode = 1;
 }
 async function input(path) {
-  if (path === "-") {
-    let body = "";
-    for await (const chunk of stdin) {
-      body += chunk;
-      if (Buffer.byteLength(body) > 1024 * 1024) throw new Error("config exceeds 1 MiB");
-    }
-    return body;
-  }
   if (!path) throw new Error("provide a YAML file or '-' for stdin");
-  return fs.readFile(path, "utf8");
+  const source = path === "-" ? stdin : createReadStream(path);
+  const chunks = [];
+  let bytes = 0;
+  try {
+    for await (const chunk of source) {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > 1024 * 1024) throw new Error("config exceeds 1 MiB");
+      chunks.push(chunk);
+    }
+  } finally {
+    if (path !== "-") source.destroy();
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
 }
 async function restart() { await exec("systemctl", ["restart", service], { timeout: 30_000 }); }
 async function executablePath(name) {

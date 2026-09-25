@@ -46,6 +46,19 @@ test("validate accepts file and stdin with the same strict schema", async (t) =>
   assert.equal(await readFile(file, "utf8"), "schema_version: 2\nport: 3000\n");
 });
 
+test("file and stdin config reads reject oversized YAML before parsing", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ewb-cli-limit-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, "oversized.yaml");
+  const oversized = `#${"x".repeat(1024 * 1024)}\n`;
+  await writeFile(file, oversized);
+  for (const source of [file, "-"]) {
+    const result = await run(["config", "validate", source, "--json"], { input: source === "-" ? oversized : "" });
+    assert.equal(result.code, 1);
+    assert.match(JSON.parse(result.err).error, /config exceeds 1 MiB/);
+  }
+});
+
 test("example is nonsecret and can be validated with environment credentials", async () => {
   const example = await run(["config", "example"]);
   assert.equal(example.code, 0);
