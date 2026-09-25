@@ -12,6 +12,12 @@ import (
 
 func editorMutation(c *config.Config, args []string) error {
 	switch args[0] {
+	case "output":
+		if len(args) != 2 {
+			return errors.New("usage: output <DRM-connector>")
+		}
+		c.Output = args[1]
+		return nil
 	case "template":
 		if len(args) != 2 {
 			return errors.New("usage: template one|split|four|one-plus-five|motion")

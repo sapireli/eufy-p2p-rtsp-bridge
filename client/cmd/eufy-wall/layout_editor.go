@@ -21,11 +21,20 @@ type layoutEditor struct {
 	at        int
 	source    string
 	inventory map[string]setupCamera
+	target    clientTarget
 }
 
 var errLegacyLayout = errors.New("legacy layout needs migration")
 
 func newLayoutEditor(path string) (*layoutEditor, error) {
+	target, err := targetForInstance("")
+	if err != nil {
+		return nil, err
+	}
+	return newLayoutEditorForTarget(path, target)
+}
+
+func newLayoutEditorForTarget(path string, target clientTarget) (*layoutEditor, error) {
 	var data []byte
 	var err error
 	if path == "" {
@@ -51,7 +60,7 @@ func newLayoutEditor(path string) (*layoutEditor, error) {
 	if _, err := placeForValidation(c); err != nil {
 		return nil, err
 	}
-	return &layoutEditor{history: [][]byte{data}, source: path}, nil
+	return &layoutEditor{history: [][]byte{data}, source: path, target: target}, nil
 }
 
 func (e *layoutEditor) config() (*config.Config, error) { return config.Parse(e.history[e.at]) }
@@ -99,9 +108,17 @@ func (e *layoutEditor) redo() bool {
 // editLayout is a keyboard-only editor. It works through SSH, accepts scripted input, and never
 // overwrites the active config through its draft-saving path.
 func editLayout(path string, in io.Reader, out io.Writer) error {
+	target, err := targetForInstance("")
+	if err != nil {
+		return err
+	}
+	return editLayoutForTarget(path, in, out, target)
+}
+
+func editLayoutForTarget(path string, in io.Reader, out io.Writer, target clientTarget) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
-	e, err := newLayoutEditor(path)
+	e, err := newLayoutEditorForTarget(path, target)
 	if errors.Is(err, errLegacyLayout) {
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
@@ -124,6 +141,9 @@ func editLayout(path string, in io.Reader, out io.Writer) error {
 			return errors.New("legacy migration was not accepted")
 		}
 		e, err = newLayoutEditorFromData(converted, path)
+		if err == nil {
+			e.target = target
+		}
 	}
 	if err != nil {
 		return err
@@ -182,7 +202,7 @@ func editLayout(path string, in io.Reader, out io.Writer) error {
 				err = e.checkInventory()
 			}
 			if err == nil {
-				err = applyClientConfig("-", bytes.NewReader(e.history[e.at]), out)
+				err = applyClientConfigTarget("-", bytes.NewReader(e.history[e.at]), out, e.target)
 			}
 		case "inventory":
 			if len(fields) > 2 {
@@ -205,7 +225,7 @@ func editLayout(path string, in io.Reader, out io.Writer) error {
 			} else {
 				err = e.png(fields[1])
 			}
-		case "template", "add", "delete", "rect", "move", "resize", "camera", "motion":
+		case "output", "template", "add", "delete", "rect", "move", "resize", "camera", "motion":
 			err = e.change(func(c *config.Config) error { return editorMutation(c, fields) })
 			if err == nil {
 				err = e.show(out)
@@ -260,7 +280,7 @@ func (e *layoutEditor) show(out io.Writer) error {
 }
 
 func (e *layoutEditor) save(target string) error {
-	active, _ := filepath.Abs(clientConfigPath)
+	active, _ := filepath.Abs(e.target.ConfigPath)
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return err
@@ -288,6 +308,7 @@ func (e *layoutEditor) png(path string) error {
 
 const editorHelp = `Commands (all keyboard accessible; exact grid coordinates are shown after each edit):
   show                           Show scaled canvas and tile coordinates
+  output <DRM-connector>         Select the Linux display output
   template one|split|four|one-plus-five|motion
   add <id> <camera> <x> <y> <w> <h>
   rect <id> <x> <y> <w> <h>    Set exact rectangle

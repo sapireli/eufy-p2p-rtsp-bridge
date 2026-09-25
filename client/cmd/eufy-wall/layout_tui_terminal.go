@@ -50,7 +50,7 @@ func runLayoutScreen(editor *layoutEditor, in, out *os.File) error {
 			return err
 		}
 		var message bytes.Buffer
-		if err := applyClientConfig("-", bytes.NewReader(editor.history[editor.at]), &message); err != nil {
+		if err := applyClientConfigTarget("-", bytes.NewReader(editor.history[editor.at]), &message, editor.target); err != nil {
 			return err
 		}
 		s.status = strings.TrimSpace(message.String())

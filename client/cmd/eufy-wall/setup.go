@@ -218,6 +218,14 @@ func setupYAMLForOS(goos string, a setupAnswers, available []setupCamera) ([]byt
 }
 
 func setupWall(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
+	target, err := targetForInstance("")
+	if err != nil {
+		return err
+	}
+	return setupWallForTarget(ctx, args, in, out, target)
+}
+
+func setupWallForTarget(ctx context.Context, args []string, in io.Reader, out io.Writer, target clientTarget) error {
 	answersPath, outputPath := "", ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -331,7 +339,7 @@ func setupWall(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 				return errors.New("setup cancelled; no config changed")
 			}
 		}
-		return finishSetup(ctx, a, cameras, outputPath, out, probeFrames)
+		return finishSetupForTarget(ctx, a, cameras, outputPath, out, probeFrames, target)
 	}
 	if a.BridgeURL == "" || a.RTSPBase == "" {
 		return errors.New("bridge_url and rtsp_base are required in setup answers")
@@ -340,19 +348,30 @@ func setupWall(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 	if err != nil {
 		return err
 	}
-	return finishSetup(ctx, a, cameras, outputPath, out, probeFrames)
+	return finishSetupForTarget(ctx, a, cameras, outputPath, out, probeFrames, target)
 }
 
 func finishSetup(ctx context.Context, a setupAnswers, cameras []setupCamera, outputPath string, out io.Writer, probe func(context.Context, *config.Config, string, io.Writer) error) error {
+	target, err := targetForInstance("")
+	if err != nil {
+		return err
+	}
+	return finishSetupForTarget(ctx, a, cameras, outputPath, out, probe, target)
+}
+
+func finishSetupForTarget(ctx context.Context, a setupAnswers, cameras []setupCamera, outputPath string, out io.Writer, probe func(context.Context, *config.Config, string, io.Writer) error, target clientTarget) error {
 	b, err := setupYAML(a, cameras)
 	if err != nil {
 		return err
 	}
+	c, err := config.Parse(b)
+	if err != nil {
+		return err
+	}
+	if err := validateTargetOutput(target, c); err != nil {
+		return err
+	}
 	if a.ProbeStreams {
-		c, err := config.Parse(b)
-		if err != nil {
-			return err
-		}
 		for _, serial := range a.Cameras {
 			if err := probe(ctx, c, serial, out); err != nil {
 				return fmt.Errorf("probe %s failed; no config applied: %w", serial, err)
@@ -371,5 +390,5 @@ func finishSetup(ctx context.Context, a setupAnswers, cameras []setupCamera, out
 		_, _ = fmt.Fprintf(out, "draft saved: %s\n", outputPath)
 		return nil
 	}
-	return applyClientConfig("-", bytes.NewReader(b), out)
+	return applyClientConfigTarget("-", bytes.NewReader(b), out, target)
 }

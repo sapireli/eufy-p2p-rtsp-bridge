@@ -15,14 +15,22 @@ import (
 )
 
 func clientHealth(out io.Writer) error {
+	target, err := targetForInstance("")
+	if err != nil {
+		return err
+	}
+	return clientHealthTarget(out, target)
+}
+
+func clientHealthTarget(out io.Writer, target clientTarget) error {
 	var service interface {
 		Healthy() error
 		FramesHealthy([]byte) error
-	} = systemdWallService{}
+	} = systemdWallService{name: target.Service, statusPath: target.StatusPath}
 	if runtime.GOOS == "darwin" {
 		service = launchdWallService{}
 	}
-	return clientHealthAt(clientConfigPath, out, service)
+	return clientHealthAt(target.ConfigPath, out, service)
 }
 
 func clientHealthAt(path string, out io.Writer, service interface {
@@ -43,16 +51,16 @@ func clientHealthAt(path string, out io.Writer, service interface {
 	return err
 }
 
-func (systemdWallService) FramesHealthy(data []byte) error {
-	b, err := exec.Command("systemctl", "show", "--property=MainPID", "--value", "eufy-wall").Output()
+func (s systemdWallService) FramesHealthy(data []byte) error {
+	b, err := exec.Command("systemctl", "show", "--property=MainPID", "--value", s.serviceName()).Output()
 	if err != nil {
-		return fmt.Errorf("read eufy-wall PID: %w", err)
+		return fmt.Errorf("read %s PID: %w", s.serviceName(), err)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	if err != nil || pid <= 0 {
-		return fmt.Errorf("eufy-wall has no running PID")
+		return fmt.Errorf("%s has no running PID", s.serviceName())
 	}
-	return clientFramesHealthy(data, pid)
+	return clientFramesHealthyAt(data, pid, s.runtimeStatusPath(), resolveClientSink)
 }
 
 func (launchdWallService) FramesHealthy(data []byte) error {
@@ -82,10 +90,12 @@ func launchdPID(report string) (int, error) {
 }
 
 func clientFramesHealthy(data []byte, pid int) error {
-	return clientFramesHealthyAt(data, pid, clientRuntimeStatusPath(), func(c *config.Config) (string, error) {
-		caps, err := detect.Resolve(c, detect.HasElement, detect.FileExists)
-		return caps.Sink, err
-	})
+	return clientFramesHealthyAt(data, pid, clientRuntimeStatusPath(), resolveClientSink)
+}
+
+func resolveClientSink(c *config.Config) (string, error) {
+	caps, err := detect.Resolve(c, detect.HasElement, detect.FileExists)
+	return caps.Sink, err
 }
 
 func clientFramesHealthyAt(data []byte, pid int, statusPath string, resolveSink func(*config.Config) (string, error)) error {

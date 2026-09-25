@@ -32,10 +32,27 @@ type clientFrameService interface {
 	FramesHealthy([]byte) error
 }
 
-type systemdWallService struct{}
+type systemdWallService struct {
+	name       string
+	statusPath string
+}
 
-func (systemdWallService) Restart() error { return systemctl("restart", "eufy-wall") }
-func (systemdWallService) Stop() error    { return systemctl("stop", "eufy-wall") }
+func (s systemdWallService) serviceName() string {
+	if s.name != "" {
+		return s.name
+	}
+	return "eufy-wall"
+}
+
+func (s systemdWallService) runtimeStatusPath() string {
+	if s.statusPath != "" {
+		return s.statusPath
+	}
+	return clientRuntimeStatusPath()
+}
+
+func (s systemdWallService) Restart() error { return systemctl("restart", s.serviceName()) }
+func (s systemdWallService) Stop() error    { return systemctl("stop", s.serviceName()) }
 
 func systemctl(args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -47,18 +64,18 @@ func systemctl(args ...string) error {
 	return nil
 }
 
-func (systemdWallService) Healthy() error {
+func (s systemdWallService) Healthy() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 24*time.Second)
 	defer cancel()
-	baseline, _ := wallRestartCount()
+	baseline, _ := wallRestartCountFor(s.serviceName())
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
-		if err := systemctl("is-active", "--quiet", "eufy-wall"); err != nil {
-			return fmt.Errorf("eufy-wall is not active: %w", err)
+		if err := systemctl("is-active", "--quiet", s.serviceName()); err != nil {
+			return fmt.Errorf("%s is not active: %w", s.serviceName(), err)
 		}
-		if n, err := wallRestartCount(); err == nil && n > baseline {
-			return fmt.Errorf("eufy-wall restarted %d time(s) during health check", n-baseline)
+		if n, err := wallRestartCountFor(s.serviceName()); err == nil && n > baseline {
+			return fmt.Errorf("%s restarted %d time(s) during health check", s.serviceName(), n-baseline)
 		}
 		select {
 		case <-ticker.C:
@@ -69,7 +86,11 @@ func (systemdWallService) Healthy() error {
 }
 
 func wallRestartCount() (int, error) {
-	b, err := exec.Command("systemctl", "show", "--property=NRestarts", "--value", "eufy-wall").Output()
+	return wallRestartCountFor("eufy-wall")
+}
+
+func wallRestartCountFor(name string) (int, error) {
+	b, err := exec.Command("systemctl", "show", "--property=NRestarts", "--value", name).Output()
 	if err != nil {
 		return 0, err
 	}
@@ -82,13 +103,34 @@ type pendingClientApply struct {
 }
 
 func applyClientConfig(path string, in io.Reader, out io.Writer) error {
+	target, err := targetForInstance("")
+	if err != nil {
+		return err
+	}
+	return applyClientConfigTarget(path, in, out, target)
+}
+
+func applyClientConfigTarget(path string, in io.Reader, out io.Writer, target clientTarget) error {
+	data, err := readClientInput(path, in)
+	if err != nil {
+		return err
+	}
+	c, err := config.Parse(data)
+	if err != nil {
+		return err
+	}
+	if err := validateTargetOutput(target, c); err != nil {
+		return err
+	}
+	path, in = "-", strings.NewReader(string(data))
 	if runtime.GOOS == "darwin" {
-		if err := os.MkdirAll(filepath.Dir(clientConfigPath), 0700); err != nil {
+		if err := os.MkdirAll(filepath.Dir(target.ConfigPath), 0700); err != nil {
 			return err
 		}
-		return applyClientConfigAt(path, in, out, clientConfigPath, launchdWallService{}, true, enableLaunchdWall)
+		return applyClientConfigAt(path, in, out, target.ConfigPath, launchdWallService{}, true, enableLaunchdWall)
 	}
-	return applyClientConfigAt(path, in, out, clientConfigPath, systemdWallService{}, true, func() error { return systemctl("enable", "eufy-wall") })
+	service := systemdWallService{name: target.Service, statusPath: target.StatusPath}
+	return applyClientConfigAt(path, in, out, target.ConfigPath, service, true, func() error { return systemctl("enable", target.Service) })
 }
 
 func applyClientConfigAt(path string, in io.Reader, out io.Writer, dest string, service clientService, host bool, enable func() error) error {

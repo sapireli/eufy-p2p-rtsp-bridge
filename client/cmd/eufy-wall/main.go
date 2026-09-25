@@ -27,11 +27,19 @@ func main() {
 		}
 		return
 	}
-	cfgPath := flag.String("config", clientConfigPath, "config file")
+	cfgPath := flag.String("config", "", "config file")
+	instance := flag.String("instance", "", "Linux named display instance")
 	dryRun := flag.Bool("dry-run", false, "print the resolved layout and pipeline, then exit")
 	printLayout := flag.Bool("print-layout", false, "print the resolved layout table, then exit")
 	flag.Parse()
-	render := func() { runWall(*cfgPath, *dryRun, *printLayout) }
+	target, err := targetForInstance(*instance)
+	if err != nil {
+		log.Fatalf("[wall] %v", err)
+	}
+	if *cfgPath == "" {
+		*cfgPath = target.ConfigPath
+	}
+	render := func() { runWallTarget(*cfgPath, *dryRun, *printLayout, target) }
 	if runtime.GOOS == "darwin" && !*dryRun && !*printLayout {
 		if err := gstnative.RunMacOS(render); err != nil {
 			log.Fatalf("[wall] macOS display loop: %v", err)
@@ -42,9 +50,17 @@ func main() {
 }
 
 func runWall(cfgPath string, dryRun, printLayout bool) {
+	target, err := targetForInstance("")
+	if err != nil {
+		log.Fatalf("[wall] %v", err)
+	}
+	runWallTarget(cfgPath, dryRun, printLayout, target)
+}
+
+func runWallTarget(cfgPath string, dryRun, printLayout bool, target clientTarget) {
 	log.SetFlags(log.Ltime)
 
-	if runtime.GOOS == "darwin" && cfgPath == clientConfigPath {
+	if runtime.GOOS == "darwin" && cfgPath == target.ConfigPath {
 		if err := recoverClientConfig(cfgPath); err != nil {
 			log.Fatalf("[wall] recover config: %v", err)
 		}
@@ -55,6 +71,9 @@ func runWall(cfgPath string, dryRun, printLayout bool) {
 	}
 	c, err := config.Parse(raw)
 	if err != nil {
+		log.Fatalf("[wall] %v", err)
+	}
+	if err := validateTargetOutput(target, c); err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
 	if c.Screen.Width == 0 || c.Screen.Height == 0 {
@@ -137,7 +156,7 @@ func runWall(cfgPath string, dryRun, printLayout bool) {
 	defer stop()
 	if caps.Sink != "planes" {
 		renderer, err := gstnative.New(c, tiles, caps, gstnative.Options{
-			StatusPath: clientRuntimeStatusPath(), ConfigSHA256: gstnative.HashConfig(raw), Initial: staticTiles,
+			StatusPath: target.StatusPath, ConfigSHA256: gstnative.HashConfig(raw), Initial: staticTiles,
 		})
 		if err != nil {
 			log.Fatalf("[wall] native compositor: %v", err)

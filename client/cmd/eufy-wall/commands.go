@@ -23,9 +23,23 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 	if len(args) == 0 {
 		return false, nil
 	}
+	if strings.HasPrefix(args[0], "-") && args[0] != "--instance" {
+		return false, nil
+	}
+	target, args, err := commandTarget(args)
+	if err != nil {
+		return true, err
+	}
+	if len(args) == 0 {
+		return true, errors.New("missing command after --instance")
+	}
+	return runCommandTarget(args, in, out, target)
+}
+
+func runCommandTarget(args []string, in io.Reader, out io.Writer, target clientTarget) (bool, error) {
 	switch args[0] {
 	case "setup":
-		return true, setupWall(context.Background(), args[1:], in, out)
+		return true, setupWallForTarget(context.Background(), args[1:], in, out, target)
 	case "probe":
 		if len(args) != 3 {
 			return true, errors.New("usage: eufy-wall probe <file|-> <camera-serial>")
@@ -60,7 +74,7 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 			if len(args) != 3 && (len(args) != 4 || args[3] != "--json") {
 				return true, errors.New("usage: eufy-wall config validate <file|-> [--json]")
 			}
-			return true, validateClientCommand(args[2], in, out, len(args) == 4)
+			return true, validateClientCommandTarget(args[2], in, out, len(args) == 4, target)
 		case "example":
 			if len(args) != 2 {
 				return true, errors.New("usage: eufy-wall config example")
@@ -71,12 +85,12 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 			if len(args) != 3 && (len(args) != 4 || args[3] != "--json") {
 				return true, errors.New("usage: eufy-wall config apply <file|-> [--json]")
 			}
-			return true, applyClientCommand(args[2], in, out, len(args) == 4)
+			return true, applyClientCommandTarget(args[2], in, out, len(args) == 4, target)
 		case "recover":
 			if len(args) != 2 {
 				return true, errors.New("usage: eufy-wall config recover")
 			}
-			return true, recoverClientConfig(clientConfigPath)
+			return true, recoverClientConfig(target.ConfigPath)
 		default:
 			return true, fmt.Errorf("unknown config command %q", args[1])
 		}
@@ -89,7 +103,7 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 			if len(args) == 3 {
 				path = args[2]
 			}
-			return true, editLayout(path, in, out)
+			return true, editLayoutForTarget(path, in, out, target)
 		}
 		if len(args) < 3 || args[1] != "preview" {
 			return true, errors.New("usage: eufy-wall layout preview <file|-> [--png path] [--display] [--width n --height n]")
@@ -131,21 +145,21 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 		if len(args) > 2 || len(args) == 2 && args[1] != "--json" {
 			return true, errors.New("usage: eufy-wall doctor [--json]")
 		}
-		return true, clientDoctor(len(args) == 2, out)
+		return true, clientDoctorAt(target.ConfigPath, len(args) == 2, out)
 	case "health":
 		if len(args) != 1 {
 			return true, errors.New("usage: eufy-wall health")
 		}
-		return true, clientHealth(out)
+		return true, clientHealthTarget(out, target)
 	case "status":
 		if len(args) > 2 || len(args) == 2 && args[1] != "--json" {
 			return true, errors.New("usage: eufy-wall status [--json]")
 		}
-		serviceActive := func() error { return systemctl("is-active", "--quiet", "eufy-wall") }
+		serviceActive := func() error { return systemctl("is-active", "--quiet", target.Service) }
 		if runtime.GOOS == "darwin" {
 			serviceActive = launchdActive
 		}
-		return true, showClientStatus(clientConfigPath, len(args) == 2, out, serviceActive)
+		return true, showClientStatus(target.ConfigPath, len(args) == 2, out, serviceActive)
 	case "help":
 		_, _ = io.WriteString(out, clientHelp)
 		return true, nil
@@ -157,7 +171,7 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 	}
 }
 
-const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|-> [--json]\n  config apply <file|-> [--json]\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  health\n  status [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
+const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|-> [--json]\n  config apply <file|-> [--json]\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  health\n  status [--json]\n\nUse --instance NAME with a Linux display command for a separate service and config.\nRenderer flags: -config, -instance, -dry-run, -print-layout\n"
 
 func readClientInput(path string, in io.Reader) ([]byte, error) {
 	var source io.Reader = in

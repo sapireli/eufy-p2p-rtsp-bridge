@@ -88,7 +88,18 @@ func emitClientJSON(out io.Writer, ok bool, diagnostic *clientDiagnostic) error 
 }
 
 func validateClientCommand(path string, in io.Reader, out io.Writer, jsonOutput bool) error {
+	target, err := targetForInstance("")
+	if err != nil {
+		return err
+	}
+	return validateClientCommandTarget(path, in, out, jsonOutput, target)
+}
+
+func validateClientCommandTarget(path string, in io.Reader, out io.Writer, jsonOutput bool, target clientTarget) error {
 	c, err := parseClientInput(path, in)
+	if err == nil {
+		err = validateTargetOutput(target, c)
+	}
 	if err == nil {
 		_, err = placeForValidation(c)
 	}
@@ -110,10 +121,18 @@ func validateClientCommand(path string, in io.Reader, out io.Writer, jsonOutput 
 }
 
 func applyClientCommand(path string, in io.Reader, out io.Writer, jsonOutput bool) error {
-	if !jsonOutput {
-		return applyClientConfig(path, in, out)
+	target, err := targetForInstance("")
+	if err != nil {
+		return err
 	}
-	err := applyClientConfig(path, in, io.Discard)
+	return applyClientCommandTarget(path, in, out, jsonOutput, target)
+}
+
+func applyClientCommandTarget(path string, in io.Reader, out io.Writer, jsonOutput bool, target clientTarget) error {
+	if !jsonOutput {
+		return applyClientConfigTarget(path, in, out, target)
+	}
+	err := applyClientConfigTarget(path, in, io.Discard, target)
 	if err != nil {
 		d := diagnosticForClient(err.Error(), "apply")
 		if writeErr := emitClientJSON(out, false, &d); writeErr != nil {
