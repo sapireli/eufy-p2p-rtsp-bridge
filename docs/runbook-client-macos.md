@@ -1,6 +1,6 @@
 # macOS client runbook
 
-The macOS client is a per-user windowed wall. It uses `sink: window`, Homebrew GStreamer, and a launchd agent in the logged-in user's GUI session. It does not use systemd, apt, DRM planes, or `sudo`. Intel (`amd64`) and Apple Silicon (`arm64`) archives are built, but neither display profile has a recorded live measurement yet.
+The macOS client is a per-user windowed wall. It uses `sink: window`, Homebrew GStreamer, and a launchd agent in the logged-in user's GUI session. It does not use systemd, apt, DRM planes, or `sudo`. Intel (`amd64`) and Apple Silicon (`arm64`) archives are built. Intel has only a four-second local H.264 smoke; neither display profile has a completed qualification run.
 
 ## Install a verified release
 
