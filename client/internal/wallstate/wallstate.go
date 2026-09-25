@@ -23,6 +23,7 @@ type Camera struct {
 	Starting   bool   // waking: a stream is being established but no frames yet
 	HasStill   bool   // the bridge holds a thumbnail for this camera at /snapshot/<sn>
 	StreamKey  string // the bridge's go2rtc stream key (its name, slugged) — what the RTSP URL uses
+	Codec      string // h264 | h265, as reported by the bridge for this camera
 	LastMotion time.Time
 }
 
@@ -55,6 +56,7 @@ type HelloCamera struct {
 	State     string `json:"state"`
 	Still     bool   `json:"still"`
 	StreamKey string `json:"streamKey"`
+	Codec     string `json:"codec"`
 }
 
 // Message is one /ws frame. Only the fields the wall acts on are decoded.
@@ -64,6 +66,7 @@ type Message struct {
 	State   string        `json:"state"`
 	Event   string        `json:"event"`
 	Still   bool          `json:"still"`
+	Codec   string        `json:"codec"`
 	Cameras []HelloCamera `json:"cameras"`
 }
 
@@ -76,9 +79,17 @@ func (s *Store) Apply(m Message) bool {
 	case "hello":
 		// The snapshot a joining client is sent, so a wall that connects mid-event knows what is already
 		// happening rather than waiting for the next event.
+		previous := s.cams
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
-			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey}
+			cam := &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, Codec: c.Codec}
+			if old := previous[c.SN]; old != nil {
+				cam.LastMotion = old.LastMotion
+				if cam.Codec == "" {
+					cam.Codec = old.Codec
+				}
+			}
+			s.cams[c.SN] = cam
 		}
 		return true
 	case "motion":
@@ -97,10 +108,14 @@ func (s *Store) Apply(m Message) bool {
 		}
 		c := s.get(m.SN)
 		live, starting := m.State == "live", m.State == "starting"
-		if c.Live == live && c.Starting == starting {
+		codecChanged := m.Codec != "" && m.Codec != c.Codec
+		if c.Live == live && c.Starting == starting && !codecChanged {
 			return false
 		}
 		c.Live, c.Starting = live, starting
+		if m.Codec != "" {
+			c.Codec = m.Codec
+		}
 		return true
 	}
 	return false // `hold` is informational for a tile; the streamState that follows is what matters
@@ -166,8 +181,8 @@ type Selection struct {
 	// while it is — a hold is bounded on the server, so a tile that stopped asking once the picture
 	// arrived would watch it die mid-view.
 	//
-	// Only a motion tile asks. A fixed tile pointed at a battery camera waits for the server to wake it
-	// on its own; asking would pin that camera awake for as long as the wall is powered on.
+	// Motion tiles and fixed on_demand tiles ask for a bounded, refreshed hold. Fixed on_motion tiles
+	// never ask, so battery cameras continue sleeping between events.
 	Hold bool
 }
 
@@ -201,8 +216,11 @@ func (s *Store) Resolve(tiles []config.Tile, current map[int]string, switchedAt 
 					// Its camera is asleep or waking: show the last still rather than nothing. An
 					// always-on camera is exempt — a brief idle there is a reconnect, and swapping to a
 					// still and back would be a visible flap.
-					sel.Content = ContentSnapshot
+					sel.Content = s.contentFor(t.Camera)
 				}
+			}
+			if cam, ok := s.camera(t.Camera); ok && cam.Mode == "on_demand" {
+				sel.Hold = true
 			}
 			out = append(out, sel)
 			continue
@@ -281,4 +299,15 @@ func (s *Store) StreamKeyFor(sn string) string {
 		return c.StreamKey
 	}
 	return sn
+}
+
+// CodecFor returns the camera's current codec. An empty value means the bridge has not reported one;
+// the caller may then use a local tile hint or the transcoding bridge's H.264 default.
+func (s *Store) CodecFor(sn string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if c, ok := s.cams[sn]; ok {
+		return c.Codec
+	}
+	return ""
 }

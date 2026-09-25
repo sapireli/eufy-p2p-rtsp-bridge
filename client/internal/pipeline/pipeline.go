@@ -79,14 +79,14 @@ func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 		return []Plan{{Name: "wall", Args: args}}, nil
 	}
 	out := make([]Plan, 0, len(tiles))
-	for i, t := range tiles {
+	for _, t := range tiles {
 		args, err := Build(c, []layout.Placed{t}, caps)
 		if err != nil {
 			return nil, err
 		}
-		name := t.Camera
+		name := t.ID
 		if name == "" {
-			name = fmt.Sprintf("tile%d", i)
+			name = fmt.Sprintf("tile%d", t.Index)
 		}
 		out = append(out, Plan{Name: name, Args: args})
 	}
@@ -135,7 +135,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		dp := depayParse[codec]
 		return []string{
 			"rtspsrc", "location=" + t.URL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp", fmt.Sprintf("name=src%d", i),
-			"!", dp[0], "!", dp[1], "!", family[codec],
+			"!", dp[0], "!", dp[1], "!", family[codec], "!", "watchdog", "timeout=15000",
 		}
 	}
 	switch caps.Sink {
