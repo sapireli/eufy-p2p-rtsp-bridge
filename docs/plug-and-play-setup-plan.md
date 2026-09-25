@@ -187,7 +187,7 @@ The server setup flow must stage credentials separately from nonsecret YAML. The
 1. Inject bridge loss, LAN partitions, DNS and RTSP timeouts, WebSocket disconnects, packet stalls, corrupt or partial camera events, Eufy auth expiry, and camera or station errors. The wall must keep unaffected tiles rendering, mark unavailable tiles honestly, retry with bounded backoff and jitter, refresh inventory after reconnect, and release stale on-demand holds.
 2. Kill the bridge, go2rtc, individual tile pipelines, the compositor, the wall process, and each config-apply command at each transaction phase. Verify systemd and transaction recovery, no permanent black screen from a stale frame, no duplicate holds, and no half-applied config or binary upgrade.
 3. Exercise repeated failure and recovery cycles, including an offline start followed by reconnection and a camera changing codec mid-session. Define a measurable recovery deadline and frame-progress check for each supported hardware profile, record failures in the runbooks, and fix confirmed runtime gaps before declaring setup advice trustworthy.
-4. Add adversarial, behavior-focused tests in both languages, including malformed input, concurrent apply, interrupted writes, retries, and reordered events. Keep implementation files focused and easy to refactor. Require more than 70% aggregate statement or line coverage in both the Go client and Node bridge, measured by the project CI, without adding tests that merely mirror implementation.
+4. Add adversarial, behavior-focused unit and integration tests in both languages, including malformed input, concurrent apply, interrupted writes, retries, and reordered events. Keep implementation files focused and easy to refactor. Require more than 80% aggregate statement or line coverage in both the Go client and Node bridge, measured by the project CI, without adding tests that merely mirror implementation.
 
 ### 7. Release qualification
 
@@ -205,7 +205,7 @@ The server setup flow must stage credentials separately from nonsecret YAML. The
 - Server setup/config commands live in the Node bridge package; client setup/config/layout commands live in the Go client binary. Both accept custom YAML files and stdin over SSH. No setup step requires a browser or public exposure of the bridge.
 - A user can complete the documented manual YAML path without running either wizard and receives the same diagnostics and rollback behavior.
 - The documented supported hardware profiles pass the soak/recovery matrix with measured frame progress and bounded recovery time.
-- Network, camera, and process failures recover within the documented bounds without disrupting unaffected tiles; both CI coverage reports exceed 70% overall and the resilience tests pass.
+- Network, camera, and process failures recover within the documented bounds without disrupting unaffected tiles; both CI coverage reports exceed 80% overall and the adversarial and unit tests pass.
 
 ## Decisions to confirm before implementation
 
