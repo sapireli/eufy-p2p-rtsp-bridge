@@ -31,7 +31,19 @@ test("validate accepts file and stdin with the same strict schema", async (t) =>
   }
   const bad = await run(["config", "validate", "-", "--json"], { input: "schema_version: 2\nsecret_typo: value\n" });
   assert.equal(bad.code, 1);
-  assert.match(JSON.parse(bad.err).error, /secret_typo/);
+  const invalid = JSON.parse(bad.err);
+  assert.match(invalid.error, /secret_typo/);
+  assert.deepEqual(invalid.diagnostics.map((d) => [d.code, d.severity, d.path]), [["CONFIG_UNSUPPORTED_KEY", "error", "secret_typo"]]);
+  assert.match(invalid.diagnostics[0].remedy, /config example/);
+  const syntax = await run(["config", "validate", "-", "--json"], { input: "eufy: { password: INLINE-SECRET, email: user@example.com\n" });
+  assert.equal(syntax.code, 1);
+  assert.equal(JSON.parse(syntax.err).diagnostics[0].code, "CONFIG_YAML_INVALID");
+  assert.doesNotMatch(syntax.out + syntax.err, /INLINE-SECRET/);
+  const apply = await run(["config", "apply", "-", "--json"], { input: "schema_version: 2\nport: 99999\n", env: { BRIDGE_CONFIG: file } });
+  assert.equal(apply.code, 1);
+  assert.deepEqual(JSON.parse(apply.err).diagnostics.map((d) => [d.code, d.path]), [["CONFIG_INVALID", "port"]]);
+  assert.match(JSON.parse(apply.err).diagnostics[0].remedy, /config explain port/);
+  assert.equal(await readFile(file, "utf8"), "schema_version: 2\nport: 3000\n");
 });
 
 test("example is nonsecret and can be validated with environment credentials", async () => {
@@ -120,6 +132,20 @@ test("status redacts captcha data; doctor reports bad host dependencies", async 
   const checks = JSON.parse(doctor.out).checks;
   assert.ok(checks.some((c) => c.code === "GO2RTC" && !c.ok));
   assert.ok(checks.some((c) => c.code === "HEALTH" && !c.ok));
+  assert.ok(JSON.parse(doctor.out).diagnostics.every((d) => d.severity === "error" && d.remedy));
+});
+
+test("doctor finds an executable go2rtc on PATH", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ewb-doctor-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const binary = join(dir, "fake-go2rtc"), config = join(dir, "bridge.yaml");
+  await writeFile(binary, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  await chmod(binary, 0o755);
+  await writeFile(config, "schema_version: 2\ngo2rtc_bin: fake-go2rtc\n");
+  const doctor = await run(["doctor", "--json"], { env: { BRIDGE_CONFIG: config, PATH: `${dir}:${process.env.PATH}` } });
+  const check = JSON.parse(doctor.out).checks.find((c) => c.code === "GO2RTC");
+  assert.equal(check.ok, true);
+  assert.equal(check.detail, binary);
 });
 
 test("status reaches a bridge bound to a specific non-default address", async (t) => {

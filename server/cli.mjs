@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Local setup and configuration command for the Node bridge. It never accepts network config writes.
 import fs from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, constants } from "node:fs";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 import { loadConfig, parseConfigText } from "./src/config.mjs";
+import { configDiagnostic } from "./src/config-diagnostic.mjs";
 import { migrateLegacyConfig } from "./src/config-migrate.mjs";
 import { applyConfig, applyStatus, recoverInterruptedApply } from "./src/config-apply.mjs";
 import { chooseCameraPolicies } from "./src/setup-cameras.mjs";
@@ -27,8 +28,8 @@ if (existsSync(envPath)) process.loadEnvFile(envPath);
 function emit(data, asJson) {
   stdout.write(asJson ? `${JSON.stringify(data, null, 2)}\n` : `${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n`);
 }
-function fail(message, asJson, code = "ERROR") {
-  stderr.write(asJson ? `${JSON.stringify({ ok: false, code, error: message })}\n` : `eufy-bridge: ${message}\n`);
+function fail(message, asJson, diagnostic) {
+  stderr.write(asJson ? `${JSON.stringify({ ok: false, code: diagnostic?.code ?? "ERROR", error: diagnostic?.message ?? message, diagnostics: diagnostic ? [diagnostic] : [] })}\n` : `eufy-bridge: ${diagnostic?.message ?? message}${diagnostic ? `\n${diagnostic.remedy}` : ""}\n`);
   process.exitCode = 1;
 }
 async function input(path) {
@@ -44,6 +45,13 @@ async function input(path) {
   return fs.readFile(path, "utf8");
 }
 async function restart() { await exec("systemctl", ["restart", service], { timeout: 30_000 }); }
+async function executablePath(name) {
+  const paths = name.includes("/") ? [name] : (process.env.PATH ?? "").split(":").map((dir) => join(dir, name));
+  for (const path of paths) {
+    try { await fs.access(path, constants.X_OK); return path; } catch { /* try the next PATH entry */ }
+  }
+  return null;
+}
 async function enableService() { await exec("systemctl", ["enable", service], { timeout: 30_000 }); }
 async function isServiceEnabled() {
   try { await exec("systemctl", ["is-enabled", "--quiet", service], { timeout: 5_000 }); return true; }
@@ -244,7 +252,7 @@ async function main() {
   if (verb === "config" && sub === "validate") {
     const text = await input(path);
     const { cfg } = loadConfig({ rawText: text });
-    return emit({ ok: true, schemaVersion: parse(text)?.schema_version ?? 1, cameras: Object.keys(cfg.cameras).length, path: path ?? null }, asJson);
+    return emit({ ok: true, schemaVersion: parse(text)?.schema_version ?? 1, cameras: Object.keys(cfg.cameras).length, path: path ?? null, diagnostics: [] }, asJson);
   }
   if (verb === "config" && sub === "migrate") {
     const text = await input(path);
@@ -265,7 +273,7 @@ async function main() {
   }
   if (verb === "config" && sub === "apply") {
     const text = await input(path);
-    return emit({ ok: true, ...await applyConfig({ target, yamlText: text, restart, health }) }, asJson);
+    return emit({ ok: true, ...await applyConfig({ target, yamlText: text, restart, health }), diagnostics: [] }, asJson);
   }
   if (verb === "config" && sub === "recover") return emit({ ok: true, ...await recoverInterruptedApply(target) }, asJson);
   if (verb === "status") {
@@ -279,12 +287,14 @@ async function main() {
     checks.push({ code: "NODE_VERSION", ok: Number(process.versions.node.split(".")[0]) >= 24, detail: process.version });
     checks.push({ code: "CONFIG_FILE", ok: existsSync(target), detail: target });
     try { const { cfg } = loadConfig(); checks.push({ code: "CONFIG_VALID", ok: true });
-      try { await fs.access(cfg.go2rtcBin); checks.push({ code: "GO2RTC", ok: true, detail: cfg.go2rtcBin }); }
-      catch { checks.push({ code: "GO2RTC", ok: false, detail: `${cfg.go2rtcBin} not accessible as a path (may be on PATH)` }); }
+      const binary = await executablePath(cfg.go2rtcBin);
+      checks.push({ code: "GO2RTC", ok: Boolean(binary), detail: binary ?? `${cfg.go2rtcBin} not executable or absent from PATH` });
     } catch (error) { checks.push({ code: "CONFIG_VALID", ok: false, detail: error.message }); }
     try { const h = await local("/healthz"); checks.push({ code: "HEALTH", ok: h.auth?.state === "ok", detail: h.auth?.state }); }
     catch (error) { checks.push({ code: "HEALTH", ok: false, detail: error.message }); }
-    emit({ ok: checks.every((c) => c.ok), checks, interfaces: interfaces() }, asJson);
+    const remedies = { NODE_VERSION: "Install Node.js 24.5 or later.", CONFIG_FILE: "Create the bridge YAML or set BRIDGE_CONFIG.", CONFIG_VALID: "Run eufy-bridge config validate <file> and correct the reported field.", GO2RTC: "Install go2rtc or set go2rtc_bin to an executable path.", HEALTH: "Check the service, network listener, and auth state with eufy-bridge status --json." };
+    const diagnostics = checks.filter((c) => !c.ok).map((c) => ({ code: c.code, severity: "error", path: c.code === "CONFIG_VALID" ? "config" : c.code === "GO2RTC" ? "go2rtc_bin" : null, message: c.detail ?? c.code, remedy: remedies[c.code] }));
+    emit({ ok: diagnostics.length === 0, checks, diagnostics, interfaces: interfaces() }, asJson);
     if (checks.some((c) => !c.ok)) process.exitCode = 1;
     return;
   }
@@ -307,4 +317,4 @@ async function main() {
   if (verb) process.exitCode = 2;
 }
 
-main().catch((error) => fail(error?.message ?? String(error), process.argv.includes("--json")));
+main().catch((error) => fail(error?.message ?? String(error), process.argv.includes("--json"), process.argv[2] === "config" ? configDiagnostic(error) : null));
