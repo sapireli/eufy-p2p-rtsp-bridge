@@ -106,4 +106,6 @@ Omitting `schema_version` keeps the legacy format. New files should set `schema_
 | `go2rtc.transcode` | `never` | `never`, `auto`, or `always`; hardware-only transcoding when enabled. |
 | `stall.stall_ms`, `.gap_ms`, `.exit_after_ms`, `.recreate_client_after`, `.backoff_ms` | 30000, 45000, 300000, 8, `[1000,2000,4000,8000]` | Feed recovery timers and retry schedule. |
 
+Client `POST /hold/<serial>` requests also require a finite `seconds` value from 1 to 3600; the server rejects zero, nonnumeric, and longer holds.
+
 If validation fails, the error names the YAML key or parse line. Existing configurations without a schema version continue to load; review them with `config validate` before applying a changed version. Challenge answers should use the CLI or a JSON POST body to `/auth/tfa` or `/auth/captcha` on loopback, for example `curl -X POST -H 'content-type: application/json' --data '{"code":"123456"}' http://127.0.0.1:3000/auth/tfa`. The legacy query form still works for older callers but exposes answers in URL logs.
