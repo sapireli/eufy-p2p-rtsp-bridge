@@ -173,7 +173,9 @@ func TestRendererSourceInstallFailureKeepsPeerAndFallsBack(t *testing.T) {
 			case "sink":
 				original := mock.byName
 				mock.byName = func(bin uintptr, name string) uintptr {
-					if name == "source_output" && calls.Add(1) == 1 { return 0 }
+					if name == "source_output" && calls.Add(1) == 1 {
+						return 0
+					}
 					return original(bin, name)
 				}
 			case "start":
