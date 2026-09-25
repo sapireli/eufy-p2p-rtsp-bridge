@@ -19,6 +19,7 @@ import { createWsHub } from "./src/ws-hub.mjs";
 import { createGo2rtc } from "./src/go2rtc.mjs";
 import { createHttpHandler } from "./src/http.mjs";
 import { installRecoveryRepin } from "./src/recovery.mjs";
+import { installAuthRetry } from "./src/auth-retry.mjs";
 import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
 import { createWatchdog } from "./src/vendor/ha-bridge/watchdog.mjs";
 
@@ -76,6 +77,7 @@ export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2r
   // P2P-only enforcement lives in the SDK; it asks per session which stations are pinned right now.
   hooks.lanOnlyForStation = (stationSn) => ctx.lanUpgrade?.isForced?.(stationSn);
   installRecoveryRepin(ctx); // pins re-applied after watchdog / kicked-session re-logins
+  installAuthRetry(ctx); // transient cloud errors after expiry must not leave auth stuck at reauth
 
   /** Runs once after the first successful login (re-auth calls it again and it returns immediately). */
   ctx.completeBoot = async function completeBoot() {
@@ -152,6 +154,7 @@ export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2r
     if (stopPromise) return stopPromise;
     stopPromise = (async () => {
       for (const t of Object.values(state.timers)) if (t) clearInterval(t);
+      ctx.stopAuthRetry();
       ctx.ws?.close();
       ctx.stopGo2rtc();
       await ctx.stopAll();
