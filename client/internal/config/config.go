@@ -289,6 +289,9 @@ func (c *Config) TileURL(t Tile) string {
 	if t.URL != "" {
 		return t.URL
 	}
+	if t.Camera == "" {
+		return ""
+	}
 	return strings.TrimRight(c.RTSPBase, "/") + "/" + t.Camera
 }
 

@@ -137,3 +137,87 @@ func TestDynamicWallWithoutControlEndpointRunsStaticUntilStopped(t *testing.T) {
 		t.Fatal("static wall did not stop")
 	}
 }
+
+func TestMotionTileExpiresAndReleasesHoldWithoutAnotherBridgeEvent(t *testing.T) {
+	holds := make(chan string, 8)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/hold/") {
+			holds <- r.Method
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		_ = conn.Write(r.Context(), websocket.MessageText, []byte(`{"type":"hello","cameras":[{"sn":"CAM1","mode":"on_motion","state":"live","streamKey":"front","codec":"h264"}]}`))
+		_ = conn.Write(r.Context(), websocket.MessageText, []byte(`{"type":"motion","sn":"CAM1","event":"motion"}`))
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	c, err := config.Parse([]byte("schema_version: 2\nbridge_url: " + srv.URL + "\nrtsp_base: rtsp://bridge:8554\nlayout: 1\ntiles:\n  - id: recent\n    motion: latest\n    watch: [CAM1]\n    blank_after_seconds: 1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tiles, err := layout.Place(c, config.Screen{Width: 640, Height: 480})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := &recordingWall{notify: make(chan struct{}, 16)}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		runDynamic(ctx, c, pipeline.Caps{Decoder: "software", Sink: "window", Screen: config.Screen{Width: 640, Height: 480}}, tiles, mgr, nil)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("wall did not stop")
+		}
+	}()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-mgr.notify:
+			plans := mgr.latest()
+			if len(plans) > 0 && strings.Contains(pipeline.String(plans[0].Args), "rtsp://bridge:8554/front") {
+				goto live
+			}
+		case <-deadline:
+			t.Fatal("motion tile never showed the live camera")
+		}
+	}
+live:
+	select {
+	case method := <-holds:
+		if method != http.MethodPost {
+			t.Fatalf("first hold request = %s", method)
+		}
+	case <-deadline:
+		t.Fatal("motion tile did not take a hold")
+	}
+	for {
+		select {
+		case <-mgr.notify:
+			plans := mgr.latest()
+			if len(plans) > 0 && !strings.Contains(pipeline.String(plans[0].Args), "rtspsrc") {
+				goto blank
+			}
+		case <-deadline:
+			t.Fatal("motion tile stayed live after its blank deadline without another event")
+		}
+	}
+blank:
+	select {
+	case method := <-holds:
+		if method != http.MethodDelete {
+			t.Fatalf("expired motion hold request = %s", method)
+		}
+	case <-deadline:
+		t.Fatal("expired motion tile did not release its hold")
+	}
+}

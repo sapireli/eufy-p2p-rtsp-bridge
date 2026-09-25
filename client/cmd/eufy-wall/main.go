@@ -68,7 +68,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
-	plans, err := pipeline.Plans(c, tiles, caps)
+	staticTiles := make([]layout.Placed, 0, len(tiles))
+	for _, tile := range tiles {
+		if c.Tiles[tile.Index].Motion == "" {
+			staticTiles = append(staticTiles, tile)
+		}
+	}
+	plans, err := pipeline.Plans(c, staticTiles, caps)
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
@@ -119,6 +125,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 
 	store := wallstate.New()
 	var mu sync.Mutex
+	var applyMu sync.Mutex
 	showing := map[int]string{}
 	switchedAt := map[int]time.Time{}
 	// What each tile is rendering: live video, or the camera's last still while it wakes.
@@ -130,6 +137,11 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	holding := map[string]bool{}
 
 	apply := func() {
+		applyMu.Lock()
+		defer applyMu.Unlock()
+		if ctx.Err() != nil {
+			return
+		}
 		mu.Lock()
 		// Until the server has told us what exists, render the wall exactly as configured. Resolving
 		// against an empty store would blank every tile, so a display whose bridge is briefly
@@ -159,8 +171,10 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		}
 		var take, drop []string
 		for cam := range wanted {
-			take = append(take, cam)
-			holding[cam] = true
+			if !holding[cam] {
+				take = append(take, cam)
+				holding[cam] = true
+			}
 		}
 		for cam := range holding {
 			if !wanted[cam] {
@@ -185,6 +199,12 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 				keys[cam] = store.StreamKeyFor(cam)
 			}
 		}
+		line := describe(tiles, snapshot, kinds)
+		logLine := ""
+		if line != lastShown {
+			lastShown = line
+			logLine = line
+		}
 		mu.Unlock()
 
 		for _, cam := range take {
@@ -193,9 +213,8 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		for _, cam := range drop {
 			go holdRequest(ctx, controlBase(c), http.MethodDelete, cam)
 		}
-		if line := describe(tiles, snapshot, kinds); line != lastShown {
-			lastShown = line
-			log.Printf("[wall] showing %s", line)
+		if logLine != "" {
+			log.Printf("[wall] showing %s", logLine)
 		}
 		mgr.Update(ctx, plansFor(c, caps, tiles, snapshot, kinds, func(sn string) string {
 			if k, ok := keys[sn]; ok && k != "" {
@@ -213,8 +232,14 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	// camera awake: stop refreshing and it sleeps on its own.
 	refresh := time.NewTicker(holdRefreshInterval)
 	defer refresh.Stop()
+	// Motion expiry is a deadline, not a bridge event. Reconcile even while /ws is quiet or offline so
+	// a motion tile blanks and its hold is released without waiting for another camera event.
+	reconcile := time.NewTicker(time.Second)
+	defer reconcile.Stop()
 	for {
 		select {
+		case <-reconcile.C:
+			apply()
 		case <-ctx.Done():
 			mu.Lock()
 			held := make([]string, 0, len(holding))
@@ -231,7 +256,9 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			}
 			wg.Wait()
 			cancel()
+			applyMu.Lock()
 			mgr.Update(ctx, nil)
+			applyMu.Unlock()
 			return
 		case <-refresh.C:
 			mu.Lock()
@@ -264,7 +291,7 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 		if !ok || cam == "" {
 			// A tile with its own URL is independent of the bridge's camera inventory. It must survive
 			// the first hello snapshot even though it has no camera serial.
-			if t.Camera == "" && t.URL != "" {
+			if t.Camera == "" && t.Index < len(c.Tiles) && c.Tiles[t.Index].URL != "" && c.Tiles[t.Index].Motion == "" {
 				live = append(live, t)
 			}
 			continue
