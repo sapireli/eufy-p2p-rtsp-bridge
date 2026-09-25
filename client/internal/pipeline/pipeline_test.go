@@ -249,6 +249,27 @@ func TestEmptyCompositorKeepsBlackOutputInsteadOfLastCameraFrame(t *testing.T) {
 	}
 }
 
+func TestDecodedFrameProbeUsesActualCodecAndStopsAfterTwoFrames(t *testing.T) {
+	for _, tc := range []struct{ codec, depay, decoder string }{
+		{"h264", "rtph264depay", "avdec_h264"},
+		{"h265", "rtph265depay", "avdec_h265"},
+	} {
+		args, err := ProbeArgs(&config.Config{Latency: 200}, "software", tc.codec, "rtsp://bridge:8554/Front%20Door%2F1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := String(args)
+		for _, want := range []string{tc.depay, tc.decoder, "identity eos-after=2", "fakesink sync=false", "Front%20Door%2F1"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s probe lacks %s: %s", tc.codec, want, got)
+			}
+		}
+	}
+	if _, err := ProbeArgs(&config.Config{}, "software", "av1", "rtsp://bridge/A"); err == nil {
+		t.Fatal("unsupported codec reached a live probe")
+	}
+}
+
 func TestRepeatedCameraTilesHaveDistinctStablePlanNames(t *testing.T) {
 	c := &config.Config{Latency: 200, Planes: []int{31, 32}}
 	tiles := []layout.Placed{

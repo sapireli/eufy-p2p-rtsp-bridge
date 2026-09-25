@@ -177,3 +177,19 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 
 // String joins args for logging; the supervisor execs the slice directly (no shell).
 func String(args []string) string { return strings.Join(args, " ") }
+
+// ProbeArgs decodes two live pictures into a discard sink. identity sends EOS after the second decoded
+// buffer, so a zero exit proves frame progress without opening HDMI or retaining a battery stream.
+func ProbeArgs(c *config.Config, decoder, codec, rtspURL string) ([]string, error) {
+	family, ok := decoders[decoder]
+	if !ok || family[codec] == "" {
+		return nil, fmt.Errorf("pipeline: %s decoder cannot probe %s", decoder, codec)
+	}
+	if rtspURL == "" {
+		return nil, fmt.Errorf("pipeline: RTSP URL is empty")
+	}
+	dp := depayParse[codec]
+	return []string{"-q", "rtspsrc", "location=" + rtspURL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp",
+		"!", dp[0], "!", dp[1], "!", family[codec], "!", "watchdog", "timeout=10000",
+		"!", "identity", "eos-after=2", "!", "fakesink", "sync=false"}, nil
+}
