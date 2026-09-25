@@ -71,7 +71,7 @@ func TestResolve(t *testing.T) {
 
 func TestCheckNativeElements(t *testing.T) {
 	required := map[string]bool{
-		"compositor": true, "intervideosrc": true, "intervideosink": true,
+		"compositor": true, "appsink": true, "appsrc": true,
 		"videoconvert": true, "videoscale": true, "videorate": true,
 		"autovideosink": true,
 	}
@@ -81,7 +81,7 @@ func TestCheckNativeElements(t *testing.T) {
 			t.Fatalf("complete %s host: %v", sink, err)
 		}
 	}
-	for _, missing := range []string{"intervideosrc", "intervideosink", "videoconvert", "videoscale", "videorate"} {
+	for _, missing := range []string{"appsink", "appsrc", "videoconvert", "videoscale", "videorate"} {
 		required[missing] = false
 		if err := CheckNativeElements("compositor", has); err == nil {
 			t.Fatalf("missing %s was accepted", missing)

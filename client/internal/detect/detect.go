@@ -125,9 +125,9 @@ func CheckNativeElements(sink string, has func(string) bool) error {
 	if sink != "compositor" && sink != "window" {
 		return nil
 	}
-	for _, element := range []string{"compositor", "intervideosrc", "intervideosink", "videoconvert", "videoscale", "videorate"} {
+	for _, element := range []string{"compositor", "appsink", "appsrc", "videoconvert", "videoscale", "videorate"} {
 		if !has(element) {
-			return fmt.Errorf("GStreamer %s is missing (install gstreamer1.0-plugins-base/bad or Homebrew GStreamer)", element)
+			return fmt.Errorf("GStreamer %s is missing (install gstreamer1.0-plugins-base or Homebrew GStreamer)", element)
 		}
 	}
 	if sink == "window" && !has("autovideosink") {
