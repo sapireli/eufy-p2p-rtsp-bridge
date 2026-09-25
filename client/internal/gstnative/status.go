@@ -30,6 +30,7 @@ type Status struct {
 type TileStatus struct {
 	ExpectedLive       bool       `json:"expected_live"`
 	SourceKind         string     `json:"source_kind"`
+	Decoder            string     `json:"decoder,omitempty"`
 	DecodedFrames      uint64     `json:"decoded_frames"`
 	LastDecodedFrameAt *time.Time `json:"last_decoded_frame_at,omitempty"`
 	Generation         uint64     `json:"generation"`

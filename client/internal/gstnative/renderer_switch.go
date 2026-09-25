@@ -10,6 +10,9 @@ import (
 
 func (r *Renderer) switchSource(s *slot, tile layout.Placed) error {
 	key := sourceKey(tile)
+	if sourceKey(s.tile) != key {
+		s.softwareFallback = false
+	}
 	if s.key == key && (s.state == "playing" || s.state == "starting") {
 		return nil
 	}
@@ -20,18 +23,18 @@ func (r *Renderer) switchSource(s *slot, tile layout.Placed) error {
 	s.tile = tile
 	if sourceKind(tile) == "black" {
 		r.blackout(s)
-		s.key, s.kind, s.state, s.err = key, "black", "playing", ""
+		s.key, s.kind, s.state, s.err, s.decoder = key, "black", "playing", "", ""
 		s.generation++
 		return nil
 	}
-	desc, err := r.options.source(tile)
+	desc, err := r.sourceFor(s, tile)
 	if err != nil {
 		return r.retrySource(s, err)
 	}
 	if err := r.installSource(s, desc); err != nil {
 		return r.retrySource(s, err)
 	}
-	s.key, s.kind, s.state, s.err = key, sourceKind(tile), "starting", ""
+	s.key, s.kind, s.state, s.err, s.decoder = key, sourceKind(tile), "starting", "", r.decoderFor(s, tile)
 	s.generation++
 	s.installed = time.Now()
 	s.nextRetry = time.Time{}
@@ -42,7 +45,7 @@ func (r *Renderer) switchSource(s *slot, tile layout.Placed) error {
 // keeps that same tile feed alive until a replacement decodes a frame.
 func (r *Renderer) retrySource(s *slot, cause error) error {
 	r.blackout(s)
-	s.key, s.kind = "", "black"
+	s.key, s.kind, s.decoder = "", "black", ""
 	s.state, s.err = "retrying", cause.Error()
 	s.nextRetry = time.Now().Add(r.options.retryAfter)
 	return cause
@@ -76,12 +79,16 @@ func (r *Renderer) installSource(s *slot, description string) error {
 	}
 	s.source, s.sourceBus, s.sourceSink = next, bus, output
 	s.counter = new(frameCounter)
+	if err := r.trackDecoderInput(s, next); err != nil {
+		r.removeSource(s)
+		return err
+	}
 	if a.setState(next, statePlaying) == 0 {
 		r.removeSource(s)
 		return errors.New("native renderer could not start replacement source")
 	}
 	s.pumpStop, s.pumpDone = make(chan struct{}), make(chan struct{})
-	go pumpSource(a, s.sourceSink, s, s.counter, s.pumpStop, s.pumpDone)
+	go pumpSource(a, s.sourceSink, s, s.counter, s.compressed, s.pumpStop, s.pumpDone)
 	return nil
 }
 
@@ -94,6 +101,11 @@ func (r *Renderer) removeSource(s *slot) {
 		close(s.pumpStop)
 	}
 	a.setState(s.source, stateNull)
+	if s.decoderPad != 0 {
+		a.removeProbe(s.decoderPad, s.decoderProbe)
+		a.objectUnref(s.decoderPad)
+		s.decoderPad, s.decoderProbe, s.decoderCallback, s.compressed = 0, 0, nil, nil
+	}
 	if s.pumpDone != nil {
 		<-s.pumpDone
 	}

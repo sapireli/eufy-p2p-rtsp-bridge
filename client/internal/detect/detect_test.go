@@ -61,7 +61,8 @@ func TestResolve(t *testing.T) {
 	}
 	x86 := &config.Config{Decoder: "auto", Sink: "auto", Screen: config.Screen{Width: 1920, Height: 1080}}
 	caps, _ = resolveForOS(x86, has("vah264dec", "avdec_h264", "avdec_h265", "compositor"), exists("/dev/dri/renderD128"), "linux")
-	if caps.Element("h264") != "vah264dec" || caps.Element("h265") != "avdec_h265" || caps.Sink != "compositor" {
+	if caps.Element("h264") != "vah264dec" || caps.Element("h265") != "avdec_h265" ||
+		caps.AutoSoftwareElements["h264"] != "avdec_h264" || caps.Sink != "compositor" {
 		t.Fatalf("x86: %+v", caps)
 	}
 	caps, err = resolveForOS(x86, has("vah264dec", "avdec_h264", "compositor"), exists(), "linux")
@@ -115,6 +116,16 @@ func TestDarwinAutoSink(t *testing.T) {
 	caps, err := resolveForOS(c, has, func(string) bool { return false }, "darwin")
 	if err != nil || caps.Element("h264") != "vtdec_hw" || caps.Element("h265") != "vtdec_hw" || caps.Sink != "window" {
 		t.Fatalf("mac auto: %+v, %v", caps, err)
+	}
+	if caps.AutoSoftwareElements["h264"] != "" || caps.AutoSoftwareElements["h265"] != "" {
+		t.Fatalf("Mac without libav advertised runtime software fallback: %+v", caps)
+	}
+	caps, err = resolveForOS(c, func(name string) bool {
+		return name == "vtdec_hw" || name == "avdec_h264" || name == "avdec_h265" || name == "autovideosink"
+	}, func(string) bool { return false }, "darwin")
+	if err != nil || caps.Element("h264") != "vtdec_hw" || caps.AutoSoftwareElements["h264"] != "avdec_h264" ||
+		caps.AutoSoftwareElements["h265"] != "avdec_h265" {
+		t.Fatalf("Mac did not retain per-codec runtime fallback: %+v, %v", caps, err)
 	}
 	if _, err := resolveForOS(c, func(name string) bool { return name == "vtdec_hw" }, func(string) bool { return false }, "darwin"); err == nil {
 		t.Fatal("missing window sink should fail")

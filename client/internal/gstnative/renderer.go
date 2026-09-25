@@ -26,6 +26,7 @@ type Options struct {
 	Initial            []layout.Placed
 	sink               string
 	source             func(layout.Placed) (string, error)
+	sourceWithDecoder  func(layout.Placed, string) (string, error)
 	stallAfter         time.Duration
 	retryAfter         time.Duration
 	startupAfter       time.Duration
@@ -39,6 +40,8 @@ type Options struct {
 type frameCounter struct {
 	frames atomic.Uint64
 	last   atomic.Int64
+	// Compressed buffers seen at the decoder when the last decoded frame arrived.
+	inputAtFrame atomic.Uint64
 }
 
 func (c *frameCounter) tick() {
@@ -56,29 +59,35 @@ func (c *frameCounter) lastTime() *time.Time {
 }
 
 type slot struct {
-	tile         layout.Placed
-	feed         uintptr
-	blackBuffer  uintptr
-	lastFrame    uintptr
-	blackStop    chan struct{}
-	blackDone    chan struct{}
-	showLive     atomic.Bool
-	lastLivePush atomic.Int64
-	feedMu       sync.Mutex
-	source       uintptr
-	sourceBus    uintptr
-	sourceSink   uintptr
-	pumpStop     chan struct{}
-	pumpDone     chan struct{}
-	counter      *frameCounter
-	kind         string
-	expectedLive bool
-	key          string
-	generation   uint64
-	state        string
-	err          string
-	installed    time.Time
-	nextRetry    time.Time
+	tile             layout.Placed
+	feed             uintptr
+	blackBuffer      uintptr
+	lastFrame        uintptr
+	blackStop        chan struct{}
+	blackDone        chan struct{}
+	showLive         atomic.Bool
+	lastLivePush     atomic.Int64
+	feedMu           sync.Mutex
+	source           uintptr
+	sourceBus        uintptr
+	sourceSink       uintptr
+	decoderPad       uintptr
+	decoderProbe     uint64
+	decoderCallback  func(uintptr, uintptr, uintptr) int32
+	compressed       *compressedCounter
+	pumpStop         chan struct{}
+	pumpDone         chan struct{}
+	counter          *frameCounter
+	kind             string
+	expectedLive     bool
+	key              string
+	generation       uint64
+	state            string
+	decoder          string
+	softwareFallback bool
+	err              string
+	installed        time.Time
+	nextRetry        time.Time
 }
 
 // Renderer owns one GStreamer pipeline with stable appsrc/queue/compositor pads.
@@ -97,6 +106,7 @@ type Renderer struct {
 	caps           pipeline.Caps
 	latency        int
 	options        Options
+	nativeSource   bool
 	started        time.Time
 	closed         bool
 	stop           chan struct{}
@@ -120,6 +130,7 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 	if _, err := hex.DecodeString(opts.ConfigSHA256); len(opts.ConfigSHA256) != 64 || err != nil {
 		return nil, errors.New("native renderer requires active config SHA256")
 	}
+	nativeSource := opts.source == nil || opts.sourceWithDecoder != nil
 	if opts.source == nil {
 		opts.source = func(tile layout.Placed) (string, error) { return sourceDescription(tile, caps, c.Latency) }
 	}
@@ -171,7 +182,7 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 	}
 	r := &Renderer{
 		api: a, pipeline: p, slots: make(map[string]*slot, len(tiles)), order: order,
-		caps: caps, latency: c.Latency, options: opts, started: time.Now().UTC(),
+		caps: caps, latency: c.Latency, options: opts, nativeSource: nativeSource, started: time.Now().UTC(),
 		stop: make(chan struct{}), done: make(chan struct{}), errors: make(chan error, 1),
 	}
 	if err := r.prepare(tiles); err != nil {

@@ -27,7 +27,7 @@ func (r *Renderer) statusLocked() Status {
 	for _, id := range r.order {
 		tile := r.slots[id]
 		t := TileStatus{ExpectedLive: tile.expectedLive, SourceKind: tile.kind,
-			Generation: tile.generation, State: tile.state, Error: tile.err}
+			Generation: tile.generation, State: tile.state, Error: tile.err, Decoder: tile.decoder}
 		if tile.state == "playing" && tile.counter != nil && (tile.kind == "live" || tile.kind == "still") {
 			t.DecodedFrames = tile.counter.frames.Load()
 			t.LastDecodedFrameAt = tile.counter.lastTime()
@@ -83,12 +83,22 @@ func (r *Renderer) recoverStalledLocked(now time.Time, busErr error) {
 		if (!s.expectedLive && s.tile.StillURL == "") || now.Before(s.nextRetry) {
 			continue
 		}
+		failure := busFailure{}
+		if s.sourceBus != 0 {
+			failure = r.api.busFailure(s.sourceBus)
+		}
 		if s.state == "starting" {
 			if s.counter != nil && s.counter.frames.Load() > 0 {
 				s.showLive.Store(true)
 				s.state = "playing"
+			} else if failure.decode && r.shouldFallback(s, now, failure) {
+				r.fallbackDecoder(s, failure.err)
 			} else if now.Sub(s.installed) >= r.options.startupAfter {
-				_ = r.retrySource(s, fmt.Errorf("source produced no initial decoded frame for %s", r.options.startupAfter))
+				if r.shouldFallback(s, now, failure) {
+					r.fallbackDecoder(s, fmt.Errorf("hardware decoder produced no initial frame for %s", r.options.startupAfter))
+				} else {
+					_ = r.retrySource(s, fmt.Errorf("source produced no initial decoded frame for %s", r.options.startupAfter))
+				}
 			}
 			continue
 		}
@@ -99,6 +109,10 @@ func (r *Renderer) recoverStalledLocked(now time.Time, busErr error) {
 			}
 			continue
 		}
+		if failure.decode && r.shouldFallback(s, now, failure) {
+			r.fallbackDecoder(s, failure.err)
+			continue
+		}
 		last := s.installed
 		if s.counter != nil && s.counter.last.Load() > 0 {
 			last = time.Unix(0, s.counter.last.Load())
@@ -106,13 +120,15 @@ func (r *Renderer) recoverStalledLocked(now time.Time, busErr error) {
 		if now.Sub(last) < r.options.stallAfter {
 			continue
 		}
-		var reason error
-		if s.sourceBus != 0 {
-			reason = r.api.busError(s.sourceBus)
+		if r.shouldFallback(s, now, failure) {
+			r.fallbackDecoder(s, fmt.Errorf("hardware decoder stopped producing frames for %s", r.options.stallAfter))
+			continue
 		}
+		reason := failure.err
 		if reason == nil && busErr != nil {
 			reason = busErr
-		} else {
+		}
+		if reason == nil {
 			reason = fmt.Errorf("source produced no decoded frames for %s", r.options.stallAfter)
 		}
 		_ = r.retrySource(s, reason)

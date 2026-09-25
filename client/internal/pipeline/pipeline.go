@@ -19,8 +19,11 @@ type Caps struct {
 	// AutoElements records the concrete H.264 and H.265 choices on this host. A hardware
 	// decoder is preferred independently for each codec; only unavailable codecs use libav.
 	AutoElements map[string]string
-	Sink         string // planes | compositor | window
-	Screen       config.Screen
+	// AutoSoftwareElements records libav decoders that can recover an automatically
+	// selected hardware decoder which fails on a particular stream/profile.
+	AutoSoftwareElements map[string]string
+	Sink                 string // planes | compositor | window
+	Screen               config.Screen
 	// ConnectorID is the DRM connector this instance renders on (0 = let kmssink pick the first connected
 	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
 	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.

@@ -21,30 +21,31 @@ const (
 // The symbols below are part of GStreamer's public C ABI. Resolving them at runtime keeps the
 // eufy-wall executable cross-buildable with CGO_ENABLED=0 and gives a clear prerequisite error.
 type gstAPI struct {
-	init           func(uintptr, uintptr)
-	parse          func(string, uintptr) uintptr
-	setState       func(uintptr, int32) int32
-	getState       func(uintptr, uintptr, uintptr, uint64) int32
-	byName         func(uintptr, string) uintptr
-	staticPad      func(uintptr, string) uintptr
-	objectUnref    func(uintptr)
-	addProbe       func(uintptr, uint64, uintptr, uintptr, uintptr) uint64
-	removeProbe    func(uintptr, uint64)
-	getBus         func(uintptr) uintptr
-	popBus         func(uintptr, uint64, uint32) uintptr
-	parseError     func(uintptr, uintptr, uintptr)
-	miniUnref      func(uintptr)
-	miniRef        func(uintptr) uintptr
-	freeError      func(uintptr)
-	free           func(uintptr)
-	macosMain      func(uintptr, uintptr) int32
-	appSinkPull    func(uintptr, uint64) uintptr
-	appSrcPush     func(uintptr, uintptr) int32
-	appSrcLevel    func(uintptr) uint64
-	sampleBuffer   func(uintptr) uintptr
-	bufferNew      func() uintptr
-	bufferSize     func(uintptr) uintptr
-	bufferCopyInto func(uintptr, uintptr, uint32, uintptr, uintptr) int32
+	init             func(uintptr, uintptr)
+	parse            func(string, uintptr) uintptr
+	setState         func(uintptr, int32) int32
+	getState         func(uintptr, uintptr, uintptr, uint64) int32
+	byName           func(uintptr, string) uintptr
+	staticPad        func(uintptr, string) uintptr
+	objectUnref      func(uintptr)
+	addProbe         func(uintptr, uint64, uintptr, uintptr, uintptr) uint64
+	removeProbe      func(uintptr, uint64)
+	getBus           func(uintptr) uintptr
+	popBus           func(uintptr, uint64, uint32) uintptr
+	parseError       func(uintptr, uintptr, uintptr)
+	streamErrorQuark func() uint32
+	miniUnref        func(uintptr)
+	miniRef          func(uintptr) uintptr
+	freeError        func(uintptr)
+	free             func(uintptr)
+	macosMain        func(uintptr, uintptr) int32
+	appSinkPull      func(uintptr, uint64) uintptr
+	appSrcPush       func(uintptr, uintptr) int32
+	appSrcLevel      func(uintptr) uint64
+	sampleBuffer     func(uintptr) uintptr
+	bufferNew        func() uintptr
+	bufferSize       func(uintptr) uintptr
+	bufferCopyInto   func(uintptr, uintptr, uint32, uintptr, uintptr) int32
 }
 
 var loaded struct {
@@ -84,6 +85,7 @@ func openAPI() (*gstAPI, error) {
 		{"gst_object_unref", &a.objectUnref, core}, {"gst_pad_add_probe", &a.addProbe, core},
 		{"gst_pad_remove_probe", &a.removeProbe, core}, {"gst_element_get_bus", &a.getBus, core},
 		{"gst_bus_timed_pop_filtered", &a.popBus, core}, {"gst_message_parse_error", &a.parseError, core},
+		{"gst_stream_error_quark", &a.streamErrorQuark, core},
 		{"gst_mini_object_unref", &a.miniUnref, core}, {"g_error_free", &a.freeError, glib},
 		{"gst_mini_object_ref", &a.miniRef, core},
 		{"g_free", &a.free, glib},
@@ -195,20 +197,33 @@ func cString(pointer unsafe.Pointer, limit int) string {
 }
 
 func (a *gstAPI) busError(bus uintptr) error {
+	return a.busFailure(bus).err
+}
+
+type busFailure struct {
+	err    error
+	decode bool
+}
+
+func (a *gstAPI) busFailure(bus uintptr) busFailure {
 	message := a.popBus(bus, 0, messageError)
 	if message == 0 {
-		return nil
+		return busFailure{}
 	}
 	defer a.miniUnref(message)
 	var detail, debug unsafe.Pointer
 	a.parseError(message, uintptr(unsafe.Pointer(&detail)), uintptr(unsafe.Pointer(&debug)))
 	text := "GStreamer pipeline error"
+	decode := false
 	if detail != nil {
-		text = cString((*glibError)(detail).Message, 4096)
+		gerr := (*glibError)(detail)
+		text = cString(gerr.Message, 4096)
+		// GST_STREAM_ERROR_DECODE is 7 in GStreamer's public GstStreamError enum.
+		decode = gerr.Domain == a.streamErrorQuark() && gerr.Code == 7
 		a.freeError(uintptr(detail))
 	}
 	if debug != nil {
 		a.free(uintptr(debug))
 	}
-	return errors.New(text)
+	return busFailure{err: errors.New(text), decode: decode}
 }

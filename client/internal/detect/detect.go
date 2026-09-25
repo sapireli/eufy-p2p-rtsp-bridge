@@ -153,6 +153,7 @@ func resolveForOS(c *config.Config, has func(string) bool, fileExists func(strin
 	caps := pipeline.Caps{Decoder: c.Decoder, Sink: c.Sink, Screen: c.Screen}
 	if caps.Decoder == "auto" {
 		caps.AutoElements = make(map[string]string, 2)
+		caps.AutoSoftwareElements = make(map[string]string, 2)
 		if goos == "darwin" {
 			if has("vtdec_hw") {
 				caps.AutoElements["h264"] = "vtdec_hw"
@@ -181,8 +182,11 @@ func resolveForOS(c *config.Config, has func(string) bool, fileExists func(strin
 			}
 		}
 		for codec, element := range map[string]string{"h264": "avdec_h264", "h265": "avdec_h265"} {
-			if caps.AutoElements[codec] == "" && has(element) {
-				caps.AutoElements[codec] = element
+			if has(element) {
+				caps.AutoSoftwareElements[codec] = element
+				if caps.AutoElements[codec] == "" {
+					caps.AutoElements[codec] = element
+				}
 			}
 		}
 		if caps.Element("h264") == "" && caps.Element("h265") == "" {

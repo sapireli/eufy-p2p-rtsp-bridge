@@ -148,7 +148,7 @@ func (s *slot) clearLastFrame(a *gstAPI) {
 
 // Source pipelines end at appsink. Pulling samples never mutates the stable
 // compositor graph; a stale source sample is discarded once black is selected.
-func pumpSource(a *gstAPI, sink uintptr, s *slot, counter *frameCounter, stop <-chan struct{}, done chan<- struct{}) {
+func pumpSource(a *gstAPI, sink uintptr, s *slot, counter *frameCounter, compressed *compressedCounter, stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	for {
 		select {
@@ -167,6 +167,9 @@ func pumpSource(a *gstAPI, sink uintptr, s *slot, counter *frameCounter, stop <-
 		default:
 		}
 		if buffer := a.sampleBuffer(sample); buffer != 0 {
+			if compressed != nil {
+				counter.inputAtFrame.Store(compressed.frames.Load())
+			}
 			counter.tick()
 			if s.showLive.Load() {
 				s.pushCopy(a, buffer, true)

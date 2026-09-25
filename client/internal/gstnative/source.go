@@ -47,6 +47,10 @@ func sourceDescription(tile layout.Placed, caps pipeline.Caps, latency int) (str
 	if decoder == "" {
 		return "", fmt.Errorf("native compositor: decoder %q cannot decode %s (tile %s)", caps.Decoder, codec, tileID(tile))
 	}
+	if caps.Decoder == "auto" && caps.AutoSoftwareElements[codec] != "" &&
+		decoder != caps.AutoSoftwareElements[codec] {
+		decoder += " name=video_decoder"
+	}
 	depay, parse := "rtph264depay", "h264parse"
 	rtpCodec := "H264"
 	if codec == "h265" {
