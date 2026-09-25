@@ -60,6 +60,8 @@ Commands: `eufy-bridge setup`, `eufy-bridge doctor`, `eufy-bridge config validat
 4. Choose a starter template (one camera, split screen, 2×2, 1+5, motion screen), open the terminal layout editor, or import an existing YAML file. The CLI shows a text preview and lists every warning.
 5. The CLI checks layout fit, decoder/codec match, usable planes, stream count budget, network reachability, and a short render probe. It applies the config only after validation and reports the service's live status.
 
+The default `decoder: auto` makes a choice for each source codec on the display host. It prefers hardware VideoToolbox on macOS, V4L2 on Raspberry Pi, and VA on a Debian host with a usable render device; it uses software when that codec has no available hardware decoder. Pi 5 therefore decodes HEVC in hardware and H.264 in software. Doctor and startup output name the selected elements. A hardware decoder that exists but rejects the active stream must recover the affected tile through software without freezing other tiles; this runtime rejection path still needs implementation and physical qualification.
+
 Commands: `eufy-wall setup`, `eufy-wall doctor`, `eufy-wall layout edit [file]`, `eufy-wall layout preview <file>`, `eufy-wall config validate <file|->`, `eufy-wall config apply <file|->`, `eufy-wall config example`, and `eufy-wall status`. The versioned, verified release installer performs upgrades and binary rollback. These are subcommands of the existing Go binary. Keep `-config`, `-dry-run`, and `-print-layout` working for existing scripts.
 
 ### Terminal layout editor and previews
