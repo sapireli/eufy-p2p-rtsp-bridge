@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -185,5 +186,26 @@ func TestTryLockClientConfigIsNonblocking(t *testing.T) {
 	_, busy, err := tryLockClientConfig(dest)
 	if err != nil || !busy || time.Since(start) > time.Second {
 		t.Fatalf("busy=%v err=%v elapsed=%s", busy, err, time.Since(start))
+	}
+}
+
+func TestApplyEnablesServiceOnlyAfterHealthyConfig(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "wall.yaml")
+	service := &fakeWallService{health: errors.New("no frames")}
+	enabled := 0
+	enable := func() error { enabled++; return nil }
+	if err := applyClientConfigAt("-", strings.NewReader(validWallYAML), &bytes.Buffer{}, dest, service, false, enable); err == nil {
+		t.Fatal("failed health check accepted")
+	}
+	if enabled != 0 {
+		t.Fatal("service enabled before a healthy apply")
+	}
+	service.health = nil
+	service.healthChecks = 0
+	if err := applyClientConfigAt("-", strings.NewReader(validWallYAML), &bytes.Buffer{}, dest, service, false, enable); err != nil {
+		t.Fatal(err)
+	}
+	if enabled != 1 {
+		t.Fatalf("successful apply enabled %d times", enabled)
 	}
 }

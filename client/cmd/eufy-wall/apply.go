@@ -77,6 +77,10 @@ type pendingClientApply struct {
 }
 
 func applyClientConfig(path string, in io.Reader, out io.Writer) error {
+	return applyClientConfigAt(path, in, out, clientConfigPath, systemdWallService{}, true, func() error { return systemctl("enable", "eufy-wall") })
+}
+
+func applyClientConfigAt(path string, in io.Reader, out io.Writer, dest string, service clientService, host bool, enable func() error) error {
 	b, err := readClientInput(path, in)
 	if err != nil {
 		return err
@@ -84,11 +88,14 @@ func applyClientConfig(path string, in io.Reader, out io.Writer) error {
 	if len(b) > 4<<20 {
 		return errors.New("config exceeds 4 MiB")
 	}
-	if err := validateClientConfig(b, true); err != nil {
+	if err := validateClientConfig(b, host); err != nil {
 		return err
 	}
-	if err := applyClientData(clientConfigPath, b, systemdWallService{}); err != nil {
+	if err := applyClientData(dest, b, service); err != nil {
 		return err
+	}
+	if err := enable(); err != nil {
+		return fmt.Errorf("config is applied and running, but automatic start could not be enabled: %w", err)
 	}
 	_, _ = fmt.Fprintln(out, "config applied and eufy-wall healthy")
 	return nil
