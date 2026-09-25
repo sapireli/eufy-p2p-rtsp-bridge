@@ -131,7 +131,9 @@ func runWall(cfgPath string, dryRun, printLayout bool) {
 		defer renderer.Close()
 		log.Printf("[wall] native %s compositor with %d independently switched tiles", caps.Sink, len(tiles))
 		if err := runDynamicNative(ctx, c, caps, tiles, staticTiles, renderer); err != nil {
-			log.Fatalf("[wall] native compositor: %v", err)
+			log.Printf("[wall] native compositor: %v", err)
+			_ = renderer.Close()
+			os.Exit(1)
 		}
 	} else {
 		mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) { log.Printf("[gst %s] %s", name, line) })
