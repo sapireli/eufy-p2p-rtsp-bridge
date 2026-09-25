@@ -2,11 +2,13 @@
 
 ## Release install
 
-The release workflow publishes Linux binaries for amd64, arm64, armv7, and armv6. The release archive includes the binary, installer, systemd unit, and YAML example. No Go build or repo checkout is required on the display host. The installer uses apt for GStreamer and DRM tools when absent; for offline install, preinstall those packages from an OS mirror or cache and pass `--no-apt`.
+The release workflow publishes Linux binaries for amd64, arm64, armv7, and armv6. These cover the requested Debian x86-64 and Raspberry Pi 1, 3, 4, and 5 architecture families; this packaging matrix is not a hardware performance qualification. The release archive includes the binary, installer, systemd unit, and YAML example. No Go build or repo checkout is required on the display host. The installer uses apt for GStreamer and DRM tools when absent; for offline install, preinstall those packages from an OS mirror or cache and pass `--no-apt`.
 
 Get a tag from [GitHub Releases](https://github.com/sapireli/eufy-p2p-rtsp-bridge/releases). On the display host, replace `vX.Y.Z` and choose the matching architecture. `dpkg --print-architecture` reports `armhf` for both 32-bit Pi variants: use `armv6` on Pi 1/Zero and `armv7` on Pi 2/3/4 running 32-bit OS.
 
 ```sh
+(
+set -e
 VERSION=vX.Y.Z
 ARCH=arm64 # or amd64, armv7, armv6
 BASE="https://github.com/sapireli/eufy-p2p-rtsp-bridge/releases/download/$VERSION"
@@ -17,12 +19,15 @@ grep "  $FILE\$" SHA256SUMS | sha256sum -c -
 gh attestation verify "$FILE" --repo sapireli/eufy-p2p-rtsp-bridge \
   --signer-workflow sapireli/eufy-p2p-rtsp-bridge/.github/workflows/release.yml \
   --source-ref "refs/tags/$VERSION"
+DIGEST=$(sha256sum "$FILE" | cut -d ' ' -f 1)
 tar -xzf "$FILE" eufy-wall-client/deploy/install-client.sh eufy-wall-client/deploy/install-common.sh
-bash eufy-wall-client/deploy/install-client.sh --artifact "$FILE" --checksums SHA256SUMS --verify-only
-sudo bash eufy-wall-client/deploy/install-client.sh --artifact "$FILE" --checksums SHA256SUMS
+bash eufy-wall-client/deploy/install-client.sh --artifact "$FILE" --checksums SHA256SUMS --trusted-sha256 "$DIGEST" --verify-only
+sudo bash eufy-wall-client/deploy/install-client.sh --artifact "$FILE" --checksums SHA256SUMS --trusted-sha256 "$DIGEST"
+)
 ```
 
-The installer repeats that provenance check before extraction. `SHA256SUMS` is an extra integrity check and cannot authenticate an archive if someone replaces both files.
+The fail-fast command block verifies provenance before extracting scripts. The root installer pins that verified archive digest and rejects a later change without needing the user's GitHub credentials. `SHA256SUMS` is an extra integrity check and cannot authenticate an archive if someone replaces both files.
+On a fresh host, install `ca-certificates`, `curl`, `tar`, and `coreutils`, plus a recent GitHub CLI using its [official Linux instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md). Confirm `gh attestation verify --help` works. GitHub CLI's API lookup may require `gh auth login` or `GH_TOKEN` as the verifying user; see its [authentication guide](https://cli.github.com/manual/gh_auth_login). On a Pi where GitHub CLI is unavailable, use the offline trusted digest flow below.
 
 For an offline display host, verify the archive on a connected trusted machine, then run `gh attestation download "$FILE" -R sapireli/eufy-p2p-rtsp-bridge` and `gh attestation trusted-root > trusted_root.jsonl`. Transfer the verified installer scripts, archive, manifest, `sha256:*.jsonl` bundle, trusted root, and GitHub CLI over a trusted channel. On the target, use:
 
@@ -41,14 +46,15 @@ sudo bash eufy-wall-client/deploy/install-client.sh --artifact "$FILE" --checksu
 
 Do not read `TRUSTED_SHA256` from the copied manifest. The offline host checks the archive against this pinned value. For either offline path, preinstall GStreamer and DRM packages from an OS mirror or cache; `--no-apt` fails before switching releases if they are missing. See GitHub's [offline attestation guide](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations-offline).
 
-The installer uses `/opt/eufy-wall/releases/VERSION-ARCH`, `/opt/eufy-wall/current`, and `/usr/local/bin/eufy-wall`. It preserves `/etc/eufy-wall.yaml` on upgrades. A repeat install of the same checksum leaves a running service alone. An upgrade of a running service switches the symlink, restarts, checks it stays active, and restores the old binary on failure. Later run `sudo bash eufy-wall-client/deploy/install-client.sh --rollback` to choose the previous binary. A pre-release `/usr/local/bin/eufy-wall` is copied into a `legacy-*` release first.
+The installer uses `/opt/eufy-wall/releases/VERSION-ARCH`, `/opt/eufy-wall/current`, and `/usr/local/bin/eufy-wall`. It preserves `/etc/eufy-wall.yaml` on upgrades. A fresh install stays stopped and disabled until setup succeeds. A repeat install of the same checksum leaves a running service alone. An upgrade preserves a stopped service's state; if it was running, the installer switches the symlink, restarts, checks it stays active, and restores the old binary and exact prior unit file on failure. Later run `sudo bash eufy-wall-client/deploy/install-client.sh --rollback` to choose the previous binary. A pre-release `/usr/local/bin/eufy-wall` is copied into a `legacy-*` release first.
 
 ## First setup and manual YAML
 
-The binary owns local config commands. The guided `sudo eufy-wall setup` wizard is planned and is not available yet. To provide a hand-authored YAML file, use the validator and safe apply path:
+The binary owns local config commands. `sudo eufy-wall setup` applies a healthy configuration and enables the service. To provide a hand-authored YAML file, use the same validator and safe apply path:
 
 ```sh
 eufy-wall config example > wall.yaml
+# Replace the example bridge URL and camera serials; choose this host's layout and output.
 eufy-wall config validate wall.yaml
 eufy-wall layout preview wall.yaml
 sudo eufy-wall config apply wall.yaml
@@ -90,4 +96,8 @@ No Pi stream count, frame rate, CPU, dropped-frame, or recovery measurements are
 
 | Device / OS / kernel | Output | Streams / codec / size | Sink / planes | FPS / drops / CPU | Soak and recovery |
 | --- | --- | --- | --- | --- | --- |
-| Awaiting measured result | | | | | |
+| Raspberry Pi 1 / unverified | | | | | |
+| Raspberry Pi 3 / unverified | | | | | |
+| Raspberry Pi 4 / unverified | | | | | |
+| Raspberry Pi 5 / unverified | | | | | |
+| Debian x86-64 / unverified | | | | | |

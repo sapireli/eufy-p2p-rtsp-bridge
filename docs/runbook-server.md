@@ -2,11 +2,13 @@
 
 ## Supported install targets and release files
 
-The release workflow publishes `eufy-wall-bridge-vX.Y.Z-linux-amd64.tar.gz` and `...-arm64.tar.gz`, plus `SHA256SUMS`. Each archive carries Node 24.5.0, go2rtc 1.9.14, the pinned production npm dependencies, the bridge, a systemd unit, an example config, and the installer. The host needs Debian/Ubuntu with systemd; the installer adds `ffmpeg` and CA certificates from apt when absent. The target does not run npm or build a Git dependency.
+The release workflow publishes `eufy-wall-bridge-vX.Y.Z-linux-amd64.tar.gz` and `...-arm64.tar.gz`, plus `SHA256SUMS`. These cover Debian x86-64 and 64-bit ARM hosts; a Raspberry Pi 1 cannot run this server artifact. Each archive carries Node 24.5.0, go2rtc 1.9.14, the pinned production npm dependencies, the bridge, a systemd unit, an example config, and the installer. The host needs Debian/Ubuntu with systemd; the installer adds `ffmpeg` and CA certificates from apt when absent. The target does not run npm or build a Git dependency.
 
 Choose a release tag from [GitHub Releases](https://github.com/sapireli/eufy-p2p-rtsp-bridge/releases). Replace `vX.Y.Z` below with that exact tag. On the server:
 
 ```sh
+(
+set -e
 VERSION=vX.Y.Z
 ARCH=$(dpkg --print-architecture) # amd64 or arm64
 BASE="https://github.com/sapireli/eufy-p2p-rtsp-bridge/releases/download/$VERSION"
@@ -17,12 +19,15 @@ grep "  $FILE\$" SHA256SUMS | sha256sum -c -
 gh attestation verify "$FILE" --repo sapireli/eufy-p2p-rtsp-bridge \
   --signer-workflow sapireli/eufy-p2p-rtsp-bridge/.github/workflows/release.yml \
   --source-ref "refs/tags/$VERSION"
+DIGEST=$(sha256sum "$FILE" | cut -d ' ' -f 1)
 tar -xzf "$FILE" eufy-wall-server/deploy/install-server.sh eufy-wall-server/deploy/install-common.sh
-bash eufy-wall-server/deploy/install-server.sh --artifact "$FILE" --checksums SHA256SUMS --verify-only
-sudo bash eufy-wall-server/deploy/install-server.sh --artifact "$FILE" --checksums SHA256SUMS
+bash eufy-wall-server/deploy/install-server.sh --artifact "$FILE" --checksums SHA256SUMS --trusted-sha256 "$DIGEST" --verify-only
+sudo bash eufy-wall-server/deploy/install-server.sh --artifact "$FILE" --checksums SHA256SUMS --trusted-sha256 "$DIGEST"
+)
 ```
 
-The installer repeats that provenance check before extracting the archive. `SHA256SUMS` alone is insufficient: someone who can replace the archive can replace its checksum file. The installed GitHub CLI and network access are needed for the default check. The signer workflow and tag must match this repository's release workflow and the archive version.
+The fail-fast command block verifies provenance before extracting scripts. The root installer then pins the exact verified archive digest, so it does not need the user's GitHub credentials. `SHA256SUMS` alone is insufficient: someone who can replace the archive can replace its checksum file. The signer workflow and tag must match this repository's release workflow and the archive version. If verification fails or the archive changes afterward, installation stops.
+On a fresh host, install `ca-certificates`, `curl`, `tar`, and `coreutils`, plus a recent GitHub CLI using its [official Linux instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md). Confirm `gh attestation verify --help` works; an older Debian package may lack the command. GitHub CLI's API lookup may require `gh auth login` or `GH_TOKEN`; authenticate as the user running the verification step, not as root. See the [GitHub CLI authentication guide](https://cli.github.com/manual/gh_auth_login).
 
 For an offline server, use a connected trusted machine to download and verify the release as above, then run `gh attestation download "$FILE" -R sapireli/eufy-p2p-rtsp-bridge` and `gh attestation trusted-root > trusted_root.jsonl`. Transfer the archive, manifest, resulting `sha256:*.jsonl` bundle, trusted root, GitHub CLI, and verified installer scripts to the server over a trusted channel. On the server, replace the final install command with:
 
@@ -41,22 +46,24 @@ sudo bash eufy-wall-server/deploy/install-server.sh --artifact "$FILE" --checksu
 
 Do not derive `TRUSTED_SHA256` from the transferred `SHA256SUMS` file. The target checks the archive against both values. `--no-apt` requires all OS packages to be installed from a local mirror or cache before switching releases. GitHub documents [offline attestation verification](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations-offline).
 
-The installer stores releases under `/opt/eufy-wall-bridge/releases/`, points `/opt/eufy-wall-bridge/current` at the active release, and leaves `/etc/eufy-wall-bridge.yaml`, `/etc/eufy-wall-bridge.env`, and `/var/lib/eufy-wall-bridge/` intact on upgrade. It never auto-starts a first install. Reinstalling the same release and checksum leaves a running service alone. An upgrade of a running service restarts it and restores the prior binary if it does not remain active. Run `sudo bash eufy-wall-server/deploy/install-server.sh --rollback` to select the previous release later. For an existing repo-based service, its old unit is retained at `/opt/eufy-wall-bridge/legacy.service` for rollback.
+The installer stores releases under `/opt/eufy-wall-bridge/releases/`, points `/opt/eufy-wall-bridge/current` at the active release, and leaves `/etc/eufy-wall-bridge.yaml`, `/etc/eufy-wall-bridge.env`, and `/var/lib/eufy-wall-bridge/` intact on upgrade. A fresh install stays stopped and disabled until setup succeeds. Reinstalling the same release and checksum leaves a running service alone. An upgrade preserves a stopped service's state; if it was running, the installer restarts it and checks both a stable process and the HTTP health response. It restores the prior binary and exact prior unit file if either check fails. Run `sudo bash eufy-wall-server/deploy/install-server.sh --rollback` to select the previous release later. For an existing repo-based service, its old unit is retained at `/opt/eufy-wall-bridge/legacy.service` for rollback.
 
 ## First setup
 
-Run `sudo eufy-bridge setup` for the interactive path, or edit `/etc/eufy-wall-bridge.env` and write your own `/etc/eufy-wall-bridge.yaml`. The environment file is root-owned and mode `0600`. Use a dedicated Eufy account; sharing the phone app account can evict the bridge session. The installer initially copies examples and does not replace an existing config. The CLI accepts custom YAML files and standard input:
+Run `sudo eufy-bridge setup` for the interactive path; it enables the service after login and health checks succeed. Or edit `/etc/eufy-wall-bridge.env` and write your own `/etc/eufy-wall-bridge.yaml`. The environment file is root-owned and mode `0600`; its installed example contains only commented credentials, so setup prompts for the real account. Use a dedicated Eufy account; sharing the phone app account can evict the bridge session. The installer initially copies examples and does not replace an existing config. The CLI accepts custom YAML files and standard input:
 
 ```sh
 eufy-bridge config example > bridge.yaml
+# Replace the example LAN, camera serials, and any credentials with your own values.
 eufy-bridge config validate bridge.yaml
 sudo eufy-bridge config apply bridge.yaml
 # Or from a workstation: cat bridge.yaml | ssh server 'sudo eufy-bridge config apply -'
+sudo systemctl enable eufy-wall-bridge
 sudo eufy-bridge doctor
 sudo eufy-bridge status
 ```
 
-See [server config reference](config-server.md) for every field and defaults. For a fresh manual install, set `EUFY_EMAIL`, `EUFY_PASSWORD`, and `EUFY_COUNTRY` in `/etc/eufy-wall-bridge.env`, set `lan.cidr` in the YAML, then run `sudo systemctl start eufy-wall-bridge`. Keep the HTTP and RTSP ports on a trusted LAN; they do not authenticate remote clients.
+See [server config reference](config-server.md) for every field and defaults. For a fresh manual install, set `EUFY_EMAIL`, `EUFY_PASSWORD`, and `EUFY_COUNTRY` in `/etc/eufy-wall-bridge.env`, set `lan.cidr` in the YAML, then run `sudo systemctl enable --now eufy-wall-bridge`. Keep the HTTP and RTSP ports on a trusted LAN; they do not authenticate remote clients.
 
 When auth requests 2FA or captcha, use the local CLI wizard. For a manual recovery, check `curl -fsS http://127.0.0.1:3000/auth/status`. Challenge answers belong in POST bodies; do not put them in URL query strings or shell history. A captured session is stored under `/var/lib/eufy-wall-bridge/`.
 
