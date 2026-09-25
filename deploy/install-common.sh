@@ -132,13 +132,18 @@ require_gstreamer_elements() {
   local element package
   for element in "$@"; do
     case $element in
-      intervideosrc|intervideosink) package=gstreamer1.0-plugins-bad ;;
-      videoconvert|videoscale|videorate) package=gstreamer1.0-plugins-base ;;
+      appsrc|appsink|videoconvert|videoscale|videorate) package=gstreamer1.0-plugins-base ;;
       *) package='the package providing it' ;;
     esac
     gst-inspect-1.0 --exists "$element" >/dev/null 2>&1 ||
       die "missing GStreamer element $element; install $package and retry"
   done
+}
+
+require_gstreamer_app_library() {
+  need ldconfig
+  ldconfig -p 2>/dev/null | awk '$1 == "libgstapp-1.0.so.0" { found=1 } END { exit !found }' ||
+    die 'missing libgstapp-1.0.so.0; install libgstreamer-plugins-base1.0-0 and retry'
 }
 
 atomic_link() {

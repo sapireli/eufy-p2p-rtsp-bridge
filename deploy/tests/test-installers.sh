@@ -174,7 +174,8 @@ fi
 grep -Fq '/etc/eufy-wall-bridge.example.yaml' "$repo/deploy/install-server.sh"
 grep -Fq '/etc/eufy-wall.example.yaml' "$repo/deploy/install-client.sh"
 grep -Fq 'export BRIDGE_CONFIG=${BRIDGE_CONFIG:-/etc/eufy-wall-bridge.yaml}' "$repo/deploy/install-server.sh"
-grep -Fq 'require_gstreamer_elements intervideosrc intervideosink videoconvert videoscale videorate' "$repo/deploy/install-client.sh"
+grep -Fq 'require_gstreamer_elements appsink appsrc videoconvert videoscale videorate' "$repo/deploy/install-client.sh"
+grep -Fq 'require_gstreamer_app_library' "$repo/deploy/install-client.sh"
 cat > "$scratch/bin/gst-inspect-1.0" <<'EOF'
 #!/bin/sh
 [ "$1" = --exists ] || exit 2
@@ -182,12 +183,22 @@ cat > "$scratch/bin/gst-inspect-1.0" <<'EOF'
 EOF
 chmod +x "$scratch/bin/gst-inspect-1.0"
 source "$repo/deploy/install-common.sh"
-require_gstreamer_elements intervideosrc intervideosink videoconvert videoscale videorate
-for element in intervideosrc intervideosink videoconvert videoscale videorate; do
+require_gstreamer_elements appsink appsrc videoconvert videoscale videorate
+for element in appsink appsrc videoconvert videoscale videorate; do
   export GST_MISSING_ELEMENT=$element
-  reject "missing $element element" bash -c 'source "$1"; require_gstreamer_elements intervideosrc intervideosink videoconvert videoscale videorate' bash "$repo/deploy/install-common.sh"
+  reject "missing $element element" bash -c 'source "$1"; require_gstreamer_elements appsink appsrc videoconvert videoscale videorate' bash "$repo/deploy/install-common.sh"
 done
 unset GST_MISSING_ELEMENT
+cat > "$scratch/bin/ldconfig" <<'EOF'
+#!/bin/sh
+[ "$1" = -p ] || exit 2
+[ "${GST_APP_LIBRARY_MISSING:-}" = 1 ] || printf 'libgstapp-1.0.so.0 (libc6) => /usr/lib/libgstapp-1.0.so.0\n'
+EOF
+chmod +x "$scratch/bin/ldconfig"
+require_gstreamer_app_library
+export GST_APP_LIBRARY_MISSING=1
+reject 'missing GStreamer app runtime library' bash -c 'source "$1"; require_gstreamer_app_library' bash "$repo/deploy/install-common.sh"
+unset GST_APP_LIBRARY_MISSING
 grep -q 'if ((upgrade_active || old_active)); then' "$repo/deploy/install-server.sh"
 grep -q 'if ((upgrade_active || old_active)); then' "$repo/deploy/install-client.sh"
 echo 'installer verification tests passed'

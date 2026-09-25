@@ -2,7 +2,7 @@
 
 ## Release install
 
-The release workflow publishes Linux binaries for amd64, arm64, armv7, and armv6. These cover the requested Debian x86-64 and Raspberry Pi 1, 3, 4, and 5 architecture families; this packaging matrix is not a hardware performance qualification. The release archive includes the binary, installer, systemd unit, and YAML example. No Go build or repo checkout is required on the display host. The installer uses apt for GStreamer and DRM tools when absent and checks `intervideosrc`, `intervideosink`, `videoconvert`, `videoscale`, and `videorate` before switching releases. For offline install, preinstall those packages from an OS mirror or cache and pass `--no-apt`.
+The release workflow publishes Linux binaries for amd64, arm64, armv7, and armv6. These cover the requested Debian x86-64 and Raspberry Pi 1, 3, 4, and 5 architecture families; this packaging matrix is not a hardware performance qualification. The release archive includes the binary, installer, systemd unit, and YAML example. No Go build or repo checkout is required on the display host. The installer uses apt for GStreamer and DRM tools when absent and checks `appsink`, `appsrc`, `videoconvert`, `videoscale`, `videorate`, and the `libgstapp-1.0.so.0` runtime library before switching releases. For offline install, preinstall those packages from an OS mirror or cache and pass `--no-apt`.
 
 Get a tag from [GitHub Releases](https://github.com/sapireli/eufy-p2p-rtsp-bridge/releases). On the display host, replace `vX.Y.Z` and choose the matching architecture. `dpkg --print-architecture` reports `armhf` for both 32-bit Pi variants: use `armv6` on Pi 1/Zero and `armv7` on Pi 2/3/4 running 32-bit OS.
 
@@ -88,8 +88,8 @@ ls /sys/class/drm/
 modetest -M vc4 -p
 gst-inspect-1.0 v4l2h264dec
 gst-inspect-1.0 v4l2h265dec
-gst-inspect-1.0 --exists intervideosrc
-gst-inspect-1.0 --exists intervideosink
+gst-inspect-1.0 --exists appsink
+gst-inspect-1.0 --exists appsrc
 gst-inspect-1.0 --exists videoconvert
 gst-inspect-1.0 --exists videoscale
 gst-inspect-1.0 --exists videorate
@@ -143,7 +143,7 @@ Camera and station power cycles are manual gates: with an operator present, cycl
 
 ## Recovery
 
-If the screen is black, inspect `eufy-wall doctor`, `journalctl`, output ownership (`video` and `render` groups), and whether another compositor holds DRM. A missing GStreamer element needs its corresponding OS package: on Debian, `intervideosrc` and `intervideosink` come from `gstreamer1.0-plugins-bad`, while `videoconvert`, `videoscale`, and `videorate` come from `gstreamer1.0-plugins-base`. A camera that stops delivering frames should be detected by the runtime progress watchdog; confirm the recovery in the journal. If an upgrade fails, use the installer `--rollback` and inspect the current binary symlink with `readlink /opt/eufy-wall/current`.
+If the screen is black, inspect `eufy-wall doctor`, `journalctl`, output ownership (`video` and `render` groups), and whether another compositor holds DRM. On Debian, `appsink`, `appsrc`, `videoconvert`, `videoscale`, and `videorate` come from `gstreamer1.0-plugins-base`; the native app relay also needs `libgstapp-1.0.so.0` from `libgstreamer-plugins-base1.0-0`. A camera that stops delivering frames should be detected by the runtime progress watchdog; confirm the recovery in the journal. If an upgrade fails, use the installer `--rollback` and inspect the current binary symlink with `readlink /opt/eufy-wall/current`.
 
 ## Measured profile table
 

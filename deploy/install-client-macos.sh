@@ -203,10 +203,10 @@ if ((verify_only)); then say "release $version is valid for this Mac"; exit 0; f
 [[ $EUID -ne 0 ]] || die 'run as the login user, never with sudo'
 need launchctl; need plutil; need mv; need cp
 for tool in gst-launch-1.0 gst-inspect-1.0; do need "$tool"; done
-for element in compositor autovideosink watchdog intervideosrc intervideosink videoconvert videoscale videorate; do
+for element in compositor autovideosink watchdog appsink appsrc videoconvert videoscale videorate; do
   gst-inspect-1.0 --exists "$element" >/dev/null 2>&1 || die "missing GStreamer element $element; run 'brew install gstreamer'"
 done
-for library in libgstreamer-1.0.dylib libglib-2.0.dylib; do
+for library in libgstreamer-1.0.dylib libglib-2.0.dylib libgstapp-1.0.dylib; do
   [[ -f /opt/homebrew/lib/$library || -f /usr/local/lib/$library ]] || die "missing Homebrew $library; run 'brew install gstreamer'"
 done
 [[ ! -e $current || -L $current ]] || die "$current exists but is not a release symlink"
