@@ -47,8 +47,10 @@ if ((rollback)); then
     pending_target=$(cat "$base/.upgrade-pending")
     prior_active=$(cat "$base/.upgrade-active" 2>/dev/null || echo 1)
     [[ -d $pending_target ]] || die "pending upgrade has no prior binary: $pending_target"
-    (( ${#named_units[@]} == 0 )) || [[ -f $base/.upgrade-template ]] || die 'prior release has no unit for running named instances'
-    restore_template "$base/.upgrade-template"
+    template_snapshot="$base/.upgrade-template"
+    [[ -f $template_snapshot ]] || template_snapshot="$pending_target/deploy/eufy-wall@.service"
+    (( ${#named_units[@]} == 0 )) || [[ -f $template_snapshot ]] || die 'prior release has no unit for running named instances'
+    restore_template "$template_snapshot"
     rollback_release_unit "$pending_target" "$base/.upgrade-unit" "$base/current" "/etc/systemd/system/$service.service" "$service" "$prior_active"
     restart_named_services || die 'prior named wall instance did not regain frame progress'
     atomic_link "$pending_target" "$base/previous"
@@ -64,8 +66,10 @@ if ((rollback)); then
     say 'prior installed unit snapshot is missing; using packaged unit defaults'
     unit_snapshot="$target/deploy/eufy-wall.service"
   fi
-  (( ${#named_units[@]} == 0 )) || [[ -f $base/previous-template.service ]] || die 'prior release has no unit for running named instances'
-  restore_template "$base/previous-template.service"
+  template_snapshot="$base/previous-template.service"
+  [[ -f $template_snapshot ]] || template_snapshot="$target/deploy/eufy-wall@.service"
+  (( ${#named_units[@]} == 0 )) || [[ -f $template_snapshot ]] || die 'prior release has no unit for running named instances'
+  restore_template "$template_snapshot"
   rollback_release_unit "$target" "$unit_snapshot" "$base/current" "/etc/systemd/system/$service.service" "$service" "$prior_active"
   restart_named_services || die 'prior named wall instance did not regain frame progress'
   say "rolled back to $(cat "$target/VERSION")"
@@ -117,7 +121,7 @@ else
   old_current=$current_release
   upgrade_active=$old_active
 fi
-if ((${#named_units[@]})) && [[ -n $old_current && ! -f $template ]]; then
+if ((${#named_units[@]})) && [[ -n $old_current && ! -f $template && ! -f $old_current/deploy/eufy-wall@.service ]]; then
   die 'running named instances need a prior template unit for safe rollback'
 fi
 if ! needs_activation "$current_release" "$release" "$base/.upgrade-pending" && cmp -s "$release/deploy/eufy-wall.service" "/etc/systemd/system/$service.service" && cmp -s "$release/deploy/eufy-wall@.service" /etc/systemd/system/eufy-wall@.service && [[ -L /usr/local/bin/eufy-wall && $(readlink /usr/local/bin/eufy-wall) == "$base/current/eufy-wall" ]]; then
@@ -162,8 +166,10 @@ if ((upgrade_active || old_active || ${#named_units[@]})); then
   if ((!activation_ok)); then
     say 'new client failed to stay active; restoring previous binary'
     if [[ -n $old_current ]]; then
-      (( ${#named_units[@]} == 0 )) || [[ -f $base/.upgrade-template ]] || die 'prior release has no unit for running named instances'
-      restore_template "$base/.upgrade-template"
+      template_snapshot="$base/.upgrade-template"
+      [[ -f $template_snapshot ]] || template_snapshot="$old_current/deploy/eufy-wall@.service"
+      (( ${#named_units[@]} == 0 )) || [[ -f $template_snapshot ]] || die 'prior release has no unit for running named instances'
+      restore_template "$template_snapshot"
       rollback_release_unit "$old_current" "$base/.upgrade-unit" "$base/current" "/etc/systemd/system/$service.service" "$service" "$upgrade_active"
       restart_named_services || die 'previous named wall instance did not regain frame progress'
     else
