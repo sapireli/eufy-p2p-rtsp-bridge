@@ -9,6 +9,7 @@ User=wall
 Group=wall
 SupplementaryGroups=video render
 Environment=GST_DEBUG=2
+ExecStartPre=+/usr/local/bin/eufy-wall config recover
 ExecStart=/usr/local/bin/eufy-wall -config /etc/eufy-wall.yaml
 Restart=always
 RestartSec=3

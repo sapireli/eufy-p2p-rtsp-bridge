@@ -7,12 +7,13 @@ Wants=network-online.target
 Type=simple
 User=eufy-wall
 Group=eufy-wall
-WorkingDirectory=/opt/eufy-wall-bridge/server
+WorkingDirectory=/opt/eufy-wall-bridge/current/server
 EnvironmentFile=-/etc/eufy-wall-bridge.env
 Environment=BRIDGE_CONFIG=/etc/eufy-wall-bridge.yaml
 Environment=BRIDGE_DATA_DIR=/var/lib/eufy-wall-bridge
-Environment=GO2RTC_BIN=/opt/eufy-wall-bridge/bin/go2rtc
-ExecStart=/usr/bin/node /opt/eufy-wall-bridge/server/server.mjs
+Environment=GO2RTC_BIN=/opt/eufy-wall-bridge/current/bin/go2rtc
+ExecStartPre=+/usr/local/bin/eufy-bridge config recover
+ExecStart=/opt/eufy-wall-bridge/current/bin/node /opt/eufy-wall-bridge/current/server/server.mjs
 Restart=always
 RestartSec=5
 # The bridge exits(1) on purpose after 5 min of continuous stream failure; systemd brings it back.

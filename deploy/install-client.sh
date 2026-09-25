@@ -1,35 +1,102 @@
 #!/usr/bin/env bash
-# Install eufy-wall on a Raspberry Pi (OS Lite, Bookworm/Trixie) or Debian x86 box. Run as root after
-# building the binary (make pi1|pi3|pi64|amd64) or with a downloaded release binary. Expects the repo
-# layout around it (deploy/ next to client/ — `scp -r deploy client pi:/tmp/eufy-wall/`):
-#   sudo /tmp/eufy-wall/deploy/install-client.sh /tmp/eufy-wall/client/bin/eufy-wall-armv7
+# Install a verified, versioned eufy-wall binary on Debian or Raspberry Pi OS.
 set -euo pipefail
-[[ $EUID -eq 0 ]] || { echo "run as root"; exit 1; }
-BIN=${1:?path to eufy-wall binary}
-REPO=$(cd "$(dirname "$0")/.." && pwd)
+source "$(dirname "$0")/install-common.sh"
+parse_install_args "$@"
+arch=$(linux_arch)
+base=/opt/eufy-wall
+service=eufy-wall
 
-apt-get update
-apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad libdrm-tests
-# x86 VAAPI / software fallback (harmless on the Pi if unavailable)
-apt-get install -y gstreamer1.0-vaapi gstreamer1.0-libav 2>/dev/null || true
+if ((rollback)); then
+  [[ $EUID -eq 0 ]] || die 'run rollback as root'
+  need systemctl
+  [[ -L $base/previous ]] || die 'no previous client binary is available'
+  target=$(readlink "$base/previous")
+  [[ -x $target/eufy-wall ]] || die "previous client binary is missing: $target"
+  atomic_link "$target" "$base/current"
+  systemctl restart "$service"
+  wait_active "$service" || die 'previous client did not remain active; inspect journalctl'
+  say "rolled back to $(cat "$target/VERSION")"
+  exit 0
+fi
 
-install -m 755 "$BIN" /usr/local/bin/eufy-wall
+verify_release client "$arch"
+[[ -x $payload/eufy-wall && -f $payload/config.example.yaml ]] || die 'client archive is incomplete'
+if ((verify_only)); then say "release $version is valid for this host"; exit 0; fi
+[[ $EUID -eq 0 ]] || die 'run install as root (or use --verify-only)'
+need systemctl; need useradd; need install; need mv; need readlink
+[[ -f /etc/os-release ]] || die 'missing /etc/os-release'
+source /etc/os-release
+[[ ${ID:-} == debian || ${ID:-} == ubuntu || " ${ID_LIKE:-} " == *' debian '* ]] || die 'Debian or Raspberry Pi OS is required'
+ensure_debian_packages gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libdrm-tests
+
+release="$base/releases/$version-$arch"
+install -d -m 755 "$base/releases"
+if [[ -e $release ]]; then
+  [[ -f $release/.archive-sha256 && $(cat "$release/.archive-sha256") == "$archive_hash" ]] || die "release $release already exists with different content"
+else
+  stage="$base/releases/.stage-$$"
+  trap 'rm -rf "$stage" "$temp"' EXIT
+  cp -a "$payload" "$stage"
+  printf '%s\n' "$archive_hash" > "$stage/.archive-sha256"
+  chown -R root:root "$stage"
+  mv "$stage" "$release"
+fi
+
 id -u wall >/dev/null 2>&1 || useradd --system --shell /usr/sbin/nologin --groups video,render wall
-if [[ ! -f /etc/eufy-wall.yaml ]]; then
-  if [[ -f "$REPO/client/config.example.yaml" ]]; then
-    cp "$REPO/client/config.example.yaml" /etc/eufy-wall.yaml; echo "edit /etc/eufy-wall.yaml"
-  else
-    echo "warning: $REPO/client/config.example.yaml not found — write /etc/eufy-wall.yaml by hand (see docs/runbook-client.md)" >&2
+if [[ ! -e /etc/eufy-wall.yaml ]]; then
+  install -m 644 "$release/config.example.yaml" /etc/eufy-wall.yaml
+  say 'created /etc/eufy-wall.yaml; run eufy-wall setup or edit it before starting'
+fi
+
+current_release= old_current= old_active=0
+[[ -L $base/current ]] && current_release=$(readlink "$base/current")
+if [[ -f $base/.upgrade-pending ]]; then
+  old_current=$(cat "$base/.upgrade-pending")
+  [[ $old_current == none || -d $old_current ]] || die 'pending upgrade names a missing previous release'
+  [[ $old_current == none ]] && old_current=
+else
+  old_current=$current_release
+fi
+systemctl is-active --quiet "$service" && old_active=1 || true
+if ! needs_activation "$current_release" "$release" "$base/.upgrade-pending" && cmp -s "$release/deploy/eufy-wall.service" "/etc/systemd/system/$service.service" && [[ -L /usr/local/bin/eufy-wall && $(readlink /usr/local/bin/eufy-wall) == "$base/current/eufy-wall" ]]; then
+  say "$version already installed; leaving service running"; exit 0
+fi
+if [[ -z $old_current && -f /usr/local/bin/eufy-wall && ! -L /usr/local/bin/eufy-wall ]]; then
+  legacy="$base/releases/legacy-$(date -u +%Y%m%d%H%M%S)"
+  install -d -m 755 "$legacy"
+  cp -p /usr/local/bin/eufy-wall "$legacy/eufy-wall"
+  printf 'legacy\n' > "$legacy/VERSION"
+  old_current=$legacy
+fi
+
+if [[ -f /etc/systemd/system/$service.service && ! -e $base/legacy.service ]]; then
+  cp -p "/etc/systemd/system/$service.service" "$base/legacy.service"
+fi
+if [[ ! -f $base/.upgrade-pending ]]; then
+  if [[ -n $old_current ]]; then printf '%s\n' "$old_current" > "$base/.upgrade-pending"
+  else printf 'none\n' > "$base/.upgrade-pending"; fi
+fi
+install -m 644 "$release/deploy/eufy-wall.service" "/etc/systemd/system/$service.service"
+atomic_link "$release" "$base/current"
+install -d -m 755 /usr/local/bin
+ln -sfn "$base/current/eufy-wall" /usr/local/bin/eufy-wall
+systemctl daemon-reload
+systemctl enable "$service"
+
+if ((old_active)) || [[ $(cat "$base/.upgrade-pending") != none ]]; then
+  if ! systemctl restart "$service" || ! wait_active "$service"; then
+    say 'new client failed to stay active; restoring previous binary'
+    if [[ -n $old_current ]]; then
+      atomic_link "$old_current" "$base/current"
+      [[ -f $base/legacy.service ]] && install -m 644 "$base/legacy.service" "/etc/systemd/system/$service.service"
+      systemctl daemon-reload
+      systemctl restart "$service" || true
+    fi
+    rm -f "$base/.upgrade-pending"
+    die 'upgrade failed; inspect journalctl -u eufy-wall'
   fi
 fi
-cp "$REPO/deploy/eufy-wall.service" /etc/systemd/system/
-systemctl daemon-reload && systemctl enable eufy-wall
-
-if [[ -f /boot/firmware/config.txt ]]; then
-  CFG=/boot/firmware/config.txt
-  grep -q '^dtoverlay=vc4-kms-v3d' "$CFG" || echo 'dtoverlay=vc4-kms-v3d' >> "$CFG"
-  grep -q '^gpu_mem=' "$CFG" || echo 'gpu_mem=128' >> "$CFG"
-  grep -q '^hdmi_blanking=' "$CFG" || echo 'hdmi_blanking=0' >> "$CFG"
-  echo "Pi config.txt updated (vc4-kms-v3d, gpu_mem=128, hdmi_blanking=0) — reboot required"
-fi
-echo "installed. next: edit /etc/eufy-wall.yaml (rtsp_base, tiles, planes); eufy-wall -config /etc/eufy-wall.yaml -dry-run; systemctl start eufy-wall; journalctl -fu eufy-wall"
+if [[ -n $old_current ]]; then atomic_link "$old_current" "$base/previous"; fi
+rm -f "$base/.upgrade-pending"
+say "installed client $version for $arch; $( ((old_active)) && echo upgraded-running-service || echo run-eufy-wall-setup-then-start-service )"
