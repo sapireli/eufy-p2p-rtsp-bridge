@@ -66,7 +66,12 @@ test("mistyped config commands fail before touching the active file", async (t) 
   ]) {
     const result = await run([...args, "--json"], { env });
     assert.equal(result.code, 1, `${args.join(" ")}: ${result.err}`);
-    assert.match(JSON.parse(result.err).error, /usage:/, args.join(" "));
+    const error = JSON.parse(result.err);
+    assert.match(error.error, /usage:/, args.join(" "));
+    if (args[0] === "config") {
+      assert.equal(error.code, "CLI_USAGE");
+      assert.match(error.diagnostics[0].remedy, /command syntax/);
+    }
     assert.equal(await readFile(active, "utf8"), original);
   }
   assert.deepEqual((await readdir(dir)).sort(), ["active.yaml", "candidate.yaml"]);
