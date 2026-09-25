@@ -30,14 +30,14 @@ func TestNativeGStreamerBindingsAndParseErrors(t *testing.T) {
 }
 
 func TestCStringBoundaries(t *testing.T) {
-	if got := cString(0, 100); got != "unknown error" {
+	if got := cString(nil, 100); got != "unknown error" {
 		t.Fatal(got)
 	}
 	text := []byte{'a', 'b', 'c', 0, 'd'}
-	if got := cString(uintptr(unsafe.Pointer(&text[0])), 2); got != "ab" {
+	if got := cString(unsafe.Pointer(&text[0]), 2); got != "ab" {
 		t.Fatal(got)
 	}
-	if got := cString(uintptr(unsafe.Pointer(&text[0])), 5); got != "abc" {
+	if got := cString(unsafe.Pointer(&text[0]), 5); got != "abc" {
 		t.Fatal(got)
 	}
 }
@@ -87,4 +87,35 @@ func TestNativeBusErrorIsReadable(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("missing file did not raise a GStreamer bus error")
+}
+
+func TestSourceBinRejectsMalformedOutputAndCleansUp(t *testing.T) {
+	a, err := load()
+	if err != nil {
+		t.Skip(err)
+	}
+	if _, err := a.sourceBin("element-that-does-not-exist"); err == nil {
+		t.Fatal("bad source description accepted")
+	}
+	for name, breakAPI := range map[string]func(*gstAPI){
+		"output element": func(mock *gstAPI) { mock.byName = func(uintptr, string) uintptr { return 0 } },
+		"output pad":     func(mock *gstAPI) { mock.staticPad = func(uintptr, string) uintptr { return 0 } },
+		"ghost pad":      func(mock *gstAPI) { mock.ghostPad = func(string, uintptr) uintptr { return 0 } },
+		"add ghost":      func(mock *gstAPI) { mock.addPad = func(uintptr, uintptr) int32 { return 0 } },
+	} {
+		t.Run(name, func(t *testing.T) {
+			mock := *a
+			breakAPI(&mock)
+			if bin, err := mock.sourceBin(blackSource); err == nil {
+				mock.objectUnref(bin)
+				t.Fatal("broken source bin accepted")
+			}
+		})
+	}
+	if _, err := openLibrary([]string{"/definitely/missing/libgstreamer.so"}); err == nil {
+		t.Fatal("missing GStreamer library accepted")
+	}
+	if err := bind(0, "missing_symbol", nil); err == nil {
+		t.Fatal("missing symbol accepted")
+	}
 }

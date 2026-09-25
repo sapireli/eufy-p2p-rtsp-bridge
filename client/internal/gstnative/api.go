@@ -46,6 +46,7 @@ type gstAPI struct {
 	miniUnref   func(uintptr)
 	freeError   func(uintptr)
 	free        func(uintptr)
+	macosMain   func(uintptr, uintptr) int32
 }
 
 var loaded struct {
@@ -89,6 +90,11 @@ func openAPI() (*gstAPI, error) {
 		{"g_free", &a.free, glib},
 	} {
 		if err := bind(item.lib, item.name, item.fn); err != nil {
+			return nil, err
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if err := bind(core, "gst_macos_main_simple", &a.macosMain); err != nil {
 			return nil, err
 		}
 	}
@@ -141,7 +147,7 @@ func (a *gstAPI) parsed(description string, bin bool) (uintptr, error) {
 }
 
 func (a *gstAPI) parseElement(description string, bin, autoGhost bool) (uintptr, error) {
-	var parseError uintptr
+	var parseError unsafe.Pointer
 	var element uintptr
 	if bin {
 		ghost := int32(0)
@@ -152,9 +158,9 @@ func (a *gstAPI) parseElement(description string, bin, autoGhost bool) (uintptr,
 	} else {
 		element = a.parse(description, uintptr(unsafe.Pointer(&parseError)))
 	}
-	if parseError != 0 {
-		message := cString((*glibError)(unsafe.Pointer(parseError)).Message, 4096)
-		a.freeError(parseError)
+	if parseError != nil {
+		message := cString((*glibError)(parseError).Message, 4096)
+		a.freeError(uintptr(parseError))
 		if element != 0 {
 			a.objectUnref(element)
 		}
@@ -199,17 +205,17 @@ func (a *gstAPI) sourceBin(description string) (uintptr, error) {
 type glibError struct {
 	Domain  uint32
 	Code    int32
-	Message uintptr
+	Message unsafe.Pointer
 }
 
 //go:nocheckptr
-func cString(pointer uintptr, limit int) string {
-	if pointer == 0 {
+func cString(pointer unsafe.Pointer, limit int) string {
+	if pointer == nil {
 		return "unknown error"
 	}
 	bytes := make([]byte, 0, min(limit, 128))
 	for i := 0; i < limit; i++ {
-		b := *(*byte)(unsafe.Add(unsafe.Pointer(pointer), i))
+		b := *(*byte)(unsafe.Add(pointer, i))
 		if b == 0 {
 			break
 		}
@@ -224,15 +230,15 @@ func (a *gstAPI) busError(bus uintptr) error {
 		return nil
 	}
 	defer a.miniUnref(message)
-	var detail, debug uintptr
+	var detail, debug unsafe.Pointer
 	a.parseError(message, uintptr(unsafe.Pointer(&detail)), uintptr(unsafe.Pointer(&debug)))
 	text := "GStreamer pipeline error"
-	if detail != 0 {
-		text = cString((*glibError)(unsafe.Pointer(detail)).Message, 4096)
-		a.freeError(detail)
+	if detail != nil {
+		text = cString((*glibError)(detail).Message, 4096)
+		a.freeError(uintptr(detail))
 	}
-	if debug != 0 {
-		a.free(debug)
+	if debug != nil {
+		a.free(uintptr(debug))
 	}
 	return errors.New(text)
 }
