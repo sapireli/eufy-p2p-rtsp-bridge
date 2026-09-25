@@ -58,6 +58,29 @@ test("holds expire, which stops the camera", () => {
   assert.deepEqual(stopped, ["BATT"]);
 });
 
+test("a status read at expiry stops the camera and emits the final hold state once", () => {
+  let time = 1_000;
+  const { holds, stopped, events } = ctxWith({ BATT: battery }, { now: () => time });
+  holds.hold("BATT", "motion", 1);
+  time = 2_001;
+  assert.deepEqual(holds.status(), {});
+  assert.deepEqual(stopped, ["BATT"]);
+  assert.deepEqual(events.at(-1), { type: "hold", sn: "BATT", until: 0, owners: [] });
+  holds.tick();
+  assert.deepEqual(stopped, ["BATT"], "a later timer tick must not stop the same stream twice");
+});
+
+test("a new hold after expiry wakes the camera even when no timer tick ran", () => {
+  let time = 1_000;
+  const { holds, started, stopped } = ctxWith({ BATT: battery }, { now: () => time });
+  holds.hold("BATT", "motion", 1);
+  time = 2_001;
+  holds.hold("BATT", "client", 10);
+  assert.deepEqual(stopped, ["BATT"]);
+  assert.deepEqual(started, ["BATT", "BATT"]);
+  assert.deepEqual(holds.owners("BATT"), ["client"]);
+});
+
 // Repeated motion during one event should keep the camera up for holdSeconds past the LAST movement,
 // not accumulate an ever-longer stream.
 test("re-holding extends to the later deadline rather than accumulating", () => {
