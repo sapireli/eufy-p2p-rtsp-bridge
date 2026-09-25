@@ -6,8 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -131,10 +129,8 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	// What each tile is rendering: live video, or the camera's last still while it wakes.
 	content := map[int]string{}
 	lastShown := ""
-	// Cameras this wall is keeping awake. A hold is bounded on the server, so showing one means
-	// refreshing it; no longer showing one means releasing it, or a battery camera would be held awake
-	// by a tile that stopped looking at it.
-	holding := map[string]bool{}
+	// Holds are ordered per camera, so an in-flight POST cannot arrive after its DELETE.
+	holds := newHoldCoordinator(controlBase(c), requestWallHold)
 
 	apply := func() {
 		applyMu.Lock()
@@ -161,28 +157,14 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			content[sel.TileIndex] = sel.Content
 		}
 
-		// Take a hold for every tile that asked for one, and release the ones that stopped asking. A
-		// tile keeps asking for as long as it is watching, because the server's hold is bounded.
+		// Take a hold for every tile that asked for one. The coordinator refreshes bounded holds
+		// and releases cameras whose tiles stopped asking.
 		wanted := map[string]bool{}
 		for _, sel := range sels {
 			if sel.Hold && sel.Camera != "" {
 				wanted[sel.Camera] = true
 			}
 		}
-		var take, drop []string
-		for cam := range wanted {
-			if !holding[cam] {
-				take = append(take, cam)
-				holding[cam] = true
-			}
-		}
-		for cam := range holding {
-			if !wanted[cam] {
-				drop = append(drop, cam)
-				delete(holding, cam)
-			}
-		}
-
 		snapshot := make(map[int]string, len(showing))
 		for k, v := range showing {
 			snapshot[k] = v
@@ -207,12 +189,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		}
 		mu.Unlock()
 
-		for _, cam := range take {
-			go holdRequest(ctx, controlBase(c), http.MethodPost, cam)
-		}
-		for _, cam := range drop {
-			go holdRequest(ctx, controlBase(c), http.MethodDelete, cam)
-		}
+		holds.Update(wanted)
 		if logLine != "" {
 			log.Printf("[wall] showing %s", logLine)
 		}
@@ -227,11 +204,6 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	apply()
 	go wsclient.Run(ctx, endpoint, store, apply, func(line string) { log.Printf("[wall] %s", line) })
 
-	// A hold is deliberately short-lived on the server, so a wall that is still showing a camera has to
-	// say so. Refreshing well inside that window keeps the picture up without ever pinning a battery
-	// camera awake: stop refreshing and it sleeps on its own.
-	refresh := time.NewTicker(holdRefreshInterval)
-	defer refresh.Stop()
 	// Motion expiry is a deadline, not a bridge event. Reconcile even while /ws is quiet or offline so
 	// a motion tile blanks and its hold is released without waiting for another camera event.
 	reconcile := time.NewTicker(time.Second)
@@ -241,42 +213,14 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		case <-reconcile.C:
 			apply()
 		case <-ctx.Done():
-			mu.Lock()
-			held := make([]string, 0, len(holding))
-			for cam := range holding {
-				held = append(held, cam)
-			}
-			mu.Unlock()
-			// Let the cameras sleep rather than waiting out the hold we took.
-			release, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			var wg sync.WaitGroup
-			for _, cam := range held {
-				wg.Add(1)
-				go func(c2 string) { defer wg.Done(); holdRequest(release, controlBase(c), http.MethodDelete, c2) }(cam)
-			}
-			wg.Wait()
-			cancel()
+			holds.Close()
 			applyMu.Lock()
 			mgr.Update(ctx, nil)
 			applyMu.Unlock()
 			return
-		case <-refresh.C:
-			mu.Lock()
-			held := make([]string, 0, len(holding))
-			for cam := range holding {
-				held = append(held, cam)
-			}
-			mu.Unlock()
-			for _, cam := range held {
-				go holdRequest(ctx, controlBase(c), http.MethodPost, cam)
-			}
 		}
 	}
 }
-
-// holdRefreshInterval is well inside the server's default hold so a refresh cannot arrive late, and a
-// wall that dies simply stops refreshing and the camera sleeps.
-const holdRefreshInterval = 20 * time.Second
 
 // plansFor builds the pipelines for what each tile is currently showing. A tile showing nothing simply
 // has no plan, so a blank tile costs no process at all.
@@ -368,40 +312,6 @@ func controlBase(c *config.Config) string {
 		return c.BridgeURL
 	}
 	return c.RTSPBase
-}
-
-var wallHoldOwner = func() string {
-	host, _ := os.Hostname()
-	return fmt.Sprintf("wall:%s:%d", host, os.Getpid())
-}()
-
-// holdRequest takes (POST) or releases (DELETE) this wall instance's hold on a camera.
-func holdRequest(ctx context.Context, base, method, sn string) {
-	u := wsclient.EventURL(base)
-	if u == "" {
-		return
-	}
-	parsed, _ := url.Parse(u)
-	if parsed.Scheme == "wss" {
-		parsed.Scheme = "https"
-	} else {
-		parsed.Scheme = "http"
-	}
-	parsed.Path = "/hold/" + sn
-	parsed.RawQuery = url.Values{"owner": {wallHoldOwner}}.Encode()
-	req, err := http.NewRequestWithContext(ctx, method, parsed.String(), nil)
-	if err != nil {
-		return
-	}
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-	if err != nil {
-		log.Printf("[wall] %s hold %s failed: %v", strings.ToLower(method), sn, err)
-		return
-	}
-	resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		log.Printf("[wall] %s hold %s failed: HTTP %d", strings.ToLower(method), sn, resp.StatusCode)
-	}
 }
 
 // planNames lists what the wall is running, so the log says whether tiles are independent processes or
