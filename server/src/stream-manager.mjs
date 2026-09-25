@@ -5,6 +5,7 @@ import { newSlot } from "./state.mjs";
 
 export function createStreamManager(ctx) {
   const { state, cfg } = ctx;
+  let stopped = false;
   const exit = (code) => (ctx.exit ?? process.exit)(code);
   const slotFor = (sn) => state.slots.get(sn) ?? state.slots.set(sn, newSlot(sn)).get(sn);
   const stationChains = new Map(); // parentStationSn -> Promise: serialises P2P opens per HomeBase
@@ -120,6 +121,7 @@ export function createStreamManager(ctx) {
    * the guard re-check the peer and clear the block, so refusing to reconnect would be a one-way door.
    */
   async function ensureWarm(sn) {
+    if (stopped) return;
     const cam = ctx.getCamera?.(sn);
     if (cam && !cam.enabled) return;
     if (!wanted(sn)) return;
@@ -168,6 +170,13 @@ export function createStreamManager(ctx) {
       if (await ctx.checkMediaSessions?.(client, stationSn ?? sn, sn) === "blocked") {
         feed.destroy();
         throw new Error("media session peer is outside the configured LAN");
+      }
+      // A battery hold may expire while the SDK is still waking the camera. Do not attach a feed that
+      // nobody wants now; a continuously producing feed would never satisfy the silence-only stop check.
+      if (stopped || !wanted(sn)) {
+        state.starting.delete(sn);
+        feed.destroy();
+        return;
       }
       slot.feed = feed;
       slot.startedAt = Date.now();
@@ -256,6 +265,7 @@ export function createStreamManager(ctx) {
   }
 
   async function stopAll() {
+    stopped = true;
     for (const slot of state.slots.values()) {
       if (slot.restartTimer) clearTimeout(slot.restartTimer);
       slot.restartTimer = null;

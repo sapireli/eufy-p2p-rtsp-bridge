@@ -79,6 +79,43 @@ test("warm feed sniffs codec/geometry, primes late consumer with last keyframe, 
   }
 });
 
+test("a hold expiring during SDK open cannot leave a battery feed running", async () => {
+  const feed = new PassThrough();
+  let release;
+  let opening = false;
+  const ctx = ctxWith({ feeds: [() => { opening = true; return new Promise((resolve) => { release = () => resolve(feed); }); }] });
+  let held = true;
+  ctx.getCamera = () => ({ enabled: true, mode: "on_motion" });
+  ctx.holds = { isHeld: () => held };
+  const sm = createStreamManager(ctx);
+  const pending = sm.ensureWarm("A");
+  await waitUntil(() => opening);
+  assert.equal(opening, true);
+  held = false;
+  sm.stopCamera("A");
+  release();
+  await pending;
+  assert.equal(feed.destroyed, true);
+  assert.equal(ctx.state.streaming.has("A"), false);
+  assert.equal(ctx.state.starting.has("A"), false);
+  await sm.stopAll();
+});
+
+test("shutdown during SDK open discards the late feed", async () => {
+  const feed = new PassThrough();
+  let release;
+  let opening = false;
+  const ctx = ctxWith({ feeds: [() => { opening = true; return new Promise((resolve) => { release = () => resolve(feed); }); }] });
+  const sm = createStreamManager(ctx);
+  const pending = sm.ensureWarm("A");
+  await waitUntil(() => opening);
+  await sm.stopAll();
+  release();
+  await pending;
+  assert.equal(feed.destroyed, true);
+  assert.equal(ctx.state.streaming.has("A"), false);
+});
+
 test("a blocked media peer is closed before its feed is served", async () => {
   const feed = new PassThrough();
   const ctx = ctxWith({ feeds: [() => feed] });
