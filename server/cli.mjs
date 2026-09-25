@@ -249,17 +249,24 @@ async function main() {
   const asJson = args.includes("--json");
   const clean = args.filter((a) => a !== "--json");
   const [verb, sub, path] = clean;
-  if (verb === "config" && sub === "example") return emit(await fs.readFile(join(__dirname, "config.example.yaml"), "utf8"), false);
+  if (verb === "config" && sub === "example") {
+    if (clean.length !== 2) throw new Error("usage: eufy-bridge config example");
+    return emit(await fs.readFile(join(__dirname, "config.example.yaml"), "utf8"), false);
+  }
   if (verb === "config" && sub === "explain") {
-    if (clean.length > 3) throw new Error("usage: eufy-bridge config explain [field]");
+    if (clean.length > 3 || path?.startsWith("--")) throw new Error("usage: eufy-bridge config explain [field]");
     return emit(explainConfigField(path), asJson);
   }
   if (verb === "config" && sub === "validate") {
+    if (clean.length !== 3 || !path || (path.startsWith("-") && path !== "-")) throw new Error("usage: eufy-bridge config validate <file|-> [--json]");
     const text = await input(path);
     const { cfg } = loadConfig({ rawText: text });
     return emit({ ok: true, schemaVersion: parse(text)?.schema_version ?? 1, cameras: Object.keys(cfg.cameras).length, path: path ?? null, diagnostics: [] }, asJson);
   }
   if (verb === "config" && sub === "migrate") {
+    if (!path || (path.startsWith("-") && path !== "-") ||
+      !(clean.length === 3 || clean.length === 5 && clean[3] === "--output" && clean[4] && !clean[4].startsWith("--")))
+      throw new Error("usage: eufy-bridge config migrate <legacy-file|-> [--output candidate.yaml] [--json]");
     const text = await input(path);
     const outputFlag = clean.indexOf("--output");
     if (outputFlag >= 0 && (!clean[outputFlag + 1] || clean[outputFlag + 1].startsWith("--"))) throw new Error("--output requires a candidate file path");
@@ -277,17 +284,23 @@ async function main() {
     return;
   }
   if (verb === "config" && sub === "apply") {
+    if (clean.length !== 3 || !path || (path.startsWith("-") && path !== "-")) throw new Error("usage: eufy-bridge config apply <file|-> [--json]");
     const text = await input(path);
     return emit({ ok: true, ...await applyConfig({ target, yamlText: text, restart, health }), diagnostics: [] }, asJson);
   }
-  if (verb === "config" && sub === "recover") return emit({ ok: true, ...await recoverInterruptedApply(target) }, asJson);
+  if (verb === "config" && sub === "recover") {
+    if (clean.length !== 2) throw new Error("usage: eufy-bridge config recover [--json]");
+    return emit({ ok: true, ...await recoverInterruptedApply(target) }, asJson);
+  }
   if (verb === "status") {
+    if (clean.length !== 1) throw new Error("usage: eufy-bridge status [--json]");
     const config = existsSync(target) ? { path: target, ...(await applyStatus(target) ?? {}) } : { path: target, missing: true };
     let live;
     try { const h = await local("/healthz"); live = { ok: h.ok, auth: { state: h.auth?.state }, cameras: h.cameras, go2rtc: h.go2rtc, stalled: h.stalled }; } catch (error) { live = { ok: false, error: error.message }; }
     return emit({ config, live }, asJson);
   }
   if (verb === "doctor") {
+    if (clean.length !== 1) throw new Error("usage: eufy-bridge doctor [--json]");
     const checks = [];
     checks.push({ code: "NODE_VERSION", ok: supportedNode(process.versions.node), detail: process.version });
     checks.push({ code: "CONFIG_FILE", ok: existsSync(target), detail: target });
@@ -304,7 +317,9 @@ async function main() {
     return;
   }
   if (verb === "inventory" && sub === "export") {
-    if (!path) throw new Error("inventory export needs a destination file");
+    if (!path || path.startsWith("--") ||
+      !(clean.length === 3 || clean.length === 5 && clean[3] === "--host" && clean[4] && !clean[4].startsWith("--")))
+      throw new Error("usage: eufy-bridge inventory export <file> [--host address] [--json]");
     const hostFlag = clean.indexOf("--host");
     const host = hostFlag >= 0 ? clean[hostFlag + 1] : (process.env.BRIDGE_PUBLIC_HOST || interfaces()[0]?.address);
     if (!host || !/^[a-zA-Z0-9.:-]+$/.test(host)) throw new Error("inventory export needs a valid --host or a detected LAN address");
@@ -317,7 +332,11 @@ async function main() {
     await fs.writeFile(path, JSON.stringify(inventory, null, 2) + "\n", { flag: "wx", mode: 0o644 });
     return emit({ ok: true, file: path, cameras: cameras.length }, asJson);
   }
-  if (verb === "setup") return setup(clean.slice(1), asJson);
+  if (verb === "setup") {
+    if (!(clean.length === 1 || clean.length === 3 && clean[1] === "--answers" && clean[2] && !clean[2].startsWith("--")))
+      throw new Error("usage: eufy-bridge setup [--answers file] [--json]");
+    return setup(clean.slice(1), asJson);
+  }
   emit("Usage: eufy-bridge setup [--answers file] | doctor | status | inventory export <file> | config example|explain [path]|validate <file|->|migrate <legacy-file|-> [--output candidate.yaml]|apply <file|-> [--json]", false);
   if (verb) process.exitCode = 2;
 }

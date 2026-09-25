@@ -46,6 +46,32 @@ test("validate accepts file and stdin with the same strict schema", async (t) =>
   assert.equal(await readFile(file, "utf8"), "schema_version: 2\nport: 3000\n");
 });
 
+test("mistyped config commands fail before touching the active file", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ewb-cli-args-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const active = join(dir, "active.yaml"), candidate = join(dir, "candidate.yaml");
+  const original = "schema_version: 2\nport: 3000\n";
+  await writeFile(active, original);
+  await writeFile(candidate, "schema_version: 2\nport: 3001\n");
+  const env = { BRIDGE_CONFIG: active };
+  for (const args of [
+    ["config", "apply", candidate, "--output", join(dir, "unexpected.yaml")],
+    ["config", "apply", candidate, "extra"],
+    ["config", "validate", candidate, "extra"],
+    ["config", "migrate", candidate, "--bogus"],
+    ["config", "example", "extra"],
+    ["config", "recover", "extra"],
+    ["setup", "--answers", candidate, "extra"],
+    ["inventory", "export", join(dir, "inventory.json"), "--bogus", "host"],
+  ]) {
+    const result = await run([...args, "--json"], { env });
+    assert.equal(result.code, 1, `${args.join(" ")}: ${result.err}`);
+    assert.match(JSON.parse(result.err).error, /usage:/, args.join(" "));
+    assert.equal(await readFile(active, "utf8"), original);
+  }
+  assert.deepEqual((await readdir(dir)).sort(), ["active.yaml", "candidate.yaml"]);
+});
+
 test("file and stdin config reads reject oversized YAML before parsing", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "ewb-cli-limit-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
