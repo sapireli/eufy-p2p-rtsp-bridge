@@ -147,16 +147,20 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 				fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H), "force-aspect-ratio=true", "sync=false")...)
 		}
 	case "compositor", "window":
+		// Keep the output clock and a black frame alive even when every motion tile is asleep. The
+		// compositor otherwise has no live pad and a display may retain its last camera frame.
+		args = append(args, "videotestsrc", "is-live=true", "pattern=black", "!", "video/x-raw,format=I420,width=1,height=1,framerate=1/1", "!", "mix.sink_0")
 		for i, t := range tiles {
 			args = append(args, src(i, t)...)
-			args = append(args, "!", "videoconvert", "!", fmt.Sprintf("mix.sink_%d", i))
+			args = append(args, "!", "videoconvert", "!", fmt.Sprintf("mix.sink_%d", i+1))
 		}
-		args = append(args, "compositor", "name=mix", "background=black")
+		args = append(args, "compositor", "name=mix", "background=black", "ignore-inactive-pads=true",
+			"sink_0::xpos=0", "sink_0::ypos=0", fmt.Sprintf("sink_0::width=%d", caps.Screen.Width), fmt.Sprintf("sink_0::height=%d", caps.Screen.Height))
 		for i, t := range tiles {
 			args = append(args,
-				fmt.Sprintf("sink_%d::xpos=%d", i, t.X), fmt.Sprintf("sink_%d::ypos=%d", i, t.Y),
-				fmt.Sprintf("sink_%d::width=%d", i, t.W), fmt.Sprintf("sink_%d::height=%d", i, t.H),
-				fmt.Sprintf("sink_%d::sizing-policy=keep-aspect-ratio", i))
+				fmt.Sprintf("sink_%d::xpos=%d", i+1, t.X), fmt.Sprintf("sink_%d::ypos=%d", i+1, t.Y),
+				fmt.Sprintf("sink_%d::width=%d", i+1, t.W), fmt.Sprintf("sink_%d::height=%d", i+1, t.H),
+				fmt.Sprintf("sink_%d::sizing-policy=keep-aspect-ratio", i+1))
 		}
 		args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d", caps.Screen.Width, caps.Screen.Height))
 		if caps.Sink == "window" {

@@ -48,10 +48,12 @@ func TestCompositorPipeline(t *testing.T) {
 	}
 	got := String(args)
 	want := "-e " +
-		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! vah264dec ! watchdog timeout=15000 ! videoconvert ! mix.sink_0 " +
-		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! vah264dec ! watchdog timeout=15000 ! videoconvert ! mix.sink_1 " +
-		"compositor name=mix background=black sink_0::xpos=0 sink_0::ypos=0 sink_0::width=960 sink_0::height=1080 sink_0::sizing-policy=keep-aspect-ratio " +
-		"sink_1::xpos=960 sink_1::ypos=0 sink_1::width=960 sink_1::height=1080 sink_1::sizing-policy=keep-aspect-ratio " +
+		"videotestsrc is-live=true pattern=black ! video/x-raw,format=I420,width=1,height=1,framerate=1/1 ! mix.sink_0 " +
+		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! vah264dec ! watchdog timeout=15000 ! videoconvert ! mix.sink_1 " +
+		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! vah264dec ! watchdog timeout=15000 ! videoconvert ! mix.sink_2 " +
+		"compositor name=mix background=black ignore-inactive-pads=true sink_0::xpos=0 sink_0::ypos=0 sink_0::width=1920 sink_0::height=1080 " +
+		"sink_1::xpos=0 sink_1::ypos=0 sink_1::width=960 sink_1::height=1080 sink_1::sizing-policy=keep-aspect-ratio " +
+		"sink_2::xpos=960 sink_2::ypos=0 sink_2::width=960 sink_2::height=1080 sink_2::sizing-policy=keep-aspect-ratio " +
 		"! video/x-raw,width=1920,height=1080 ! kmssink sync=false"
 	if got != want {
 		t.Fatalf("\n got: %s\nwant: %s", got, want)
@@ -227,6 +229,23 @@ func TestStillTileNeedsNoDecoderSupport(t *testing.T) {
 	tiles := []layout.Placed{{Index: 0, Camera: "A", Codec: "h265", StillURL: "http://b:3000/snapshot/A", W: 640, H: 480}}
 	if _, err := Build(c, tiles, Caps{Decoder: "v4l2", Sink: "window", Screen: config.Screen{Width: 1920, Height: 1080}}); err != nil {
 		t.Fatalf("a JPEG needs no video decoder: %v", err)
+	}
+}
+
+func TestEmptyCompositorKeepsBlackOutputInsteadOfLastCameraFrame(t *testing.T) {
+	caps := Caps{Decoder: "software", Sink: "compositor", Screen: config.Screen{Width: 640, Height: 480}}
+	args, err := Build(&config.Config{}, nil, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	for _, want := range []string{"videotestsrc is-live=true pattern=black", "mix.sink_0", "ignore-inactive-pads=true", "sink_0::width=640", "sink_0::height=480"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("empty wall lacks %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "rtspsrc") {
+		t.Errorf("empty wall opens an RTSP camera: %s", got)
 	}
 }
 
