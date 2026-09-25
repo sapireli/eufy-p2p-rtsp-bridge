@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"syscall"
@@ -35,6 +36,10 @@ func (b *backoff) next(ran time.Duration) time.Duration {
 		}
 	}
 	return b.cur
+}
+
+func jitterDelay(delay time.Duration) time.Duration {
+	return delay - time.Duration(rand.Int64N(int64(delay/5)+1))
 }
 
 func pump(r io.Reader, log func(string)) {
@@ -81,7 +86,7 @@ func Run(ctx context.Context, bin string, args []string, r config.Restart, log f
 				return nil
 			}
 		}
-		d := b.next(time.Since(start))
+		d := jitterDelay(b.next(time.Since(start)))
 		log(fmt.Sprintf("restarting in %s", d))
 		select {
 		case <-time.After(d):

@@ -95,3 +95,11 @@ func TestBackoffSchedule(t *testing.T) {
 		t.Fatalf("stable run should reset: %v", d)
 	}
 }
+
+func TestProcessRestartJitterStaysWithinConfiguredBackoff(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		if got := jitterDelay(10 * time.Second); got < 8*time.Second || got > 10*time.Second {
+			t.Fatalf("restart delay exceeded bounded window: %s", got)
+		}
+	}
+}

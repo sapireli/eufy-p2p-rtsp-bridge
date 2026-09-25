@@ -128,3 +128,23 @@ func TestExplicitControlURLKeepsPortAndTLS(t *testing.T) {
 		t.Fatalf("unsupported scheme = %q", got)
 	}
 }
+
+func TestReconnectBackoffResetsAfterAHealthyConnection(t *testing.T) {
+	for _, tc := range []struct {
+		current, uptime, delay, next time.Duration
+	}{
+		{16 * time.Second, stableConnection - time.Second, 16 * time.Second, 30 * time.Second},
+		{16 * time.Second, stableConnection, minBackoff, 2 * time.Second},
+		{maxBackoff, time.Second, maxBackoff, maxBackoff},
+	} {
+		delay, next := reconnectBackoff(tc.current, tc.uptime)
+		if delay != tc.delay || next != tc.next {
+			t.Errorf("reconnectBackoff(%s, %s) = %s, %s; want %s, %s", tc.current, tc.uptime, delay, next, tc.delay, tc.next)
+		}
+	}
+	for i := 0; i < 100; i++ {
+		if got := jitterBackoff(10 * time.Second); got < 8*time.Second || got > 10*time.Second {
+			t.Fatalf("jitter exceeded bounded retry window: %s", got)
+		}
+	}
+}

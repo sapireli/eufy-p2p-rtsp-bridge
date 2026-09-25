@@ -9,6 +9,7 @@ package wsclient
 import (
 	"context"
 	"encoding/json"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -25,7 +26,8 @@ const (
 	maxBackoff = 30 * time.Second
 	// A read that never completes is indistinguishable from a healthy quiet wall, so a connection that
 	// has produced nothing for this long is treated as dead. The server pings every 30s.
-	readTimeout = 90 * time.Second
+	readTimeout      = 90 * time.Second
+	stableConnection = 30 * time.Second
 )
 
 // EventURL accepts the explicit bridge_url (HTTP or WS) or a legacy rtsp_base. Only legacy RTSP URLs
@@ -72,21 +74,32 @@ func StillURL(base, sn string) string {
 func Run(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), log func(string)) {
 	backoff := minBackoff
 	for ctx.Err() == nil {
+		started := time.Now()
 		err := follow(ctx, endpoint, store, changed)
 		if ctx.Err() != nil {
 			return
 		}
-		log("events: " + reason(err) + "; reconnecting in " + backoff.String())
+		base, next := reconnectBackoff(backoff, time.Since(started))
+		delay := jitterBackoff(base)
+		log("events: " + reason(err) + "; reconnecting in " + delay.String())
 		select {
-		case <-time.After(backoff):
+		case <-time.After(delay):
 		case <-ctx.Done():
 			return
 		}
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
+		backoff = next
 	}
+}
+
+func reconnectBackoff(current, connectedFor time.Duration) (delay, next time.Duration) {
+	if connectedFor >= stableConnection {
+		current = minBackoff
+	}
+	return current, min(current*2, maxBackoff)
+}
+
+func jitterBackoff(delay time.Duration) time.Duration {
+	return delay - time.Duration(rand.Int64N(int64(delay/5)+1))
 }
 
 func reason(err error) string {
