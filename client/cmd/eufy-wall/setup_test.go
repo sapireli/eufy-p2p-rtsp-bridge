@@ -200,6 +200,12 @@ func TestSetupRejectsUnknownAnswersAndTruncatedPrompts(t *testing.T) {
 	if err := setupWall(context.Background(), []string{"--answers", path}, strings.NewReader(""), &bytes.Buffer{}); err == nil {
 		t.Fatal("unknown answer field accepted")
 	}
+	if err := os.WriteFile(path, []byte("bridge_url: http://bridge\nrtsp_base: rtsp://bridge\n---\nprobe_streams: false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := setupWall(context.Background(), []string{"--answers", path}, strings.NewReader(""), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "only one YAML document") {
+		t.Fatalf("second answer document was silently ignored: %v", err)
+	}
 	if err := setupWall(context.Background(), nil, strings.NewReader(""), &bytes.Buffer{}); err == nil {
 		t.Fatal("truncated interactive setup accepted")
 	}

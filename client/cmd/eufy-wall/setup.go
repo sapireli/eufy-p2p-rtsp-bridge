@@ -249,6 +249,10 @@ func setupWall(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 		if err := decoder.Decode(&a); err != nil {
 			return fmt.Errorf("setup answers: %w", err)
 		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			return errors.New("setup answers: only one YAML document is allowed")
+		}
 	} else {
 		reader := bufio.NewReader(in)
 		ask := func(label, fallback string) (string, error) {
