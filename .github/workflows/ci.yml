@@ -18,6 +18,16 @@ jobs:
         with: { node-version: '26' }
       - run: node --experimental-test-coverage --test --test-coverage-include='server.mjs' --test-coverage-include='cli.mjs' --test-coverage-include='src/**/*.mjs' --test-coverage-exclude='src/vendor/**' --test-coverage-include-all --test-coverage-lines=80.01 test/*.test.mjs
       - run: bash -n scripts/sync-upstream.sh
+  server-package-ubuntu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: bash deploy/tests/test-packaged-server-ubuntu.sh
+        timeout-minutes: 8
   client:
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: client } }
