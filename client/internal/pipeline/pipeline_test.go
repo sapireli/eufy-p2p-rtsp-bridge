@@ -69,6 +69,37 @@ func TestWindowSoftware(t *testing.T) {
 	}
 }
 
+func TestVideoToolboxPlansAndProbeRequireHardwareOnlyDecoder(t *testing.T) {
+	c, tiles := two()
+	tiles[1].Codec = "h265"
+	args, err := Build(c, tiles, Caps{Decoder: "videotoolbox", Sink: "window", Screen: config.Screen{Width: 1920, Height: 1080}})
+	if err != nil || strings.Count(String(args), "vtdec_hw") != 2 {
+		t.Fatalf("window args=%q err=%v", String(args), err)
+	}
+	probe, err := ProbeArgs(c, "videotoolbox", "h265", "rtsp://s/B")
+	if err != nil || !strings.Contains(String(probe), "! vtdec_hw !") {
+		t.Fatalf("probe args=%q err=%v", String(probe), err)
+	}
+}
+
+func TestAutoDecodeCanMixHardwareHEVCAndSoftwareH264(t *testing.T) {
+	c, tiles := two()
+	tiles[1].Codec = "h265"
+	caps := Caps{Decoder: "auto", AutoElements: map[string]string{"h264": "avdec_h264", "h265": "v4l2slh265dec"}, Sink: "compositor", Screen: config.Screen{Width: 1920, Height: 1080}}
+	args, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	if !strings.Contains(got, "h264parse ! avdec_h264") || !strings.Contains(got, "h265parse ! v4l2slh265dec") {
+		t.Fatalf("per-codec decoder routing: %s", got)
+	}
+	probe, err := ProbeArgsForCaps(c, caps, "h265", "rtsp://s/B")
+	if err != nil || !strings.Contains(String(probe), "! v4l2slh265dec !") {
+		t.Fatalf("HEVC probe did not use hardware: %s, %v", String(probe), err)
+	}
+}
+
 func TestArgsAreNotShellJoined(t *testing.T) {
 	c, tiles := two()
 	args, _ := Build(c, tiles, Caps{Decoder: "v4l2", Sink: "planes"})

@@ -11,12 +11,6 @@ import (
 
 const blackSource = `videotestsrc is-live=true pattern=black ! capsfilter caps="video/x-raw,format=I420,width=1,height=1,framerate=1/1"`
 
-var nativeDecoders = map[string]map[string]string{
-	"v4l2":     {"h264": "v4l2h264dec", "h265": "v4l2h265dec"},
-	"va":       {"h264": "vah264dec", "h265": "vah265dec"},
-	"software": {"h264": "avdec_h264", "h265": "avdec_h265"},
-}
-
 func sourceKind(tile layout.Placed) string {
 	if tile.StillURL != "" {
 		return "still"
@@ -49,8 +43,8 @@ func sourceDescription(tile layout.Placed, caps pipeline.Caps, latency int) (str
 	if codec == "" {
 		codec = "h264"
 	}
-	family, ok := nativeDecoders[caps.Decoder]
-	if !ok || family[codec] == "" {
+	decoder := caps.Element(codec)
+	if decoder == "" {
 		return "", fmt.Errorf("native compositor: decoder %q cannot decode %s (tile %s)", caps.Decoder, codec, tileID(tile))
 	}
 	depay, parse := "rtph264depay", "h264parse"
@@ -66,7 +60,7 @@ func sourceDescription(tile layout.Placed, caps pipeline.Caps, latency int) (str
 	if latency < 0 || latency > 10000 {
 		return "", errors.New("native compositor latency must be 0..10000 ms")
 	}
-	return fmt.Sprintf("rtspsrc location=%s latency=%d protocols=tcp ! application/x-rtp,media=video,encoding-name=%s ! %s ! %s ! %s ! watchdog timeout=15000 ! videoconvert", quoted, latency, rtpCodec, depay, parse, family[codec]), nil
+	return fmt.Sprintf("rtspsrc location=%s latency=%d protocols=tcp ! application/x-rtp,media=video,encoding-name=%s ! %s ! %s ! %s ! watchdog timeout=15000 ! videoconvert", quoted, latency, rtpCodec, depay, parse, decoder), nil
 }
 
 func quoteProperty(value string) (string, error) {

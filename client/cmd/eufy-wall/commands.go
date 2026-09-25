@@ -273,7 +273,7 @@ func clientDoctorAtWithScreenForTarget(path string, target clientTarget, jsonOut
 			} else if caps, resolveErr := detect.Resolve(c, detect.HasElement, detect.FileExists); resolveErr != nil {
 				report.Problems = append(report.Problems, resolveErr.Error())
 			} else {
-				report.Decoder, report.Sink = caps.Decoder, caps.Sink
+				report.Decoder, report.Sink = caps.DecoderSummary(), caps.Sink
 				if err := detect.CheckNativeElements(caps.Sink, detect.HasElement); err != nil {
 					report.Problems = append(report.Problems, err.Error())
 				}
@@ -289,7 +289,7 @@ func clientDoctorAtWithScreenForTarget(path string, target clientTarget, jsonOut
 				}
 				if cameras, preflightErr := preflightClientRemote(context.Background(), c); preflightErr != nil {
 					report.Problems = append(report.Problems, preflightErr.Error())
-				} else if codecErr := codecPreflight(c, cameras, caps.Decoder, detect.HasElement); codecErr != nil {
+				} else if codecErr := codecPreflight(c, cameras, caps, detect.HasElement); codecErr != nil {
 					report.Problems = append(report.Problems, codecErr.Error())
 				} else {
 					report.BridgeReady = true

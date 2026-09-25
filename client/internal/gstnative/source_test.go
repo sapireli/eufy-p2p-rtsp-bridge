@@ -38,6 +38,25 @@ func TestNativeSourceDescriptionsAreCodecSpecificAndQuoted(t *testing.T) {
 	}
 }
 
+func TestNativeVideoToolboxSourceUsesHardwareOnlyDecoder(t *testing.T) {
+	for _, codec := range []string{"h264", "h265"} {
+		desc, err := sourceDescription(layout.Placed{ID: codec, URL: "rtsp://bridge/" + codec, Codec: codec}, pipeline.Caps{Decoder: "videotoolbox"}, 200)
+		if err != nil || !strings.Contains(desc, "! vtdec_hw !") || strings.Contains(desc, "avdec_") {
+			t.Fatalf("%s: %q, %v", codec, desc, err)
+		}
+	}
+}
+
+func TestNativeAutoUsesPerCodecDecoder(t *testing.T) {
+	caps := pipeline.Caps{Decoder: "auto", AutoElements: map[string]string{"h264": "avdec_h264", "h265": "v4l2slh265dec"}}
+	for codec, want := range map[string]string{"h264": "avdec_h264", "h265": "v4l2slh265dec"} {
+		desc, err := sourceDescription(layout.Placed{ID: codec, URL: "rtsp://bridge/" + codec, Codec: codec}, caps, 200)
+		if err != nil || !strings.Contains(desc, "! "+want+" !") {
+			t.Fatalf("%s: %q, %v", codec, desc, err)
+		}
+	}
+}
+
 func TestNativeSourceRejectsUnknownCodecAndUnsafeURL(t *testing.T) {
 	for _, tc := range []struct {
 		tile    layout.Placed

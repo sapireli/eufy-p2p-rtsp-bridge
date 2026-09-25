@@ -24,7 +24,7 @@ FPS = re.compile(r"rendered:\s*(\d+),\s*dropped:\s*(\d+),\s*current:\s*([\d.]+),
 FPS_DROPS = re.compile(r"rendered:\s*(\d+),\s*dropped:\s*(\d+),\s*fps:\s*([\d.]+),\s*drop rate:\s*([\d.]+)")
 DIMENSION = re.compile(r"\b(width|height)=(?:\(int\))?(\d{2,5})\b")
 SAFE_TEXT = re.compile(r"[^A-Za-z0-9 .,_()+/\-]")
-ELEMENTS = ("gst-launch-1.0", "fpsdisplaysink", "kmssink", "watchdog", "v4l2h264dec", "v4l2h265dec", "vah264dec", "vah265dec", "avdec_h264", "avdec_h265")
+ELEMENTS = ("gst-launch-1.0", "fpsdisplaysink", "kmssink", "watchdog", "v4l2h264dec", "v4l2slh265dec", "vah264dec", "vah265dec", "avdec_h264", "avdec_h265")
 
 
 def safe_text(value, limit=100):

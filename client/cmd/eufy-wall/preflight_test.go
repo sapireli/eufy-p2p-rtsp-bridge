@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/pipeline"
 )
 
 func TestPreflightChecksBridgeInventoryAndRTSPBeforeApply(t *testing.T) {
@@ -46,10 +47,10 @@ func TestPreflightChecksBridgeInventoryAndRTSPBeforeApply(t *testing.T) {
 	if err != nil || len(cameras) != 1 {
 		t.Fatalf("healthy preflight cameras=%v err=%v", cameras, err)
 	}
-	if err := codecPreflight(c, cameras, "software", func(name string) bool { return name == "avdec_h265" }); err != nil {
+	if err := codecPreflight(c, cameras, pipeline.Caps{Decoder: "software"}, func(name string) bool { return name == "avdec_h265" }); err != nil {
 		t.Fatal(err)
 	}
-	if err := codecPreflight(c, cameras, "software", func(string) bool { return false }); err == nil {
+	if err := codecPreflight(c, cameras, pipeline.Caps{Decoder: "software"}, func(string) bool { return false }); err == nil {
 		t.Fatal("missing H.265 decoder accepted")
 	}
 	state = "pending"
@@ -74,11 +75,34 @@ func TestPreflightChecksBridgeInventoryAndRTSPBeforeApply(t *testing.T) {
 func TestPreflightRejectsUnknownMotionWatchCodec(t *testing.T) {
 	c := &config.Config{Tiles: []config.Tile{{Motion: "latest", Watch: []string{"A", "B"}}}}
 	cameras := []setupCamera{{SN: "A", Codec: "h264"}, {SN: "B", Codec: "h265"}}
-	if err := codecPreflight(c, cameras, "software", func(name string) bool { return name == "avdec_h264" }); err == nil || !strings.Contains(err.Error(), "h265") {
+	if err := codecPreflight(c, cameras, pipeline.Caps{Decoder: "software"}, func(name string) bool { return name == "avdec_h264" }); err == nil || !strings.Contains(err.Error(), "h265") {
 		t.Fatalf("mixed motion codecs accepted: %v", err)
 	}
-	if err := codecPreflight(c, cameras, "software", func(name string) bool { return name == "avdec_h264" || name == "avdec_h265" }); err != nil {
+	if err := codecPreflight(c, cameras, pipeline.Caps{Decoder: "software"}, func(name string) bool { return name == "avdec_h264" || name == "avdec_h265" }); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPreflightVideoToolboxRequiresHardwareOnlyElement(t *testing.T) {
+	c := &config.Config{Tiles: []config.Tile{{Camera: "A"}}}
+	cameras := []setupCamera{{SN: "A", Codec: "h265"}}
+	if err := codecPreflight(c, cameras, pipeline.Caps{Decoder: "videotoolbox"}, func(name string) bool { return name == "vtdec" }); err == nil {
+		t.Fatal("preflight accepted VideoToolbox decoder that may fall back to software")
+	}
+	if err := codecPreflight(c, cameras, pipeline.Caps{Decoder: "videotoolbox"}, func(name string) bool { return name == "vtdec_hw" }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPreflightAutoChecksSelectedElementPerCodec(t *testing.T) {
+	c := &config.Config{Tiles: []config.Tile{{Camera: "A"}, {Camera: "B"}}}
+	cameras := []setupCamera{{SN: "A", Codec: "h264"}, {SN: "B", Codec: "h265"}}
+	caps := pipeline.Caps{Decoder: "auto", AutoElements: map[string]string{"h264": "avdec_h264", "h265": "v4l2slh265dec"}}
+	if err := codecPreflight(c, cameras, caps, func(name string) bool { return name == "avdec_h264" || name == "v4l2slh265dec" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := codecPreflight(c, cameras, caps, func(name string) bool { return name == "avdec_h264" }); err == nil || !strings.Contains(err.Error(), "h265") {
+		t.Fatalf("missing HEVC hardware decoder accepted: %v", err)
 	}
 }
 

@@ -11,7 +11,7 @@ var clientConfigFields = map[string]string{
 	"screen":                      "optional display pixel dimensions; set both width and height or neither",
 	"screen.width":                "positive display width in pixels; requires screen.height",
 	"screen.height":               "positive display height in pixels; requires screen.width",
-	"decoder":                     "auto (default), v4l2, va, or software; the chosen decoder must support each source codec",
+	"decoder":                     "auto (default: prefer hardware per codec, fall back to software), v4l2, va, videotoolbox, or software; the chosen decoder must support each source codec",
 	"sink":                        "auto (default), planes, compositor, or window; macOS uses a window",
 	"planes":                      "Linux DRM plane IDs, one per tile, used with sink: planes; verify connector routing with doctor",
 	"latency_ms":                  "RTSP receive latency in milliseconds; default 200",

@@ -14,6 +14,20 @@ import (
 	"eufy-wall/internal/pipeline"
 )
 
+func TestAutoFrameProbeUsesHardwareForAvailableCodec(t *testing.T) {
+	c := &config.Config{RTSPBase: "rtsp://bridge:8554", Latency: 200}
+	caps := pipeline.Caps{Decoder: "auto", AutoElements: map[string]string{"h264": "avdec_h264", "h265": "v4l2slh265dec"}}
+	codec, err := probeClientCameraWithCaps(context.Background(), c, "YARD", []setupCamera{{SN: "YARD", Mode: "always", Codec: "h265", StreamKey: "yard"}}, caps, func(_ context.Context, args []string) error {
+		if got := pipeline.String(args); !strings.Contains(got, "h265parse ! v4l2slh265dec !") || strings.Contains(got, "avdec_h265") {
+			t.Errorf("probe used the wrong decoder: %s", got)
+		}
+		return nil
+	})
+	if err != nil || codec != "h265" {
+		t.Fatalf("codec=%q err=%v", codec, err)
+	}
+}
+
 func TestBatteryFrameProbeUsesCurrentCodecAndReleasesBoundedHold(t *testing.T) {
 	var mu sync.Mutex
 	var methods []string

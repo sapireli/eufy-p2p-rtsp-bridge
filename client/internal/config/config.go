@@ -193,9 +193,9 @@ func Parse(data []byte) (*Config, error) {
 		}
 	}
 	switch c.Decoder {
-	case "auto", "v4l2", "va", "software":
+	case "auto", "v4l2", "va", "videotoolbox", "software":
 	default:
-		return nil, fmt.Errorf("config: decoder must be auto|v4l2|va|software (got %q)", c.Decoder)
+		return nil, fmt.Errorf("config: decoder must be auto|v4l2|va|videotoolbox|software (got %q)", c.Decoder)
 	}
 	switch c.Sink {
 	case "auto", "planes", "compositor", "window":

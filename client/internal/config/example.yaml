@@ -6,7 +6,7 @@ rtsp_base: rtsp://bridge.local:8554     # go2rtc RTSP endpoint
 # screen: {width: 1920, height: 1080}  # omit to detect the connected output's mode
 layout: custom
 canvas: {cols: 32, rows: 32}
-decoder: auto                          # auto | v4l2 | va | software
+decoder: auto                          # prefer hardware per codec; use software if hardware is unavailable
 sink: auto                             # auto | planes | compositor | window
 # planes: [31, 32]                     # needed when sink resolves to planes
 latency_ms: 200

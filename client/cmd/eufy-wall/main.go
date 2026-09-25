@@ -129,7 +129,7 @@ func runWallTarget(cfgPath string, dryRun, printLayout bool, target clientTarget
 		}
 	}
 
-	log.Printf("[wall] screen %dx%d layout %s decoder %s sink %s", c.Screen.Width, c.Screen.Height, c.Layout, caps.Decoder, caps.Sink)
+	log.Printf("[wall] screen %dx%d layout %s decoder %s sink %s", c.Screen.Width, c.Screen.Height, c.Layout, caps.DecoderSummary(), caps.Sink)
 	for _, t := range tiles {
 		lb := ""
 		if t.Letterbox {

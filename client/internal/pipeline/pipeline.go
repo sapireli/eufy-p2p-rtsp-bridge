@@ -15,9 +15,12 @@ import (
 )
 
 type Caps struct {
-	Decoder string // v4l2 | va | software
-	Sink    string // planes | compositor | window
-	Screen  config.Screen
+	Decoder string // auto | v4l2 | va | videotoolbox | software
+	// AutoElements records the concrete H.264 and H.265 choices on this host. A hardware
+	// decoder is preferred independently for each codec; only unavailable codecs use libav.
+	AutoElements map[string]string
+	Sink         string // planes | compositor | window
+	Screen       config.Screen
 	// ConnectorID is the DRM connector this instance renders on (0 = let kmssink pick the first connected
 	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
 	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.
@@ -37,9 +40,26 @@ func (c Caps) kmssinkArgs(extra ...string) []string {
 // cameras as H.264 and others as HEVC, and where the bridge passes a camera through untranscoded the tile
 // has to decode what the camera actually sends.
 var decoders = map[string]map[string]string{
-	"v4l2":     {"h264": "v4l2h264dec", "h265": "v4l2h265dec"},
-	"va":       {"h264": "vah264dec", "h265": "vah265dec"},
-	"software": {"h264": "avdec_h264", "h265": "avdec_h265"},
+	"v4l2":         {"h264": "v4l2h264dec", "h265": "v4l2slh265dec"},
+	"va":           {"h264": "vah264dec", "h265": "vah265dec"},
+	"videotoolbox": {"h264": "vtdec_hw", "h265": "vtdec_hw"},
+	"software":     {"h264": "avdec_h264", "h265": "avdec_h265"},
+}
+
+func decoderElement(family, codec string) string { return decoders[family][codec] }
+
+func (c Caps) Element(codec string) string {
+	if c.Decoder == "auto" {
+		return c.AutoElements[codec]
+	}
+	return decoderElement(c.Decoder, codec)
+}
+
+func (c Caps) DecoderSummary() string {
+	if c.Decoder != "auto" {
+		return c.Decoder
+	}
+	return fmt.Sprintf("auto (h264=%s, h265=%s)", c.Element("h264"), c.Element("h265"))
 }
 
 // RTP depayloader + parser per codec; they are codec-specific in the same way the decoder is.
@@ -96,15 +116,14 @@ func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 }
 
 func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error) {
-	family, ok := decoders[caps.Decoder]
-	if !ok {
+	if _, ok := decoders[caps.Decoder]; !ok && (caps.Decoder != "auto" || len(caps.AutoElements) == 0) {
 		return nil, fmt.Errorf("pipeline: unknown decoder %q", caps.Decoder)
 	}
 	for _, t := range tiles {
 		if t.StillURL != "" {
 			continue // a JPEG needs no video decoder
 		}
-		if _, ok := family[codecOf(t)]; !ok {
+		if caps.Element(codecOf(t)) == "" {
 			return nil, fmt.Errorf("pipeline: decoder %q cannot decode %s (tile %s)", caps.Decoder, codecOf(t), t.Camera)
 		}
 	}
@@ -136,7 +155,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		dp := depayParse[codec]
 		return []string{
 			"rtspsrc", "location=" + t.URL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp", fmt.Sprintf("name=src%d", i),
-			"!", dp[0], "!", dp[1], "!", family[codec], "!", "watchdog", "timeout=15000",
+			"!", dp[0], "!", dp[1], "!", caps.Element(codec), "!", "watchdog", "timeout=15000",
 		}
 	}
 	switch caps.Sink {
@@ -182,15 +201,19 @@ func String(args []string) string { return strings.Join(args, " ") }
 // ProbeArgs decodes two live pictures into a discard sink. identity sends EOS after the second decoded
 // buffer, so a zero exit proves frame progress without opening HDMI or retaining a battery stream.
 func ProbeArgs(c *config.Config, decoder, codec, rtspURL string) ([]string, error) {
-	family, ok := decoders[decoder]
-	if !ok || family[codec] == "" {
-		return nil, fmt.Errorf("pipeline: %s decoder cannot probe %s", decoder, codec)
+	return ProbeArgsForCaps(c, Caps{Decoder: decoder}, codec, rtspURL)
+}
+
+func ProbeArgsForCaps(c *config.Config, caps Caps, codec, rtspURL string) ([]string, error) {
+	element := caps.Element(codec)
+	if element == "" {
+		return nil, fmt.Errorf("pipeline: %s decoder cannot probe %s", caps.DecoderSummary(), codec)
 	}
 	if rtspURL == "" {
 		return nil, fmt.Errorf("pipeline: RTSP URL is empty")
 	}
 	dp := depayParse[codec]
 	return []string{"-q", "rtspsrc", "location=" + rtspURL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp",
-		"!", dp[0], "!", dp[1], "!", family[codec], "!", "watchdog", "timeout=10000",
+		"!", dp[0], "!", dp[1], "!", element, "!", "watchdog", "timeout=10000",
 		"!", "identity", "eos-after=2", "!", "fakesink", "sync=false"}, nil
 }

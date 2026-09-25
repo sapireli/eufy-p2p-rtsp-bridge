@@ -42,7 +42,7 @@ func TestResolve(t *testing.T) {
 	}
 	pi := &config.Config{Decoder: "auto", Sink: "auto", Planes: []int{31}, Screen: config.Screen{Width: 1920, Height: 1080}}
 	caps, err := resolveForOS(pi, has("v4l2h264dec", "compositor"), exists("/dev/video10"), "linux")
-	if err != nil || caps.Decoder != "v4l2" || caps.Sink != "planes" {
+	if err != nil || caps.Element("h264") != "v4l2h264dec" || caps.Sink != "planes" {
 		t.Fatalf("pi: %v %+v", err, caps)
 	}
 	pi.Planes = nil
@@ -50,14 +50,23 @@ func TestResolve(t *testing.T) {
 	if caps.Sink != "compositor" {
 		t.Fatalf("pi no planes: %+v", caps)
 	}
+	pi5 := &config.Config{Decoder: "auto", Sink: "auto"}
+	caps, err = resolveForOS(pi5, has("v4l2slh265dec", "avdec_h264", "compositor"), exists("/dev/video19"), "linux")
+	if err != nil || caps.Element("h264") != "avdec_h264" || caps.Element("h265") != "v4l2slh265dec" || caps.Sink != "compositor" {
+		t.Fatalf("HEVC hardware with H.264 fallback: %+v, %v", caps, err)
+	}
+	caps, err = resolveForOS(pi5, has("avdec_h264", "avdec_h265", "compositor"), exists("/dev/video19"), "linux")
+	if err != nil || caps.Element("h264") != "avdec_h264" || caps.Element("h265") != "avdec_h265" {
+		t.Fatalf("software fallback without HEVC plugin: %+v, %v", caps, err)
+	}
 	x86 := &config.Config{Decoder: "auto", Sink: "auto", Screen: config.Screen{Width: 1920, Height: 1080}}
-	caps, _ = resolveForOS(x86, has("vah264dec", "avdec_h264", "compositor"), exists(), "linux")
-	if caps.Decoder != "va" || caps.Sink != "compositor" {
+	caps, _ = resolveForOS(x86, has("vah264dec", "avdec_h264", "avdec_h265", "compositor"), exists("/dev/dri/renderD128"), "linux")
+	if caps.Element("h264") != "vah264dec" || caps.Element("h265") != "avdec_h265" || caps.Sink != "compositor" {
 		t.Fatalf("x86: %+v", caps)
 	}
-	caps, _ = resolveForOS(x86, has("avdec_h264", "compositor"), exists(), "linux")
-	if caps.Decoder != "software" {
-		t.Fatalf("sw: %+v", caps)
+	caps, err = resolveForOS(x86, has("vah264dec", "avdec_h264", "compositor"), exists(), "linux")
+	if err != nil || caps.Element("h264") != "avdec_h264" {
+		t.Fatalf("software fallback without VA device: %+v, %v", caps, err)
 	}
 	if _, err := resolveForOS(x86, has(), exists(), "linux"); err == nil {
 		t.Fatal("expected error with no decoders")
@@ -102,13 +111,17 @@ func TestCheckNativeElements(t *testing.T) {
 
 func TestDarwinAutoSink(t *testing.T) {
 	c := &config.Config{Decoder: "auto", Sink: "auto", Screen: config.Screen{Width: 1920, Height: 1080}}
-	has := func(name string) bool { return name == "avdec_h264" || name == "autovideosink" }
+	has := func(name string) bool { return name == "vtdec_hw" || name == "autovideosink" }
 	caps, err := resolveForOS(c, has, func(string) bool { return false }, "darwin")
-	if err != nil || caps.Decoder != "software" || caps.Sink != "window" {
+	if err != nil || caps.Element("h264") != "vtdec_hw" || caps.Element("h265") != "vtdec_hw" || caps.Sink != "window" {
 		t.Fatalf("mac auto: %+v, %v", caps, err)
 	}
-	if _, err := resolveForOS(c, func(name string) bool { return name == "avdec_h264" }, func(string) bool { return false }, "darwin"); err == nil {
+	if _, err := resolveForOS(c, func(name string) bool { return name == "vtdec_hw" }, func(string) bool { return false }, "darwin"); err == nil {
 		t.Fatal("missing window sink should fail")
+	}
+	caps, err = resolveForOS(c, func(name string) bool { return name == "avdec_h264" || name == "vtdec" || name == "autovideosink" }, func(string) bool { return false }, "darwin")
+	if err != nil || caps.Element("h264") != "avdec_h264" || caps.Element("h265") != "" {
+		t.Fatalf("Mac without hardware-only VideoToolbox should fall back to software: %+v, %v", caps, err)
 	}
 }
 

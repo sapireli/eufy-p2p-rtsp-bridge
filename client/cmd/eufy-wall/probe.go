@@ -36,7 +36,7 @@ func probeFrames(ctx context.Context, c *config.Config, serial string, out io.Wr
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, frameProbeTimeout)
 	defer cancel()
-	codec, err := probeClientCamera(probeCtx, c, serial, cameras, caps.Decoder, runDecodedProbe)
+	codec, err := probeClientCameraWithCaps(probeCtx, c, serial, cameras, caps, runDecodedProbe)
 	if err != nil {
 		return err
 	}
@@ -45,6 +45,10 @@ func probeFrames(ctx context.Context, c *config.Config, serial string, out io.Wr
 }
 
 func probeClientCamera(ctx context.Context, c *config.Config, serial string, cameras []setupCamera, decoder string, run func(context.Context, []string) error) (codec string, err error) {
+	return probeClientCameraWithCaps(ctx, c, serial, cameras, pipeline.Caps{Decoder: decoder}, run)
+}
+
+func probeClientCameraWithCaps(ctx context.Context, c *config.Config, serial string, cameras []setupCamera, caps pipeline.Caps, run func(context.Context, []string) error) (codec string, err error) {
 	var camera *setupCamera
 	for i := range cameras {
 		if cameras[i].SN == serial {
@@ -91,7 +95,7 @@ func probeClientCamera(ctx context.Context, c *config.Config, serial string, cam
 	}
 	var failures []string
 	for i, candidate := range candidates {
-		args, buildErr := pipeline.ProbeArgs(c, decoder, candidate, c.TileURL(config.Tile{Camera: camera.StreamKey}))
+		args, buildErr := pipeline.ProbeArgsForCaps(c, caps, candidate, c.TileURL(config.Tile{Camera: camera.StreamKey}))
 		if buildErr != nil {
 			failures = append(failures, candidate+": "+buildErr.Error())
 			continue

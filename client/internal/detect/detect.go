@@ -152,15 +152,41 @@ func Resolve(c *config.Config, has func(string) bool, fileExists func(string) bo
 func resolveForOS(c *config.Config, has func(string) bool, fileExists func(string) bool, goos string) (pipeline.Caps, error) {
 	caps := pipeline.Caps{Decoder: c.Decoder, Sink: c.Sink, Screen: c.Screen}
 	if caps.Decoder == "auto" {
-		switch {
-		case fileExists("/dev/video10") && has("v4l2h264dec"):
-			caps.Decoder = "v4l2"
-		case has("vah264dec"):
-			caps.Decoder = "va"
-		case has("avdec_h264"):
-			caps.Decoder = "software"
-		default:
-			return caps, fmt.Errorf("detect: no H.264 decoder found (install gstreamer1.0-plugins-good/bad/libav)")
+		caps.AutoElements = make(map[string]string, 2)
+		if goos == "darwin" {
+			if has("vtdec_hw") {
+				caps.AutoElements["h264"] = "vtdec_hw"
+				caps.AutoElements["h265"] = "vtdec_hw"
+			}
+		} else {
+			if fileExists("/dev/video10") && has("v4l2h264dec") {
+				caps.AutoElements["h264"] = "v4l2h264dec"
+			}
+			if fileExists("/dev/video19") && has("v4l2slh265dec") {
+				caps.AutoElements["h265"] = "v4l2slh265dec"
+			}
+			vaDevice := false
+			for id := 128; id < 136; id++ {
+				if fileExists(fmt.Sprintf("/dev/dri/renderD%d", id)) {
+					vaDevice = true
+					break
+				}
+			}
+			if vaDevice {
+				for codec, element := range map[string]string{"h264": "vah264dec", "h265": "vah265dec"} {
+					if caps.AutoElements[codec] == "" && has(element) {
+						caps.AutoElements[codec] = element
+					}
+				}
+			}
+		}
+		for codec, element := range map[string]string{"h264": "avdec_h264", "h265": "avdec_h265"} {
+			if caps.AutoElements[codec] == "" && has(element) {
+				caps.AutoElements[codec] = element
+			}
+		}
+		if caps.Element("h264") == "" && caps.Element("h265") == "" {
+			return caps, fmt.Errorf("detect: no H.264 or H.265 decoder found (install GStreamer hardware plugins or libav)")
 		}
 	}
 	if caps.Sink == "auto" {
@@ -169,7 +195,7 @@ func resolveForOS(c *config.Config, has func(string) bool, fileExists func(strin
 			caps.Sink = "window"
 		case goos == "darwin":
 			return caps, fmt.Errorf("detect: autovideosink is missing (install Homebrew GStreamer plugins-base)")
-		case caps.Decoder == "v4l2" && len(c.Planes) > 0:
+		case len(c.Planes) > 0 && (caps.Element("h264") == "v4l2h264dec" || caps.Element("h265") == "v4l2slh265dec"):
 			caps.Sink = "planes"
 		case has("compositor"):
 			caps.Sink = "compositor"

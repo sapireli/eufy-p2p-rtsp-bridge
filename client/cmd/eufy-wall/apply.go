@@ -212,7 +212,7 @@ func validateClientConfig(b []byte, host bool) error {
 		if err != nil {
 			return err
 		}
-		if err := codecPreflight(c, cameras, caps.Decoder, detect.HasElement); err != nil {
+		if err := codecPreflight(c, cameras, caps, detect.HasElement); err != nil {
 			return err
 		}
 	}

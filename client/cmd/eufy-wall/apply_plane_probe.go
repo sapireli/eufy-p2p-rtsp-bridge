@@ -29,10 +29,14 @@ func probePlaneFrames(c *config.Config) error {
 	if err != nil {
 		return err
 	}
-	return probePlaneSources(ctx, c, caps.Decoder, cameras, runDecodedProbe)
+	return probePlaneSourcesWithCaps(ctx, c, caps, cameras, runDecodedProbe)
 }
 
 func probePlaneSources(ctx context.Context, c *config.Config, decoder string, cameras []setupCamera, run func(context.Context, []string) error) error {
+	return probePlaneSourcesWithCaps(ctx, c, pipeline.Caps{Decoder: decoder}, cameras, run)
+}
+
+func probePlaneSourcesWithCaps(ctx context.Context, c *config.Config, caps pipeline.Caps, cameras []setupCamera, run func(context.Context, []string) error) error {
 	bySerial := make(map[string]setupCamera, len(cameras))
 	for _, camera := range cameras {
 		bySerial[camera.SN] = camera
@@ -65,7 +69,7 @@ func probePlaneSources(ctx context.Context, c *config.Config, decoder string, ca
 			}
 			probeCtx, stop := context.WithTimeout(ctx, frameProbeTimeout)
 			defer stop()
-			if err := probePlaneSource(probeCtx, c, tile, camera, hasCamera, decoder, run); err != nil {
+			if err := probePlaneSource(probeCtx, c, tile, camera, hasCamera, caps, run); err != nil {
 				once.Do(func() { firstErr = fmt.Errorf("tile %s: %w", tile.ID, err); cancel() })
 			}
 		}(tile, camera, hasCamera)
@@ -77,7 +81,7 @@ func probePlaneSources(ctx context.Context, c *config.Config, decoder string, ca
 	return ctx.Err()
 }
 
-func probePlaneSource(ctx context.Context, c *config.Config, tile config.Tile, camera setupCamera, hasCamera bool, decoder string, run func(context.Context, []string) error) (err error) {
+func probePlaneSource(ctx context.Context, c *config.Config, tile config.Tile, camera setupCamera, hasCamera bool, caps pipeline.Caps, run func(context.Context, []string) error) (err error) {
 	codec := tile.Codec
 	if codec == "" {
 		codec = "h264" // The plane pipeline uses the same default.
@@ -103,7 +107,7 @@ func probePlaneSource(ctx context.Context, c *config.Config, tile config.Tile, c
 			}()
 		}
 	}
-	args, err := pipeline.ProbeArgs(c, decoder, codec, rtspURL)
+	args, err := pipeline.ProbeArgsForCaps(c, caps, codec, rtspURL)
 	if err != nil {
 		return err
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/pipeline"
 	"eufy-wall/internal/wsclient"
 )
 
@@ -115,7 +116,7 @@ func preflightClientRemote(ctx context.Context, c *config.Config) ([]setupCamera
 	return cameras, conn.Close()
 }
 
-func codecPreflight(c *config.Config, cameras []setupCamera, decoder string, has func(string) bool) error {
+func codecPreflight(c *config.Config, cameras []setupCamera, caps pipeline.Caps, has func(string) bool) error {
 	codecBySerial := make(map[string]string, len(cameras))
 	for _, camera := range cameras {
 		codecBySerial[camera.SN] = camera.Codec
@@ -141,9 +142,9 @@ func codecPreflight(c *config.Config, cameras []setupCamera, decoder string, has
 			if codec != "h264" && codec != "h265" {
 				return fmt.Errorf("tiles[%d]: bridge reported unsupported codec %q", i, codec)
 			}
-			name := map[string]map[string]string{"v4l2": {"h264": "v4l2h264dec", "h265": "v4l2h265dec"}, "va": {"h264": "vah264dec", "h265": "vah265dec"}, "software": {"h264": "avdec_h264", "h265": "avdec_h265"}}[decoder][codec]
+			name := caps.Element(codec)
 			if name == "" || !has(name) {
-				return fmt.Errorf("tiles[%d]: %s decoder for %s is unavailable", i, strings.ToUpper(decoder), codec)
+				return fmt.Errorf("tiles[%d]: %s decoder for %s is unavailable", i, strings.ToUpper(caps.DecoderSummary()), codec)
 			}
 		}
 	}
