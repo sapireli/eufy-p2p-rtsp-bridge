@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,8 +23,13 @@ import (
 type Options struct {
 	StatusPath   string
 	ConfigSHA256 string
+	Initial      []layout.Placed
 	sink         string
 	source       func(layout.Placed) (string, error)
+	stallAfter   time.Duration
+	retryAfter   time.Duration
+	stillRefresh time.Duration
+	api          *gstAPI
 }
 
 type frameCounter struct {
@@ -98,11 +105,23 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 	if opts.StatusPath == "" {
 		opts.StatusPath = DefaultStatusPath
 	}
+	if err := os.MkdirAll(filepath.Dir(opts.StatusPath), 0700); err != nil {
+		return nil, fmt.Errorf("native renderer status directory: %w", err)
+	}
 	if _, err := hex.DecodeString(opts.ConfigSHA256); len(opts.ConfigSHA256) != 64 || err != nil {
 		return nil, errors.New("native renderer requires active config SHA256")
 	}
 	if opts.source == nil {
 		opts.source = func(tile layout.Placed) (string, error) { return sourceDescription(tile, caps, c.Latency) }
+	}
+	if opts.stallAfter <= 0 {
+		opts.stallAfter = 20 * time.Second
+	}
+	if opts.retryAfter <= 0 {
+		opts.retryAfter = 10 * time.Second
+	}
+	if opts.stillRefresh <= 0 {
+		opts.stillRefresh = 30 * time.Second
 	}
 	if opts.sink == "" {
 		if caps.Sink == "window" {
@@ -117,6 +136,9 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 	a, err := load()
 	if err != nil {
 		return nil, err
+	}
+	if opts.api != nil {
+		a = opts.api
 	}
 	desc, order, err := pipelineDescription(tiles, caps, opts.sink)
 	if err != nil {
@@ -141,7 +163,11 @@ func New(c *config.Config, tiles []layout.Placed, caps pipeline.Caps, opts Optio
 	}
 	// Initial blanks render immediately. Sources are installed after the compositor is playing
 	// so a slow RTSP handshake never delays other tiles or the black output frame.
-	if err := r.Update(tiles); err != nil {
+	initial := opts.Initial
+	if initial == nil {
+		initial = tiles
+	}
+	if err := r.Update(initial); err != nil {
 		r.closeNative()
 		return nil, err
 	}

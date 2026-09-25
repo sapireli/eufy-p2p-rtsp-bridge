@@ -18,13 +18,13 @@ func (r *Renderer) switchSource(s *slot, tile layout.Placed) error {
 	desc, err := r.options.source(tile)
 	if err != nil {
 		s.state, s.err = "retrying", err.Error()
-		s.nextRetry = time.Now().Add(10 * time.Second)
+		s.nextRetry = time.Now().Add(r.options.retryAfter)
 		return err
 	}
 	next, err := r.api.sourceBin(desc)
 	if err != nil {
 		s.state, s.err = "retrying", err.Error()
-		s.nextRetry = time.Now().Add(10 * time.Second)
+		s.nextRetry = time.Now().Add(r.options.retryAfter)
 		return err
 	}
 	if err := r.install(s, next); err != nil {
@@ -32,13 +32,13 @@ func (r *Renderer) switchSource(s *slot, tile layout.Placed) error {
 			if black, parseErr := r.api.sourceBin(blackSource); parseErr == nil {
 				if fallbackErr := r.install(s, black); fallbackErr == nil {
 					s.kind, s.state, s.err, s.key = "black", "retrying", err.Error(), ""
-					s.tile, s.nextRetry = tile, time.Now().Add(10*time.Second)
+					s.tile, s.nextRetry = tile, time.Now().Add(r.options.retryAfter)
 					return err
 				}
 			}
 		}
 		s.state, s.err = "retrying", err.Error()
-		s.nextRetry = time.Now().Add(10 * time.Second)
+		s.nextRetry = time.Now().Add(r.options.retryAfter)
 		return err
 	}
 	s.key, s.kind, s.state, s.err = key, sourceKind(tile), "playing", ""

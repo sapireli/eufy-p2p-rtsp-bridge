@@ -2,6 +2,7 @@ package gstnative
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"time"
 )
@@ -28,7 +29,7 @@ func (r *Renderer) statusLocked() Status {
 		tile := r.slots[id]
 		t := TileStatus{ExpectedLive: tile.expectedLive, SourceKind: tile.kind,
 			Generation: tile.generation, State: tile.state, Error: tile.err}
-		if tile.counter != nil && tile.kind == "live" {
+		if tile.counter != nil && (tile.kind == "live" || tile.kind == "still") {
 			t.DecodedFrames = tile.counter.frames.Load()
 			t.LastDecodedFrameAt = tile.counter.lastTime()
 		}
@@ -52,7 +53,9 @@ func (r *Renderer) monitor() {
 		case <-ticker.C:
 			r.mu.Lock()
 			if !r.closed {
-				r.recoverStalledLocked(time.Now(), r.api.busError(r.bus))
+				now := time.Now()
+				r.recoverStalledLocked(now, r.api.busError(r.bus))
+				r.refreshStillsLocked(now)
 				if err := r.writeStatusLocked(); err != nil {
 					r.reportError(err)
 				}
@@ -78,13 +81,13 @@ func (r *Renderer) reportError(err error) {
 // gives useful detail, while the frame clock catches silent freezes without relying on bus order.
 func (r *Renderer) recoverStalledLocked(now time.Time, busErr error) {
 	for _, s := range r.slots {
-		if !s.expectedLive || now.Before(s.nextRetry) {
+		if (!s.expectedLive && s.tile.StillURL == "") || now.Before(s.nextRetry) {
 			continue
 		}
 		if s.state == "retrying" {
 			s.key = ""
 			if err := r.switchSource(s, s.tile); err != nil {
-				s.nextRetry = now.Add(10 * time.Second)
+				s.nextRetry = now.Add(r.options.retryAfter)
 			}
 			continue
 		}
@@ -92,19 +95,33 @@ func (r *Renderer) recoverStalledLocked(now time.Time, busErr error) {
 		if s.counter != nil && s.counter.last.Load() > 0 {
 			last = time.Unix(0, s.counter.last.Load())
 		}
-		if now.Sub(last) < 20*time.Second {
+		if now.Sub(last) < r.options.stallAfter {
 			continue
 		}
 		s.state = "stalled"
 		if busErr != nil {
 			s.err = busErr.Error()
 		} else {
-			s.err = "source produced no decoded frames for 20 seconds"
+			s.err = fmt.Sprintf("source produced no decoded frames for %s", r.options.stallAfter)
 		}
 		s.key = ""
 		if err := r.switchSource(s, s.tile); err != nil {
 			s.state, s.err = "retrying", err.Error()
-			s.nextRetry = now.Add(10 * time.Second)
+			s.nextRetry = now.Add(r.options.retryAfter)
+		}
+	}
+}
+
+// imagefreeze keeps yielding the first JPEG forever, so a stable snapshot URL must be fetched
+// again periodically. Replacing only its source bin leaves other tiles and output running.
+func (r *Renderer) refreshStillsLocked(now time.Time) {
+	for _, s := range r.slots {
+		if s.kind != "still" || now.Before(s.nextRetry) || now.Sub(s.installed) < r.options.stillRefresh {
+			continue
+		}
+		s.key = ""
+		if err := r.switchSource(s, s.tile); err != nil {
+			s.nextRetry = now.Add(r.options.retryAfter)
 		}
 	}
 }
