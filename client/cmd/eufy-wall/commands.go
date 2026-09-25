@@ -145,7 +145,7 @@ func runCommandTarget(args []string, in io.Reader, out io.Writer, target clientT
 		if len(args) > 2 || len(args) == 2 && args[1] != "--json" {
 			return true, errors.New("usage: eufy-wall doctor [--json]")
 		}
-		return true, clientDoctorAt(target.ConfigPath, len(args) == 2, out)
+		return true, clientDoctorForTarget(target, len(args) == 2, out)
 	case "health":
 		if len(args) != 1 {
 			return true, errors.New("usage: eufy-wall health")
@@ -239,7 +239,17 @@ func clientDoctorAt(path string, jsonOutput bool, out io.Writer) error {
 	})
 }
 
+func clientDoctorForTarget(target clientTarget, jsonOutput bool, out io.Writer) error {
+	return clientDoctorAtWithScreenForTarget(target.ConfigPath, target, jsonOutput, out, func(output string) (config.Screen, bool) {
+		return detect.HostScreen("/", output)
+	})
+}
+
 func clientDoctorAtWithScreen(path string, jsonOutput bool, out io.Writer, screenFor func(string) (config.Screen, bool)) error {
+	return clientDoctorAtWithScreenForTarget(path, clientTarget{}, jsonOutput, out, screenFor)
+}
+
+func clientDoctorAtWithScreenForTarget(path string, target clientTarget, jsonOutput bool, out io.Writer, screenFor func(string) (config.Screen, bool)) error {
 	report := doctorReport{Problems: []string{}}
 	output := ""
 	report.Watchdog = detect.HasElement("watchdog")
@@ -258,7 +268,10 @@ func clientDoctorAtWithScreen(path string, jsonOutput bool, out io.Writer, scree
 				report.ConfigValid = false
 				report.Problems = append(report.Problems, placeErr.Error())
 			}
-			if caps, resolveErr := detect.Resolve(c, detect.HasElement, detect.FileExists); resolveErr != nil {
+			if targetErr := validateTargetOutput(target, c); targetErr != nil {
+				report.ConfigValid = false
+				report.Problems = append(report.Problems, targetErr.Error())
+			} else if caps, resolveErr := detect.Resolve(c, detect.HasElement, detect.FileExists); resolveErr != nil {
 				report.Problems = append(report.Problems, resolveErr.Error())
 			} else {
 				report.Decoder, report.Sink = caps.Decoder, caps.Sink

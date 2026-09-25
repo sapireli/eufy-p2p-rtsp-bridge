@@ -129,6 +129,28 @@ func TestNamedCommandUsesItsConfigPath(t *testing.T) {
 	}
 }
 
+func TestNamedDoctorRejectsImplicitOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "right.yaml")
+	if err := os.WriteFile(path, config.Example(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	target := clientTarget{Name: "right", ConfigPath: path, StatusPath: filepath.Join(t.TempDir(), "status.json"), Service: "eufy-wall@right"}
+	var out bytes.Buffer
+	err := clientDoctorAtWithScreenForTarget(path, target, true, &out, func(string) (config.Screen, bool) {
+		return config.Screen{Width: 1920, Height: 1080}, true
+	})
+	if err == nil {
+		t.Fatal("doctor accepted a named config with no output")
+	}
+	var report doctorReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.ConfigValid || !strings.Contains(strings.Join(report.Problems, " "), "explicit output connector") {
+		t.Fatalf("doctor gave false advice for named config: %+v", report)
+	}
+}
+
 func TestNamedInstanceRequiresExplicitDisplayOutput(t *testing.T) {
 	target, _ := targetForPlatform("linux", "", "east")
 	c, err := config.Parse(config.Example())
