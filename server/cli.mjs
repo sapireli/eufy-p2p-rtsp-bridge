@@ -251,7 +251,9 @@ async function main() {
   const [verb, sub, path] = clean;
   if (verb === "config" && sub === "example") {
     if (clean.length !== 2) throw new Error("usage: eufy-bridge config example");
-    return emit(await fs.readFile(join(__dirname, "config.example.yaml"), "utf8"), false);
+    const yaml = await fs.readFile(join(__dirname, "config.example.yaml"), "utf8");
+    if (asJson) return emit({ ok: true, yaml }, true);
+    return stdout.write(yaml);
   }
   if (verb === "config" && sub === "explain") {
     if (clean.length > 3 || path?.startsWith("--")) throw new Error("usage: eufy-bridge config explain [field]");

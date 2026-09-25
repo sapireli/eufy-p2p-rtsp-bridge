@@ -94,6 +94,9 @@ test("example is nonsecret and can be validated with environment credentials", a
   const example = await run(["config", "example"]);
   assert.equal(example.code, 0);
   assert.doesNotMatch(example.out, /password: change-me/);
+  const structured = await run(["config", "example", "--json"]);
+  assert.equal(structured.code, 0, structured.err);
+  assert.deepEqual(JSON.parse(structured.out), { ok: true, yaml: example.out });
   const valid = await run(["config", "validate", "-", "--json"], { input: example.out });
   assert.equal(valid.code, 0, valid.err);
 });
