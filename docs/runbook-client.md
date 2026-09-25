@@ -87,7 +87,7 @@ eufy-wall doctor --json
 ls /sys/class/drm/
 modetest -M vc4 -p
 gst-inspect-1.0 v4l2h264dec
-gst-inspect-1.0 v4l2h265dec
+gst-inspect-1.0 v4l2slh265dec
 gst-inspect-1.0 --version # requires 1.20 or later
 gst-inspect-1.0 --exists appsink
 gst-inspect-1.0 --exists appsrc
@@ -100,6 +100,8 @@ sudo journalctl -u eufy-wall -n 100 --no-pager
 ```
 
 For `sink: planes`, each active tile needs a usable DRM plane for the chosen output. Counting plane IDs alone is insufficient; run a render probe. The compositor now has per-tile source recovery in the native renderer, but its isolation and frame progress still need measurements on each Pi and Debian display profile. For an H.265 passthrough source, the display host must have an H.265 decoder. If it does not, configure server-side hardware transcode where supported or use a different display host. Do not assume every Pi model decodes H.265.
+
+`decoder: auto` selects each codec separately. It prefers V4L2 hardware on a suitable Pi, then VA on a Debian host with a render device, and uses libav software decoding when no hardware decoder is available for that codec. Raspberry Pi 5 has a hardware HEVC decoder but [no hardware H.264 decoder](https://www.raspberrypi.com/documentation/hardware/raspberrypi/bcm2711/), so its H.264 feeds use software while H.265 feeds use `v4l2slh265dec` when installed. GStreamer element presence alone does not prove that a device accepts the camera codec and profile; run the decoded-frame probe and observe the physical output. `doctor` and startup logs report the selected elements.
 
 Two physical outputs need separate wall instances, YAML files, and `output` selectors because each connector has its own DRM CRTC and plane routing. The installer provides `eufy-wall@.service` for named Linux instances. Names use ASCII letters, digits, underscores, or hyphens, up to 64 characters. An instance named `left` reads `/etc/eufy-wall-left.yaml`, writes runtime status under `/run/eufy-wall-left/`, and runs as `eufy-wall@left.service`. The default service still reads `/etc/eufy-wall.yaml`. Assign each instance a different connected output and verify usable planes on that output.
 

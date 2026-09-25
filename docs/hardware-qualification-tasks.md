@@ -6,6 +6,8 @@ Status: open. Resume this checklist before declaring the plug-and-play release p
 
 - [ ] Arrange access to Raspberry Pi 1, 3, 4, and 5 display hosts; a Debian amd64 display host; Intel and Apple Silicon Macs; a Debian bridge host; and a real Eufy test account with wired, battery, and dual-lens cameras. Record exact OS/kernel, model, RAM, output, and network link for each. Keep credentials and full serials out of committed evidence.
 - [ ] Choose a tagged, provenance-verified release artifact for each architecture. Record tag, Git revision, artifact SHA-256, installer version, GStreamer version, go2rtc version, and any firmware or decoder packages. The current draft branch and passing CI are not substitutes for a tagged release.
+- [ ] Prove automatic decoding prefers hardware for each codec when supported and falls back cleanly to software when hardware is absent. Probe the exact configured codec and profile; record the selected GStreamer element, device/driver, decoded frames, CPU use, and visible output. A plugin listing or software-only CI render is insufficient. Report the fallback visibly in `doctor` and startup logs.
+- [ ] Inject a hardware decoder that advertises an element but rejects the active codec or profile. Verify the live tile retries with software decode while other tiles keep rendering, and later returns to hardware only after a successful bounded probe. Element and device discovery currently cover an absent decoder; this runtime failure case remains open.
 - [ ] Before each fault trial, write the maximum acceptable time to fresh frames and the allowed interruption to unaffected tiles. Measure both with wall status counters **and** an observer watching the display. Record a failed or unmeasured result rather than inferring visible output from pipeline counters.
 - [ ] Save one scrubbed report and brief observation log per host under `docs/evidence/hardware/`, then update the measured profile tables in the [Linux/Pi runbook](runbook-client.md), [Mac runbook](runbook-client-macos.md), and [server runbook](runbook-server.md). Include commands, start/end times, tile count, codecs and sizes, output mode, frame rate/drops, CPU/RSS/temperature, recovery times, and any failure. Do not commit RTSP URLs with credentials, account data, raw camera logs, or full device serials.
 
@@ -16,9 +18,9 @@ Status: open. Resume this checklist before declaring the plug-and-play release p
 | Raspberry Pi 1 / armv6 | One supported H.264 layout, KMS/plane or compositor probe, 30-minute soak, faults below | Unverified |
 | Raspberry Pi 3 / armv7 or arm64 image | Measured two-tile layout, decoder/plane probe, 30-minute soak, faults below | Unverified |
 | Raspberry Pi 4 / arm64 | Multi-tile layout, H.264/H.265 where the host supports it, 30-minute soak, faults below | Unverified |
-| Raspberry Pi 5 / arm64 | Multi-tile layout, H.264/H.265 where the host supports it, 30-minute soak, faults below | Unverified |
+| Raspberry Pi 5 / arm64 | Multi-tile HEVC hardware decode and H.264 software fallback, 30-minute soak, faults below | Unverified; Pi 5 cannot hardware decode H.264 |
 | Debian x86-64 / amd64 | Multi-tile physical display, 30-minute soak, faults below | Unverified |
-| Intel Mac / amd64 | Observe actual window pixels, clean-host launchd/Gatekeeper, sleep/wake, 30-minute live camera run | Synthetic window trials only; unverified |
+| Intel Mac / amd64 | Observe actual window pixels, clean-host launchd/Gatekeeper, sleep/wake, 30-minute live camera run | One-tile soak and four-tile VideoToolbox synthetic trials; unverified |
 | Apple Silicon Mac / arm64 | Local window/RTSP run, codec switch, source loss, clean-host launchd/Gatekeeper, sleep/wake, 30-minute run | CI builds/tests only; unverified |
 
 For every Linux/Pi row:
