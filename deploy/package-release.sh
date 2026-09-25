@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Build a self-contained release archive on Linux. Run after npm ci / Go build.
+# Build a versioned release archive after npm ci / Go build.
 set -euo pipefail
 
-usage() { echo 'usage: package-release.sh server|client VERSION amd64|arm64|armv7|armv6 OUTPUT_DIR' >&2; exit 2; }
+usage() { echo 'usage: package-release.sh server|client VERSION amd64|arm64|armv7|armv6|darwin-amd64|darwin-arm64 OUTPUT_DIR' >&2; exit 2; }
 [[ $# -eq 4 ]] || usage
 kind=$1 version=$2 arch=$3 output=$4
 [[ $version =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([.+_-][A-Za-z0-9.+_-]+)?$ ]] || usage
-[[ $arch =~ ^(amd64|arm64|armv7|armv6)$ ]] || usage
+[[ $arch =~ ^(amd64|arm64|armv7|armv6|darwin-amd64|darwin-arm64)$ ]] || usage
+platform=linux
+if [[ $arch == darwin-* ]]; then platform=darwin; arch=${arch#darwin-}; fi
 repo=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$output"
 output=$(cd "$output" && pwd)
@@ -16,8 +18,10 @@ root="$work/eufy-wall-$kind"
 mkdir -p "$root"
 printf '%s\n' "$version" > "$root/VERSION"
 printf '%s\n' "$arch" > "$root/ARCH"
+printf '%s\n' "$platform" > "$root/OS"
 
 if [[ $kind == server ]]; then
+  [[ $platform == linux ]] || usage
   [[ $arch == amd64 || $arch == arm64 ]] || { echo 'server releases support amd64 and arm64' >&2; exit 2; }
   [[ -d $repo/server/node_modules/@mega-yfue/eufy-sdk ]] || { echo 'run npm ci in server/ first' >&2; exit 1; }
   [[ -f $repo/server/cli.mjs ]] || { echo 'missing server/cli.mjs' >&2; exit 1; }
@@ -43,13 +47,19 @@ if [[ $kind == server ]]; then
   printf 'node=%s\ngo2rtc=%s\n' "$node_version" '1.9.14' > "$root/DEPENDENCIES"
   name="eufy-wall-bridge-${version}-linux-${arch}.tar.gz"
 elif [[ $kind == client ]]; then
-  [[ -f $repo/client/bin/eufy-wall-$arch ]] || { echo "missing client/bin/eufy-wall-$arch; build client first" >&2; exit 1; }
+  binary="$repo/client/bin/eufy-wall-$arch"
+  [[ $platform == darwin ]] && binary="$repo/client/bin/eufy-wall-darwin-$arch"
+  [[ -f $binary ]] || { echo "missing $binary; build client first" >&2; exit 1; }
   mkdir -p "$root/deploy"
-  cp "$repo/client/bin/eufy-wall-$arch" "$root/eufy-wall"
+  cp "$binary" "$root/eufy-wall"
   cp "$repo/client/config.example.yaml" "$root/config.example.yaml"
-  cp "$repo/deploy/eufy-wall.service" "$repo/deploy/install-client.sh" "$repo/deploy/install-common.sh" "$repo/deploy/qualify-client.py" "$root/deploy/"
+  if [[ $platform == darwin ]]; then
+    cp "$repo/deploy/install-client-macos.sh" "$root/deploy/"
+  else
+    cp "$repo/deploy/eufy-wall.service" "$repo/deploy/install-client.sh" "$repo/deploy/install-common.sh" "$repo/deploy/qualify-client.py" "$root/deploy/"
+  fi
   chmod 755 "$root/eufy-wall"
-  name="eufy-wall-${version}-linux-${arch}.tar.gz"
+  name="eufy-wall-${version}-${platform}-${arch}.tar.gz"
 else
   usage
 fi
@@ -57,5 +67,9 @@ fi
 [[ -z $(find "$root" -type l -print -quit) ]] || { echo 'release payload contains a symlink' >&2; exit 1; }
 [[ -z $(find "$root" -type f -links +1 -print -quit) ]] || { echo 'release payload contains a hardlink' >&2; exit 1; }
 
-tar -czf "$output/$name" -C "$work" "eufy-wall-$kind"
-(cd "$output" && sha256sum "$name")
+COPYFILE_DISABLE=1 tar -czf "$output/$name" -C "$work" "eufy-wall-$kind"
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$output" && sha256sum "$name")
+else
+  (cd "$output" && shasum -a 256 "$name")
+fi
