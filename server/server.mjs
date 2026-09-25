@@ -24,7 +24,7 @@ import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
 import { createWatchdog } from "./src/vendor/ha-bridge/watchdog.mjs";
 
 /** Wire one bridge instance. Injecting the SDK and go2rtc runner lets startup be tested without cloud or media. */
-export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2rtcFactory = createGo2rtc, lanPreflight = reportLanPreflight } = {}) {
+export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2rtcFactory = createGo2rtc, lanPreflight = reportLanPreflight, authRetryOptions } = {}) {
   const { cfg, DEBUG } = config ?? loadConfig();
   fs.mkdirSync(cfg.dataDir, { recursive: true });
 
@@ -77,15 +77,16 @@ export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2r
   // P2P-only enforcement lives in the SDK; it asks per session which stations are pinned right now.
   hooks.lanOnlyForStation = (stationSn) => ctx.lanUpgrade?.isForced?.(stationSn);
   installRecoveryRepin(ctx); // pins re-applied after watchdog / kicked-session re-logins
-  installAuthRetry(ctx); // transient cloud errors after expiry must not leave auth stuck at reauth
+  installAuthRetry(ctx, authRetryOptions); // cloud errors at boot or after expiry must not leave auth stuck
 
   /** Runs once after the first successful login (re-auth calls it again and it returns immediately). */
+  let deviceStateSubscribed = false;
   ctx.completeBoot = async function completeBoot() {
     const { flags, timers } = state;
     if (flags.ready || flags.booting) return;
     flags.booting = true;
     try {
-      eufy.on("deviceState", ctx.bumpActivity);
+      if (!deviceStateSubscribed) { eufy.on("deviceState", ctx.bumpActivity); deviceStateSubscribed = true; }
       const cams = await ctx.refreshCameras();
       const enabled = cams.filter((c) => c.enabled);
       console.log(`[bridge] cameras: ${cams.map((c) => `${c.sn}(${c.name}${c.enabled ? "" : ", off"}${c.isDual ? ", dual" : ""})`).join(", ")}`);
@@ -146,6 +147,7 @@ export async function createBridgeRuntime({ config, sdkFactory = createSdk, go2r
     if (!state.flags.ready) {
       const a = ctx.authStatus();
       console.log(`[bridge] auth required: ${a.state} — see docs/runbook-server.md (eufy-bridge setup or POST /auth/tfa with a JSON body)`);
+      ctx.scheduleInitialLoginRetry();
     }
   }
 

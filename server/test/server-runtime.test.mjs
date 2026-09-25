@@ -8,7 +8,7 @@ import { LoginStatus } from "@mega-yfue/eufy-sdk";
 import { createBridgeRuntime } from "../server.mjs";
 import { loadConfig } from "../src/config.mjs";
 
-async function fixture(t, { login, devices = [] } = {}) {
+async function fixture(t, { login, devices = [], authRetryOptions } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "ewb-runtime-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const config = loadConfig({ env: { EUFY_EMAIL: "test@example.com", EUFY_PASSWORD: "secret" }, rawText: "schema_version: 2\nhost: 127.0.0.1\n" });
@@ -36,6 +36,7 @@ async function fixture(t, { login, devices = [] } = {}) {
     sdkFactory: () => ({ eufy, sdk }),
     go2rtcFactory: () => ({ writeGo2rtc: async () => { go2rtcWrites++; }, startGo2rtc: () => { go2rtcStarts++; }, stopGo2rtc: () => {} }),
     lanPreflight: async () => [],
+    authRetryOptions,
   });
   t.after(() => runtime.stop());
   return { runtime, eufy, sdk, config, stats: () => ({ go2rtcWrites, go2rtcStarts, closedClients }) };
@@ -94,6 +95,43 @@ test("login failure leaves health and auth recovery endpoints available", async 
   assert.equal(health.auth.state, "pending");
   assert.equal((await fetch(`${base}/api/cameras`)).status, 503);
   assert.equal((await fetch(`${base}/auth/status`)).status, 200);
+});
+
+test("offline boot retries login and becomes ready when the network returns", async (t) => {
+  const timers = [];
+  const { runtime, eufy } = await fixture(t, { login: new Error("cloud unavailable"), authRetryOptions: {
+    minDelayMs: 10, random: () => 0.5,
+    setTimer: (fn, delay) => { const timer = { fn, delay }; timers.push(timer); return timer; },
+    clearTimer: () => {},
+  } });
+  await runtime.start();
+  assert.equal(runtime.ctx.authStatus().state, "pending");
+  assert.equal(timers[0].delay, 10);
+  eufy.login = async () => ({ status: LoginStatus.Ok });
+  await timers[0].fn();
+  assert.equal(runtime.ctx.authStatus().state, "ok");
+  assert.equal(runtime.ctx.state.flags.ready, true);
+  assert.equal(timers.length, 1);
+});
+
+test("a transient camera list failure at boot retries without duplicate activity listeners", async (t) => {
+  const timers = [];
+  const { runtime, eufy, stats } = await fixture(t, { devices: [{ sn: "BAT", raw: { parent_sn: "STA" } }], authRetryOptions: {
+    minDelayMs: 10, random: () => 0.5,
+    setTimer: (fn) => { const timer = { fn }; timers.push(timer); return timer; },
+    clearTimer: () => {},
+  } });
+  const getDevices = eufy.getDevices.bind(eufy);
+  let calls = 0;
+  eufy.getDevices = async () => { if (++calls === 1) throw new Error("list timed out"); return getDevices(); };
+  await runtime.start();
+  assert.equal(runtime.ctx.state.flags.ready, false);
+  assert.equal(timers.length, 1);
+  await timers[0].fn();
+  assert.equal(runtime.ctx.state.flags.ready, true);
+  assert.equal(runtime.ctx.listCameras().length, 1);
+  assert.equal(eufy.listenerCount("deviceState"), 1);
+  assert.deepEqual(stats().go2rtcWrites, 1);
 });
 
 test("an invalid listener setting rejects start before login", async (t) => {

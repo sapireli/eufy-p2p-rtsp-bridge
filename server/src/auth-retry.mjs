@@ -8,6 +8,7 @@ export function installAuthRetry(ctx, { minDelayMs = 1_000, maxDelayMs = 60_000,
   let timer;
   let failures = 0;
   let stopped = false;
+  let initialRecovering = false;
   const needsAnswer = () => ["require_2fa", "require_captcha"].includes(ctx.authStatus().state);
   const cancel = () => { if (timer) clearTimer(timer); timer = undefined; };
 
@@ -16,7 +17,11 @@ export function installAuthRetry(ctx, { minDelayMs = 1_000, maxDelayMs = 60_000,
     const base = Math.min(maxDelayMs, minDelayMs * 2 ** Math.min(failures++, 16));
     const delay = Math.max(1, Math.round(base * (0.8 + random() * 0.4)));
     console.error(`[bridge] session recovery will retry in ${delay} ms`);
-    timer = setTimer(() => { timer = undefined; if (flags.sessionLost) return ctx.onSessionExpired(); }, delay);
+    timer = setTimer(() => {
+      timer = undefined;
+      if (flags.ready && flags.sessionLost) return ctx.onSessionExpired();
+      if (!flags.ready && !needsAnswer()) return ctx.retryInitialLogin();
+    }, delay);
     timer?.unref?.();
   }
 
@@ -31,7 +36,27 @@ export function installAuthRetry(ctx, { minDelayMs = 1_000, maxDelayMs = 60_000,
 
   ctx.applyLogin = async function applyLoginAndResetRetry(result) {
     await applyLogin(result);
-    if (!flags.sessionLost || needsAnswer()) { cancel(); failures = 0; }
+    if ((flags.ready && !flags.sessionLost) || needsAnswer()) { cancel(); failures = 0; }
+  };
+
+  ctx.scheduleInitialLoginRetry = () => { if (!flags.ready && !needsAnswer()) scheduleInitial(); };
+  function scheduleInitial() {
+    // An initial login failure is pending, not sessionLost; use the same bounded backoff.
+    if (stopped || timer || flags.ready || needsAnswer()) return;
+    const base = Math.min(maxDelayMs, minDelayMs * 2 ** Math.min(failures++, 16));
+    const delay = Math.max(1, Math.round(base * (0.8 + random() * 0.4)));
+    console.error(`[bridge] initial login will retry in ${delay} ms`);
+    timer = setTimer(() => { timer = undefined; return ctx.retryInitialLogin(); }, delay);
+    timer?.unref?.();
+  }
+
+  ctx.retryInitialLogin = async () => {
+    if (stopped || flags.ready || needsAnswer() || initialRecovering) return;
+    initialRecovering = true;
+    try { await ctx.applyLogin(await ctx.eufy.login()); }
+    catch (error) { console.error(`[bridge] initial login retry failed: ${error?.message ?? error}`); }
+    finally { initialRecovering = false; }
+    if (!flags.ready && !needsAnswer()) scheduleInitial();
   };
 
   ctx.stopAuthRetry = () => { stopped = true; cancel(); };
