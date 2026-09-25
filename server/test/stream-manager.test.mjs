@@ -79,6 +79,25 @@ test("warm feed sniffs codec/geometry, primes late consumer with last keyframe, 
   }
 });
 
+test("a reconnecting consumer is not primed with a keyframe from a dead feed", async () => {
+  const first = new PassThrough(), second = new PassThrough();
+  const ctx = ctxWith({ feeds: [() => first, () => second] });
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    first.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    first.destroy();
+    const res = fakeRes();
+    sm.attachConsumer("A", res);
+    assert.equal(res.chunks.length, 0, "the old stream's keyframe must not negotiate the new feed");
+    await waitUntil(() => ctx.state.slots.get("A").feed === second);
+    second.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(res.chunks, [KEY]);
+  } finally { await sm.stopAll(); }
+});
+
 test("a hold expiring during SDK open cannot leave a battery feed running", async () => {
   const feed = new PassThrough();
   let release;

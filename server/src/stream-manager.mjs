@@ -108,6 +108,7 @@ export function createStreamManager(ctx) {
     state.starting.delete(slot.sn);
     const f = slot.feed;
     slot.feed = undefined;
+    slot.lastKeyChunk = undefined; // a new session may negotiate a different codec or geometry
     if (state.streaming.delete(slot.sn)) {
       console.log(`[bridge] ${slot.sn}: stopped`);
       ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "idle" });
@@ -212,7 +213,7 @@ export function createStreamManager(ctx) {
   function attachConsumer(sn, res) {
     const slot = slotFor(sn);
     slot.consumers.add(res);
-    if (slot.lastKeyChunk) res.write(slot.lastKeyChunk);
+    if (slot.feed && !slot.feed.destroyed && slot.lastKeyChunk) res.write(slot.lastKeyChunk);
     void ensureWarm(sn);
     return () => slot.consumers.delete(res);
   }
