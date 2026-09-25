@@ -167,10 +167,23 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 const clientHelp = "eufy-wall setup and renderer\n\nCommands:\n  setup [--answers file] [--output draft.yaml]\n  probe <file|-> <camera-serial>\n  config validate <file|->\n  config apply <file|->\n  config recover\n  config example\n  config explain [field]\n  layout edit [file]\n  layout preview <file|-> [--png path] [--display]\n  doctor [--json]\n  status [--json]\n\nLegacy renderer flags: -config, -dry-run, -print-layout\n"
 
 func readClientInput(path string, in io.Reader) ([]byte, error) {
-	if path == "-" {
-		return io.ReadAll(io.LimitReader(in, (4<<20)+1))
+	var source io.Reader = in
+	if path != "-" {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		source = f
 	}
-	return os.ReadFile(path)
+	b, err := io.ReadAll(io.LimitReader(source, (4<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > 4<<20 {
+		return nil, errors.New("config exceeds 4 MiB")
+	}
+	return b, nil
 }
 
 func parseClientInput(path string, in io.Reader) (*config.Config, error) {

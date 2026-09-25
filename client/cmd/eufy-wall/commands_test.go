@@ -40,6 +40,24 @@ func TestConfigValidateRejectsMalformedAndOversizedInput(t *testing.T) {
 	}
 }
 
+func TestConfigFileReadIsBoundedBeforeParsing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sparse.yaml")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(1 << 30); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readClientInput(path, nil); err == nil || !strings.Contains(err.Error(), "4 MiB") {
+		t.Fatalf("oversized file was read without a limit: %v", err)
+	}
+}
+
 func TestEmbeddedExampleAndCommandErrors(t *testing.T) {
 	var out bytes.Buffer
 	if handled, err := runCommand([]string{"config", "example"}, strings.NewReader(""), &out); !handled || err != nil {
