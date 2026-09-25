@@ -4,6 +4,8 @@ Status: implementation in progress on `plan/plug-and-play-setup`, 2026-09-25. Th
 
 Local verification on 2026-09-25: the Node bridge passed 179 tests with three platform skips and 91.97% first-party line coverage; the Go client passed the aggregate race suite with 80.8% statement coverage, `go vet`, `gofmt`, and all Linux/macOS cross-builds. Linux and macOS installer suites passed. The Mac soak evidence is recorded in [`docs/evidence/macos-intel-2026-09-25-soak.json`](evidence/macos-intel-2026-09-25-soak.json). These checks establish software behavior on the tested hosts, not physical target qualification.
 
+Open investigation: a few headless macOS native-test startups decoded source frames without producing compositor output for more than six seconds. Targeted stress runs and the 30-minute window trial did not reproduce it. The fatal output watchdog is implemented, but the root cause and clean-host service restart under that condition still need qualification; see the macOS runbook.
+
 ## Outcome
 
 A person with a fresh Debian server and a fresh Raspberry Pi, Debian, or macOS display client can get a working wall without hand-editing YAML, finding DRM plane IDs, building Go locally, or learning the bridge's HTTP API. The same person can later change cameras and layouts safely, see why a choice will not work on the target hardware, and recover from a bad configuration.

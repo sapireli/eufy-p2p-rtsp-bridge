@@ -73,6 +73,8 @@ An independent 30-minute Intel window soak used the same host, local MediaMTX, a
 
 The frame counter is upstream of the macOS display sink, so these trials prove pipeline progress rather than pixels on the screen. The synthetic soak does not verify a real Eufy camera, a clean-host installer, physical display continuity, or sleep/wake. No Apple Silicon 30-minute live run or Gatekeeper clean-host install has been recorded. Record OS and chip, GStreamer version, codecs and sizes, tile count, displayed FPS/drops, CPU and memory, source-loss/recovery times, and whether unaffected tiles continue rendering before marking either profile supported.
 
+During local race testing with a headless `fakesink`, a few startup attempts decoded source frames but showed no compositor output for more than six seconds. Later targeted stress runs and the 30-minute window soak did not reproduce it. The runtime output watchdog reports a sustained stall after 20 seconds so the service can restart, but the cause of those synthetic startup stalls and a clean-host restart from one have not been verified. Keep this in the physical qualification fault matrix.
+
 | Mac / OS | Streams / codec / size | Window FPS / drops / CPU | Source loss and sleep/wake | Gatekeeper install |
 | --- | --- | --- | --- | --- |
 | Intel / macOS 15.8, unverified | Local H.264 testsrc2, one tile, 640×360 at 15 fps source | 30-minute soak: output ≥14.5 fps, decode ≥14.4 fps, peak client CPU 6.1%, RSS 68.6 MiB; displayed FPS/drops unmeasured | Two 45-second outages: output +675 and +672 frames; decode recovered about 17 seconds after each restart. Sleep/wake unmeasured | Unmeasured |
