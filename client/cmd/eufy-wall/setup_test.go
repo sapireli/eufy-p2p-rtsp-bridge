@@ -80,6 +80,46 @@ func TestSetupProbeFailureLeavesNoDraftOrActiveConfig(t *testing.T) {
 	}
 }
 
+func TestSetupOnePlusFiveMatchesEditorAndRejectsPartialSelection(t *testing.T) {
+	a := setupAnswers{BridgeURL: "http://bridge:3000", RTSPBase: "rtsp://bridge:8554", Template: "1+5"}
+	available := make([]setupCamera, 6)
+	for i := range available {
+		available[i] = setupCamera{SN: string(rune('A' + i)), Codec: "h264"}
+		a.Cameras = append(a.Cameras, available[i].SN)
+	}
+	available[5].Codec = "h265"
+	b, err := setupYAML(a, available)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Tiles) != 6 || c.Tiles[0].ID != "primary" || c.Tiles[5].Codec != "h265" {
+		t.Fatalf("1+5 setup lost layout or codec: %+v", c.Tiles)
+	}
+	for i := range c.Tiles {
+		if c.Tiles[i].Camera != available[i].SN {
+			t.Fatalf("tile %d camera=%q", i, c.Tiles[i].Camera)
+		}
+	}
+	fromEditor := *c
+	fromEditor.Tiles = append([]config.Tile(nil), c.Tiles...)
+	if err := editorTemplate(&fromEditor, "one-plus-five"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range c.Tiles {
+		if c.Tiles[i].ID != fromEditor.Tiles[i].ID || *c.Tiles[i].Rect != *fromEditor.Tiles[i].Rect {
+			t.Fatalf("setup/editor tile %d diverged: %+v vs %+v", i, c.Tiles[i], fromEditor.Tiles[i])
+		}
+	}
+	a.Cameras = a.Cameras[:5]
+	if _, err := setupYAML(a, available); err == nil || !strings.Contains(err.Error(), "six cameras") {
+		t.Fatalf("partial 1+5 selection accepted: %v", err)
+	}
+}
+
 func TestSetupAdversarialInventoryAndSelections(t *testing.T) {
 	available := []setupCamera{{SN: "A"}, {SN: "B"}}
 	base := setupAnswers{BridgeURL: "http://bridge:3000", RTSPBase: "rtsp://bridge:8554", Cameras: []string{"A", "B"}, Template: "split"}

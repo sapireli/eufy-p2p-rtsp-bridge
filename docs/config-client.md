@@ -81,7 +81,7 @@ eufy-wall setup --answers answers.yaml --output wall.draft.yaml
 eufy-wall config validate wall.draft.yaml
 ```
 
-Without `inventory_file`, setup reads `/api/cameras` from the bridge. It sends no config over HTTP. Interactive setup asks whether to run decoded-frame probes; answer files opt in with `probe_streams: true`. A failed probe leaves the active config unchanged. An offline inventory cannot run a live probe until the bridge is reachable. The `one`, `split`, `four`, and `motion` templates write ordinary v2 YAML that can be edited afterward. For a layout outside these templates, use `layout edit` or hand-write rectangles. If inventory codec data is missing or stale, the bounded probe tries H.264 and H.265 with the selected decoder. A successful probe proves two decoded frames; test the actual display before relying on the wall.
+Without `inventory_file`, setup reads `/api/cameras` from the bridge. It sends no config over HTTP. Interactive setup asks whether to run decoded-frame probes; answer files opt in with `probe_streams: true`. A failed probe leaves the active config unchanged. An offline inventory cannot run a live probe until the bridge is reachable. The `one`, `split`, `four`, `1+5` (six cameras), and `motion` templates write ordinary v2 YAML that can be edited afterward. For a layout outside these templates, use `layout edit` or hand-write rectangles. If inventory codec data is missing or stale, the bounded probe tries H.264 and H.265 with the selected decoder. A successful probe proves two decoded frames; test the actual display before relying on the wall.
 
 ## Diagnostics and recovery
 

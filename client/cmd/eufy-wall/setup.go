@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/layout"
 	"gopkg.in/yaml.v3"
 )
 
@@ -159,34 +160,35 @@ func setupYAML(a setupAnswers, available []setupCamera) ([]byte, error) {
 			template = "split"
 		}
 	}
-	var rects []config.Rect
+	geometry, err := layout.StarterTemplate(template)
+	if err != nil {
+		return nil, err
+	}
 	switch template {
 	case "one":
 		if len(selected) != 1 {
 			return nil, errors.New("one template needs exactly one camera")
 		}
-		rects = []config.Rect{{X: 0, Y: 0, W: 32, H: 32}}
 	case "split":
 		if len(selected) != 2 {
 			return nil, errors.New("split template needs exactly two cameras")
 		}
-		rects = []config.Rect{{X: 0, Y: 0, W: 16, H: 32}, {X: 16, Y: 0, W: 16, H: 32}}
 	case "four":
 		if len(selected) < 1 || len(selected) > 4 {
 			return nil, errors.New("four template accepts one to four cameras")
 		}
-		rects = []config.Rect{{X: 0, Y: 0, W: 16, H: 16}, {X: 16, Y: 0, W: 16, H: 16}, {X: 0, Y: 16, W: 16, H: 16}, {X: 16, Y: 16, W: 16, H: 16}}
+	case "1+5", "one-plus-five":
+		if len(selected) != 6 {
+			return nil, errors.New("1+5 template needs exactly six cameras")
+		}
 	case "motion":
-		rects = []config.Rect{{X: 0, Y: 0, W: 32, H: 32}}
-	default:
-		return nil, fmt.Errorf("unknown template %q (one, split, four, motion)", template)
 	}
 	file := setupFile{SchemaVersion: 2, BridgeURL: a.BridgeURL, RTSPBase: a.RTSPBase, Output: a.Output, Decoder: a.Decoder, Sink: a.Sink, Layout: "custom", Canvas: config.Canvas{Cols: 32, Rows: 32}}
 	if template == "motion" {
-		file.Tiles = []setupTile{{ID: "recent-motion", Motion: "latest", Watch: a.Cameras, BlankAfterSeconds: 90, Rect: rects[0]}}
+		file.Tiles = []setupTile{{ID: geometry[0].ID, Motion: "latest", Watch: a.Cameras, BlankAfterSeconds: 90, Rect: geometry[0].Rect}}
 	} else {
 		for i, camera := range selected {
-			tile := setupTile{ID: fmt.Sprintf("camera-%d", i+1), Camera: camera.SN, Rect: rects[i]}
+			tile := setupTile{ID: geometry[i].ID, Camera: camera.SN, Rect: geometry[i].Rect}
 			if camera.Codec == "h265" {
 				tile.Codec = "h265"
 			}
@@ -288,7 +290,7 @@ func setupWall(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 				a.Cameras = append(a.Cameras, trimmed)
 			}
 		}
-		a.Template, err = ask("Template (one/split/four/motion)", "split")
+		a.Template, err = ask("Template (one/split/four/1+5/motion)", "split")
 		if err != nil {
 			return err
 		}

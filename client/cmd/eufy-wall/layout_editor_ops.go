@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/layout"
 )
 
 func editorMutation(c *config.Config, args []string) error {
@@ -167,30 +168,19 @@ func editorTemplate(c *config.Config, name string) error {
 		}
 		return fmt.Sprintf("CAMERA_%d", i+1)
 	}
-	c.SchemaVersion, c.Layout, c.Canvas = 2, "custom", config.Canvas{Cols: 32, Rows: 32}
-	makeTile := func(id string, camera string, x, y, w, h int) config.Tile {
-		return config.Tile{ID: id, Camera: camera, Rect: &config.Rect{X: x, Y: y, W: w, H: h}}
+	geometry, err := layout.StarterTemplate(name)
+	if err != nil {
+		return err
 	}
-	switch name {
-	case "one":
-		c.Tiles = []config.Tile{makeTile("camera-1", source(0), 0, 0, 32, 32)}
-	case "split":
-		c.Tiles = []config.Tile{makeTile("camera-1", source(0), 0, 0, 16, 32), makeTile("camera-2", source(1), 16, 0, 16, 32)}
-	case "four":
-		c.Tiles = []config.Tile{
-			makeTile("camera-1", source(0), 0, 0, 16, 16), makeTile("camera-2", source(1), 16, 0, 16, 16),
-			makeTile("camera-3", source(2), 0, 16, 16, 16), makeTile("camera-4", source(3), 16, 16, 16, 16),
+	c.SchemaVersion, c.Layout, c.Canvas = 2, "custom", config.Canvas{Cols: 32, Rows: 32}
+	c.Tiles = make([]config.Tile, 0, len(geometry))
+	for i, entry := range geometry {
+		rect := entry.Rect
+		tile := config.Tile{ID: entry.ID, Camera: source(i), Rect: &rect}
+		if name == "motion" {
+			tile.Camera, tile.Motion, tile.BlankAfterSeconds = "", "latest", 90
 		}
-	case "one-plus-five":
-		c.Tiles = []config.Tile{
-			makeTile("primary", source(0), 0, 0, 21, 21), makeTile("side-1", source(1), 21, 0, 11, 11),
-			makeTile("side-2", source(2), 21, 11, 11, 10), makeTile("bottom-1", source(3), 0, 21, 11, 11),
-			makeTile("bottom-2", source(4), 11, 21, 10, 11), makeTile("bottom-3", source(5), 21, 21, 11, 11),
-		}
-	case "motion":
-		c.Tiles = []config.Tile{{ID: "recent-motion", Motion: "latest", BlankAfterSeconds: 90, Rect: &config.Rect{X: 0, Y: 0, W: 32, H: 32}}}
-	default:
-		return fmt.Errorf("unknown template %q", name)
+		c.Tiles = append(c.Tiles, tile)
 	}
 	return nil
 }
