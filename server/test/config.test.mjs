@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadConfig, isValidCidr } from "../src/config.mjs";
+import { loadConfig, isValidCidr, parseConfigText } from "../src/config.mjs";
 
 function tmpYaml(text) {
   const dir = mkdtempSync(join(tmpdir(), "ewb-"));
@@ -92,4 +92,15 @@ test("power override is an explicit SDK policy with validated values", () => {
   for (const value of ["auto", "always-on", "battery"])
     assert.equal(loadConfig({ env: {}, configPath: config(value) }).cfg.cameras.T8214X.powerOverride, value);
   assert.throws(() => loadConfig({ env: {}, configPath: config("wired") }), /power_override must be one of/);
+});
+
+test("versioned config rejects unknown fields and unsafe numeric values", () => {
+  assert.throws(() => parseConfigText("schema_version: 3\n"), /unsupported/);
+  assert.throws(() => parseConfigText("schema_version: 2\nporrt: 3000\n"), /porrt/);
+  assert.throws(() => parseConfigText("schema_version: 2\nlan: { forced: true }\n"), /lan.forced/);
+  assert.throws(() => parseConfigText("schema_version: 2\nport: 99999\n"), /port/);
+  assert.throws(() => parseConfigText("schema_version: 2\ngo2rtc: { transcode: cpu }\n"), /transcode/);
+  assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "schema_version: 2\ncameras: { A: { enabled: nope } }\n" }), /enabled/);
+  assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "schema_version: 2\ncameras: { A: null }\n" }), /cameras\.A must be a mapping/);
+  assert.equal(loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, rawText: "schema_version: 2\n" }).cfg.port, 3000);
 });

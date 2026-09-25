@@ -23,14 +23,81 @@ const DUAL_VIEWS = new Set(["split", "pip-tl", "pip-tr", "pip-bl", "pip-br", "si
  */
 const CAMERA_MODES = new Set(["always", "on_motion", "on_demand"]);
 const POWER_OVERRIDES = new Set(["auto", "always-on", "battery"]);
+const TOP_LEVEL = new Set(["schema_version", "eufy", "host", "port", "self_host", "data_dir", "go2rtc_bin", "poll_ms", "lan", "defaults", "cameras", "stall", "go2rtc"]);
+const FIELDS = {
+  eufy: ["email", "password", "country"],
+  lan: ["cidr", "force", "station_addresses", "upgrade"],
+  "lan.upgrade": ["enabled", "interval_ms", "window_ms", "stable_ms", "initial_window_ms", "max_backoff_ms"],
+  defaults: ["quality", "dual_view", "hold_seconds", "motion_events"],
+  stall: ["stall_ms", "gap_ms", "exit_after_ms", "recreate_client_after", "backoff_ms"],
+  go2rtc: ["transcode"],
+  camera: ["name", "enabled", "mode", "power_override", "hold_seconds", "codec", "quality", "dual_view"],
+};
+
+function record(value, path) {
+  if (value == null) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} must be a mapping`);
+  return value;
+}
+
+function positiveNumber(value, path) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error(`${path} must be a positive number`);
+}
+function stringField(value, path) {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${path} must be a nonempty string`);
+}
+
+function checkKeys(value, allowed, path = "") {
+  for (const key of Object.keys(record(value, path || "config"))) {
+    if (!allowed.has(key)) throw new Error(`unsupported config key ${path ? `${path}.` : ""}${key}`);
+  }
+}
+
+/** Parse and check structural fields before runtime defaults or environment overrides are applied. */
+export function parseConfigText(text) {
+  const raw = record(parse(text, { uniqueKeys: true }), "config");
+  if (raw.schema_version != null && raw.schema_version !== 1 && raw.schema_version !== 2)
+    throw new Error(`schema_version ${raw.schema_version} is unsupported; upgrade eufy-bridge for newer config formats`);
+  // Legacy files remain permissive; versioned files reject misspelled fields instead of silently dropping them.
+  if (raw.schema_version === 2) {
+    checkKeys(raw, TOP_LEVEL);
+    for (const key of ["eufy", "lan", "defaults", "stall", "go2rtc"]) checkKeys(raw[key], new Set(FIELDS[key]), key);
+    checkKeys(raw.lan?.upgrade, new Set(FIELDS["lan.upgrade"]), "lan.upgrade");
+    for (const [sn, camera] of Object.entries(record(raw.cameras, "cameras"))) checkKeys(camera, new Set(FIELDS.camera), `cameras.${sn}`);
+  }
+  for (const key of ["eufy", "lan", "defaults", "stall", "go2rtc", "cameras"]) record(raw[key], key);
+  for (const key of ["host", "self_host", "data_dir", "go2rtc_bin"]) if (raw[key] != null) stringField(raw[key], key);
+  for (const key of ["email", "password", "country"]) if (raw.eufy?.[key] != null) stringField(raw.eufy[key], `eufy.${key}`);
+  if (raw.lan?.force != null && typeof raw.lan.force !== "boolean") throw new Error("lan.force must be true or false");
+  if (raw.lan?.upgrade?.enabled != null && typeof raw.lan.upgrade.enabled !== "boolean") throw new Error("lan.upgrade.enabled must be true or false");
+  for (const [sn, address] of Object.entries(record(raw.lan?.station_addresses, "lan.station_addresses"))) stringField(address, `lan.station_addresses.${sn}`);
+  for (const [sn, camera] of Object.entries(record(raw.cameras, "cameras"))) {
+    if (camera?.name != null) stringField(camera.name, `cameras.${sn}.name`);
+    if (camera?.quality != null) stringField(camera.quality, `cameras.${sn}.quality`);
+  }
+  if (raw.port != null && (!Number.isInteger(raw.port) || raw.port < 1 || raw.port > 65535)) throw new Error("port must be an integer from 1 to 65535");
+  if (raw.poll_ms != null) positiveNumber(raw.poll_ms, "poll_ms");
+  if (raw.go2rtc?.transcode != null && !["never", "auto", "always"].includes(raw.go2rtc.transcode)) throw new Error("go2rtc.transcode must be never, auto, or always");
+  if (raw.defaults?.hold_seconds != null) positiveNumber(raw.defaults.hold_seconds, "defaults.hold_seconds");
+  if (raw.defaults?.motion_events != null && (!Array.isArray(raw.defaults.motion_events) || !raw.defaults.motion_events.every((x) => typeof x === "string"))) throw new Error("defaults.motion_events must be a list of event names");
+  for (const key of ["stall_ms", "gap_ms", "exit_after_ms", "recreate_client_after"]) if (raw.stall?.[key] != null) positiveNumber(raw.stall[key], `stall.${key}`);
+  if (raw.stall?.backoff_ms != null && (!Array.isArray(raw.stall.backoff_ms) || !raw.stall.backoff_ms.length || raw.stall.backoff_ms.some((x) => typeof x !== "number" || !Number.isFinite(x) || x <= 0))) throw new Error("stall.backoff_ms must be a nonempty list of positive milliseconds");
+  for (const key of ["interval_ms", "window_ms", "stable_ms", "initial_window_ms", "max_backoff_ms"]) if (raw.lan?.upgrade?.[key] != null) positiveNumber(raw.lan.upgrade[key], `lan.upgrade.${key}`);
+  return raw;
+}
 
 /** Codecs a camera can be declared as; anything else is a typo we should not silently accept. */
 export const CAMERA_CODECS = new Set(["h264", "h265"]);
 
 function cameraEntry(sn, raw) {
+  if (raw == null) throw new Error(`cameras.${sn} must be a mapping`);
+  raw = record(raw, `cameras.${sn}`);
   const out = {};
   if (raw.name != null) out.name = String(raw.name);
-  if (raw.enabled != null) out.enabled = Boolean(raw.enabled);
+  if (raw.enabled != null) {
+    if (typeof raw.enabled !== "boolean") throw new Error(`cameras.${sn}.enabled must be true or false`);
+    out.enabled = raw.enabled;
+  }
   if (raw.mode != null) {
     if (!CAMERA_MODES.has(raw.mode)) throw new Error(`cameras.${sn}.mode must be one of ${[...CAMERA_MODES].join(", ")}`);
     out.mode = raw.mode;
@@ -60,8 +127,8 @@ function cameraEntry(sn, raw) {
   return out;
 }
 
-export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG || "./config.yaml" } = {}) {
-  const raw = existsSync(configPath) ? (parse(readFileSync(configPath, "utf8")) ?? {}) : {};
+export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG || "./config.yaml", rawText } = {}) {
+  const raw = rawText !== undefined ? parseConfigText(rawText) : (existsSync(configPath) ? parseConfigText(readFileSync(configPath, "utf8")) : {});
   const dataDir = resolve(env.BRIDGE_DATA_DIR || raw.data_dir || "./data");
   const lanRaw = raw.lan ?? {};
   const cfg = {
@@ -115,7 +182,7 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
       // dev.describe() says it emits, so listing an event a camera cannot send is inert, not an error.
       motionEvents: raw.defaults?.motion_events ?? ["motion", "personDetected", "doorbellPress"],
     },
-    cameras: Object.fromEntries(Object.entries(raw.cameras ?? {}).map(([sn, c]) => [sn, cameraEntry(sn, c ?? {})])),
+    cameras: Object.fromEntries(Object.entries(raw.cameras ?? {}).map(([sn, c]) => [sn, cameraEntry(sn, c)])),
     stall: {
       // 30 s, not 12 s: a HomeBase-attached camera can briefly go silent while the station favours a
       // sibling channel, and the SDK's own LiveStream re-assert recovers it within a few seconds. Tearing

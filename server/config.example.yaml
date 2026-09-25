@@ -1,9 +1,7 @@
-# eufy-wall-bridge configuration. Copy to config.yaml (or set BRIDGE_CONFIG). Secrets may instead come
-# from the environment: EUFY_EMAIL, EUFY_PASSWORD, EUFY_COUNTRY (env wins over this file).
-eufy:
-  email: wall@example.com        # use a DEDICATED eufy account (eufy allows one login per account;
-  password: change-me            # the phone app on the same account evicts the bridge)
-  country: US
+# eufy-wall-bridge configuration. Copy to config.yaml (or set BRIDGE_CONFIG).
+# Keep credentials in /etc/eufy-wall-bridge.env (mode 0600): EUFY_EMAIL, EUFY_PASSWORD,
+# EUFY_COUNTRY. Use a dedicated account; the phone app on that account can evict the bridge.
+schema_version: 2
 
 host: 0.0.0.0                    # HTTP bind (go2rtc + display clients + curl)
 port: 3000
