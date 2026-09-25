@@ -25,6 +25,7 @@ var wallHoldOwner = func() string {
 
 type holdWorker struct {
 	desired bool
+	ttl     time.Duration
 	changed chan struct{}
 }
 
@@ -48,13 +49,16 @@ func newHoldCoordinator(base string, request func(context.Context, string, strin
 	return &holdCoordinator{base: base, request: request, ctx: ctx, cancel: cancel, workers: map[string]*holdWorker{}, refresh: holdRefreshInterval, retry: holdRetryInterval}
 }
 
-func (h *holdCoordinator) Update(wanted map[string]bool) {
+func (h *holdCoordinator) Update(wanted map[string]time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
 		return
 	}
-	for sn := range wanted {
+	for sn, ttl := range wanted {
+		if ttl <= 0 {
+			continue
+		}
 		if h.workers[sn] == nil {
 			w := &holdWorker{changed: make(chan struct{}, 1)}
 			h.workers[sn] = w
@@ -63,9 +67,11 @@ func (h *holdCoordinator) Update(wanted map[string]bool) {
 		}
 	}
 	for sn, w := range h.workers {
-		want := wanted[sn]
-		if w.desired != want {
+		ttl := wanted[sn]
+		want := ttl > 0
+		if w.desired != want || w.ttl != ttl {
 			w.desired = want
+			w.ttl = ttl
 			select {
 			case w.changed <- struct{}{}:
 			default:
@@ -83,7 +89,7 @@ func (h *holdCoordinator) run(sn string, w *holdWorker) {
 		default:
 		}
 		h.mu.Lock()
-		want, closed := w.desired, h.closed
+		want, closed, ttl := w.desired, h.closed, w.ttl
 		h.mu.Unlock()
 		if h.ctx.Err() != nil || (closed && !want && !attempted) {
 			return
@@ -92,7 +98,7 @@ func (h *holdCoordinator) run(sn string, w *holdWorker) {
 			// Even a failed POST may have reached the server. A later release still sends DELETE.
 			attempted = true
 			err := h.call(http.MethodPost, sn, 5*time.Second)
-			interval := h.refresh
+			interval := h.refreshFor(ttl)
 			if err != nil {
 				interval = h.retry
 			}
@@ -109,6 +115,15 @@ func (h *holdCoordinator) run(sn string, w *holdWorker) {
 		}
 		h.wait(w, 0)
 	}
+}
+
+func (h *holdCoordinator) refreshFor(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return h.refresh
+	}
+	// The server owns the lifetime. Refresh before even a short user-configured hold expires.
+	interval := min(h.refresh, ttl/2)
+	return max(100*time.Millisecond, interval)
 }
 
 func (h *holdCoordinator) call(method, sn string, timeout time.Duration) error {

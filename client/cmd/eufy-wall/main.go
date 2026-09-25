@@ -159,10 +159,11 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 
 		// Take a hold for every tile that asked for one. The coordinator refreshes bounded holds
 		// and releases cameras whose tiles stopped asking.
-		wanted := map[string]bool{}
+		wanted := map[string]time.Duration{}
 		for _, sel := range sels {
 			if sel.Hold && sel.Camera != "" {
-				wanted[sel.Camera] = true
+				seconds := min(store.HoldSecondsFor(sel.Camera), 3600)
+				wanted[sel.Camera] = time.Duration(seconds * float64(time.Second))
 			}
 		}
 		snapshot := make(map[int]string, len(showing))

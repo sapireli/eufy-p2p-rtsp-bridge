@@ -45,6 +45,21 @@ func TestHelloSeedsTheWall(t *testing.T) {
 	}
 }
 
+func TestHelloRefreshesCameraHoldLifetimes(t *testing.T) {
+	s := New()
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "SHORT", HoldSeconds: 5}, {SN: "OLD"}}})
+	if got := s.HoldSecondsFor("SHORT"); got != 5 {
+		t.Fatalf("short hold lifetime = %v", got)
+	}
+	if got := s.HoldSecondsFor("OLD"); got != 60 {
+		t.Fatalf("older bridge fallback = %v", got)
+	}
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "SHORT", HoldSeconds: 10}}})
+	if got := s.HoldSecondsFor("SHORT"); got != 10 {
+		t.Fatalf("reconnected hold lifetime = %v", got)
+	}
+}
+
 func TestMotionTileFollowsWhateverMovedLast(t *testing.T) {
 	var off time.Duration
 	s := storeAt(t, &off)

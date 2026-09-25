@@ -37,7 +37,7 @@ func TestHoldCoordinatorSerializesDelayedPostAndRelease(t *testing.T) {
 		return nil
 	})
 	defer h.Close()
-	h.Update(map[string]bool{"A": true})
+	h.Update(map[string]time.Duration{"A": 60 * time.Second})
 	if got := waitHoldEvent(t, started); got != http.MethodPost {
 		t.Fatalf("first request = %s", got)
 	}
@@ -69,7 +69,7 @@ func TestHoldCoordinatorRepostsAfterDelayedDelete(t *testing.T) {
 		}
 		return nil
 	})
-	h.Update(map[string]bool{"A": true})
+	h.Update(map[string]time.Duration{"A": 60 * time.Second})
 	if got := waitHoldEvent(t, started); got != http.MethodPost {
 		t.Fatal(got)
 	}
@@ -77,7 +77,7 @@ func TestHoldCoordinatorRepostsAfterDelayedDelete(t *testing.T) {
 	if got := waitHoldEvent(t, started); got != http.MethodDelete {
 		t.Fatal(got)
 	}
-	h.Update(map[string]bool{"A": true})
+	h.Update(map[string]time.Duration{"A": 60 * time.Second})
 	close(unblockDelete)
 	if got := waitHoldEvent(t, started); got != http.MethodPost {
 		t.Fatalf("new hold did not follow DELETE: %s", got)
@@ -107,7 +107,7 @@ func TestHoldCoordinatorRetriesFailedPostAndDoesNotBlockOtherCameras(t *testing.
 		return nil
 	})
 	h.retry = 10 * time.Millisecond
-	h.Update(map[string]bool{"A": true, "B": true})
+	h.Update(map[string]time.Duration{"A": 60 * time.Second, "B": 60 * time.Second})
 	if got := waitHoldEvent(t, started); got != "POST B" {
 		t.Fatalf("blocked camera A delayed B: %s", got)
 	}
@@ -117,6 +117,26 @@ func TestHoldCoordinatorRetriesFailedPostAndDoesNotBlockOtherCameras(t *testing.
 	}
 	if got := waitHoldEvent(t, started); got != "POST A" {
 		t.Fatalf("failed hold was not retried: %s", got)
+	}
+	h.Close()
+}
+
+func TestHoldCoordinatorAdaptsWhenBridgeShortensHoldLifetime(t *testing.T) {
+	requests := make(chan string, 4)
+	h := newHoldCoordinator("bridge", func(_ context.Context, _, method, _ string) error {
+		requests <- method
+		return nil
+	})
+	if got := h.refreshFor(5 * time.Second); got != 2500*time.Millisecond {
+		t.Fatalf("five-second server hold refreshes after %s", got)
+	}
+	h.Update(map[string]time.Duration{"A": 60 * time.Second})
+	if got := waitHoldEvent(t, requests); got != http.MethodPost {
+		t.Fatal(got)
+	}
+	h.Update(map[string]time.Duration{"A": 5 * time.Second})
+	if got := waitHoldEvent(t, requests); got != http.MethodPost {
+		t.Fatalf("shorter hold did not refresh immediately: %s", got)
 	}
 	h.Close()
 }

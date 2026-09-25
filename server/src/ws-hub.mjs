@@ -37,6 +37,7 @@ export function createWsHub(ctx, { heartbeatMs = HEARTBEAT_MS } = {}) {
           sn: c.sn,
           name: c.name,
           mode: c.mode ?? "always",
+          holdSeconds: c.holdSeconds ?? ctx.cfg.defaults.holdSeconds,
           codec: ctx.streamStatus?.(c.sn)?.codec ?? c.codec ?? null,
           // The go2rtc stream key (the camera's name, slugged). The wall builds its RTSP URL from this
           // rather than from the serial, so renaming a camera moves its stream without a client change.

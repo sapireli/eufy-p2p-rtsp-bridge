@@ -16,15 +16,16 @@ import (
 
 // Camera is what we know about one camera.
 type Camera struct {
-	SN         string
-	Name       string
-	Mode       string // always | on_motion | on_demand
-	Live       bool   // the server says there is video to show right now
-	Starting   bool   // waking: a stream is being established but no frames yet
-	HasStill   bool   // the bridge holds a thumbnail for this camera at /snapshot/<sn>
-	StreamKey  string // the bridge's go2rtc stream key (its name, slugged) — what the RTSP URL uses
-	Codec      string // h264 | h265, as reported by the bridge for this camera
-	LastMotion time.Time
+	SN          string
+	Name        string
+	Mode        string  // always | on_motion | on_demand
+	HoldSeconds float64 // bridge-configured hold lifetime; refresh before it expires
+	Live        bool    // the server says there is video to show right now
+	Starting    bool    // waking: a stream is being established but no frames yet
+	HasStill    bool    // the bridge holds a thumbnail for this camera at /snapshot/<sn>
+	StreamKey   string  // the bridge's go2rtc stream key (its name, slugged) — what the RTSP URL uses
+	Codec       string  // h264 | h265, as reported by the bridge for this camera
+	LastMotion  time.Time
 }
 
 // Store is the client's view of the wall. Event updates and renderer reads may run concurrently.
@@ -50,14 +51,15 @@ func (s *Store) get(sn string) *Camera {
 
 // HelloCamera is one camera in the server's hello snapshot.
 type HelloCamera struct {
-	SN           string `json:"sn"`
-	Name         string `json:"name"`
-	Mode         string `json:"mode"`
-	State        string `json:"state"`
-	Still        bool   `json:"still"`
-	StreamKey    string `json:"streamKey"`
-	Codec        string `json:"codec"`
-	LastMotionAt int64  `json:"lastMotionAt"`
+	SN           string  `json:"sn"`
+	Name         string  `json:"name"`
+	Mode         string  `json:"mode"`
+	HoldSeconds  float64 `json:"holdSeconds"`
+	State        string  `json:"state"`
+	Still        bool    `json:"still"`
+	StreamKey    string  `json:"streamKey"`
+	Codec        string  `json:"codec"`
+	LastMotionAt int64   `json:"lastMotionAt"`
 }
 
 // Message is one /ws frame. Only the fields the wall acts on are decoded.
@@ -84,7 +86,7 @@ func (s *Store) Apply(m Message) bool {
 		previous := s.cams
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
-			cam := &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, Codec: c.Codec}
+			cam := &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, HoldSeconds: c.HoldSeconds, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, Codec: c.Codec}
 			if c.LastMotionAt > 0 && m.At >= c.LastMotionAt {
 				// Use the age in the server snapshot, not its wall clock, so skew between the bridge and
 				// display cannot extend a battery camera's motion window indefinitely.
@@ -149,6 +151,15 @@ func (s *Store) IsLive(sn string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.isLive(sn)
+}
+
+func (s *Store) HoldSecondsFor(sn string) float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if cam := s.cams[sn]; cam != nil && cam.HoldSeconds > 0 {
+		return cam.HoldSeconds
+	}
+	return 60 // compatibility with a bridge that predates holdSeconds in hello
 }
 
 func (s *Store) isLive(sn string) bool {

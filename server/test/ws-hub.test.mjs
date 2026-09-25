@@ -61,7 +61,7 @@ test("a joining client is told the current state, not just future events", async
   ctx.state.streaming.add("BATT");
   const [hello] = await collect(url, 1);
   assert.equal(hello.type, "hello");
-  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", codec: null, streamKey: "BATT", state: "live", still: false }]);
+  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", holdSeconds: 60, codec: null, streamKey: "BATT", state: "live", still: false }]);
   assert.ok(hello.at > 0, "every message is timestamped so a replay is distinguishable from a live event");
 });
 
@@ -112,6 +112,12 @@ test("a reconnecting motion wall receives the last motion in hello", async (t) =
   const [hello] = await collect(url, 1);
   assert.equal(hello.cameras[0].lastMotionAt, event.at);
   assert.ok(hello.at >= event.at);
+});
+
+test("hello carries each camera's hold lifetime for client refresh scheduling", async (t) => {
+  const { url } = await withHub(t, [{ ...battery, holdSeconds: 5 }, { sn: "GAR", name: "Garage", enabled: true, mode: "always" }]);
+  const [hello] = await collect(url, 1);
+  assert.deepEqual(hello.cameras.map((c) => c.holdSeconds), [5, 60]);
 });
 
 // A wall renders a still only where one exists; without this it would point a pipeline at a 404 and the
