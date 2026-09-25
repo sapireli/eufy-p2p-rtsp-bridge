@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,7 +20,7 @@ import (
 	"eufy-wall/internal/pipeline"
 )
 
-const clientConfigPath = "/etc/eufy-wall.yaml"
+var clientConfigPath = defaultClientConfigPath()
 
 type clientService interface {
 	Restart() error
@@ -81,6 +82,12 @@ type pendingClientApply struct {
 }
 
 func applyClientConfig(path string, in io.Reader, out io.Writer) error {
+	if runtime.GOOS == "darwin" {
+		if err := os.MkdirAll(filepath.Dir(clientConfigPath), 0700); err != nil {
+			return err
+		}
+		return applyClientConfigAt(path, in, out, clientConfigPath, launchdWallService{}, true, enableLaunchdWall)
+	}
 	return applyClientConfigAt(path, in, out, clientConfigPath, systemdWallService{}, true, func() error { return systemctl("enable", "eufy-wall") })
 }
 
@@ -109,6 +116,9 @@ func validateClientConfig(b []byte, host bool) error {
 	c, err := config.Parse(b)
 	if err != nil {
 		return err
+	}
+	if host && runtime.GOOS == "darwin" && c.Output != "" {
+		return errors.New("macOS window sink opens on the main display; leave output empty")
 	}
 	if host && (c.Screen.Width == 0 || c.Screen.Height == 0) {
 		screen, ok := detect.HostScreen("/", c.Output)

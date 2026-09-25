@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -152,7 +153,11 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 		if len(args) > 2 || len(args) == 2 && args[1] != "--json" {
 			return true, errors.New("usage: eufy-wall status [--json]")
 		}
-		return true, showClientStatus(clientConfigPath, len(args) == 2, out, func() error { return systemctl("is-active", "--quiet", "eufy-wall") })
+		serviceActive := func() error { return systemctl("is-active", "--quiet", "eufy-wall") }
+		if runtime.GOOS == "darwin" {
+			serviceActive = launchdActive
+		}
+		return true, showClientStatus(clientConfigPath, len(args) == 2, out, serviceActive)
 	case "help":
 		_, _ = io.WriteString(out, clientHelp)
 		return true, nil

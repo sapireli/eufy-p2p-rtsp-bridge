@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -127,6 +128,9 @@ func fetchSetupCameras(ctx context.Context, bridgeURL, inventoryFile string) ([]
 }
 
 func setupYAML(a setupAnswers, available []setupCamera) ([]byte, error) {
+	if runtime.GOOS == "darwin" && a.Output != "" {
+		return nil, errors.New("macOS window sink opens on the main display; leave output empty")
+	}
 	if len(a.Cameras) == 0 {
 		return nil, errors.New("choose at least one camera")
 	}
@@ -260,9 +264,13 @@ func setupWall(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 		if err != nil {
 			return err
 		}
-		a.Output, err = ask("Display output (blank for first)", "")
-		if err != nil {
-			return err
+		if runtime.GOOS == "darwin" {
+			_, _ = fmt.Fprintln(out, "Display: main macOS desktop (window sink)")
+		} else {
+			a.Output, err = ask("Display output (blank for first HDMI)", "")
+			if err != nil {
+				return err
+			}
 		}
 		cameras, err := fetchSetupCameras(ctx, a.BridgeURL, "")
 		if err != nil {
