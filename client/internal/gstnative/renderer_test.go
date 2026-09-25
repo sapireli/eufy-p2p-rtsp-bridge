@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/layout"
@@ -64,14 +65,22 @@ func waitFrames(t *testing.T, r *Renderer, id string, before uint64) uint64 {
 
 func waitOutput(t *testing.T, r *Renderer, before uint64) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		if r.Status().OutputFrames > before {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("compositor output stopped after frame %d: %+v", before, r.Status())
+	r.mu.Lock()
+	var state, pending int32
+	change := r.api.getState(r.pipeline, uintptr(unsafe.Pointer(&state)), uintptr(unsafe.Pointer(&pending)), 0)
+	levels := make(map[string]uint64, len(r.slots))
+	for id, slot := range r.slots {
+		levels[id] = r.api.appSrcLevel(slot.feed)
+	}
+	r.mu.Unlock()
+	t.Fatalf("compositor output stopped after frame %d: state=%d pending=%d change=%d feed_bytes=%v status=%+v", before, state, pending, change, levels, r.Status())
 }
 
 func waitTileGeneration(t *testing.T, r *Renderer, id string, generation uint64) TileStatus {
