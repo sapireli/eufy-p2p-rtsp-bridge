@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -113,5 +115,84 @@ func TestGridLayouts(t *testing.T) {
 		if cols, rows := c.GridDims(); cols != tc.cols || rows != tc.rows {
 			t.Errorf("%s: got %dx%d, want %dx%d", tc.layout, cols, rows, tc.cols, tc.rows)
 		}
+	}
+}
+
+func TestV2CustomRectanglesAndStableIDs(t *testing.T) {
+	y := `schema_version: 2
+bridge_url: http://bridge.local:3000
+rtsp_base: rtsp://bridge.local:8554
+layout: custom
+canvas: {cols: 32, rows: 32}
+tiles:
+  - {id: front, camera: A, rect: {x: 0, y: 0, w: 20, h: 32}}
+  - {id: motion, motion: latest, watch: [B], rect: {x: 20, y: 0, w: 12, h: 32}}
+`
+	c, err := Parse([]byte(y))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SchemaVersion != 2 || c.BridgeURL != "http://bridge.local:3000" || c.Tiles[1].ID != "motion" {
+		t.Fatalf("%+v", c)
+	}
+	if cols, rows := c.GridDims(); cols != 32 || rows != 32 {
+		t.Fatalf("%dx%d", cols, rows)
+	}
+}
+
+func TestV2RejectsUnsafeGeometryAndUnknownFields(t *testing.T) {
+	base := "schema_version: 2\nbridge_url: http://x:3000\nrtsp_base: rtsp://x\nlayout: custom\ncanvas: {cols: 32, rows: 32}\n"
+	cases := map[string]string{
+		"overlap":            "tiles: [{id: a, camera: A, rect: {x: 0, y: 0, w: 20, h: 32}}, {id: b, camera: B, rect: {x: 19, y: 0, w: 13, h: 32}}]",
+		"out of bounds":      "tiles: [{id: a, camera: A, rect: {x: 31, y: 0, w: 2, h: 1}}]",
+		"zero size":          "tiles: [{id: a, camera: A, rect: {x: 0, y: 0, w: 0, h: 1}}]",
+		"duplicate id":       "tiles: [{id: a, camera: A, rect: {x: 0, y: 0, w: 1, h: 1}}, {id: a, camera: B, rect: {x: 1, y: 0, w: 1, h: 1}}]",
+		"missing id":         "tiles: [{camera: A, rect: {x: 0, y: 0, w: 1, h: 1}}]",
+		"missing rect":       "tiles: [{id: a, camera: A}]",
+		"unknown field":      "tiles: [{id: a, camera: A, rect: {x: 0, y: 0, w: 1, h: 1}, mystery: 1}]",
+		"ambiguous geometry": "tiles: [{id: a, camera: A, span: {cols: 1, rows: 1}, rect: {x: 0, y: 0, w: 1, h: 1}}]",
+	}
+	for name, tail := range cases {
+		if _, err := Parse([]byte(base + tail + "\n")); err == nil {
+			t.Errorf("%s: expected rejection", name)
+		}
+	}
+}
+
+func TestV2RejectsFutureVersionAndInvalidBridgeOrigin(t *testing.T) {
+	for _, y := range []string{
+		"schema_version: 3\nlayout: 1\nrtsp_base: rtsp://x\ntiles: [{camera: A}]",
+		"schema_version: 2\nbridge_url: http://user:pass@x:3000\nlayout: 1\nrtsp_base: rtsp://x\ntiles: [{id: a, camera: A}]",
+	} {
+		if _, err := Parse([]byte(y)); err == nil {
+			t.Errorf("expected rejection: %s", y)
+		}
+	}
+}
+
+func TestEmbeddedExampleMatchesCheckedInTemplate(t *testing.T) {
+	if _, err := Parse(Example()); err != nil {
+		t.Fatalf("embedded example must parse: %v", err)
+	}
+	checkedIn, err := os.ReadFile("../../config.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(Example(), checkedIn) {
+		t.Fatal("embedded and checked-in examples differ")
+	}
+}
+
+func TestLegacyMaximumGridCapacityRemainsValid(t *testing.T) {
+	y := "rtsp_base: rtsp://x\nlayout: 6x6\ntiles:\n"
+	for i := 0; i < 36; i++ {
+		y += "  - {camera: A}\n"
+	}
+	c, err := Parse([]byte(y))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Tiles) != 36 || c.Tiles[35].ID != "legacy-35" {
+		t.Fatalf("legacy ids: %+v", c.Tiles[35])
 	}
 }

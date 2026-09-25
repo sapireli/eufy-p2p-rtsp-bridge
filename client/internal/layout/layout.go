@@ -9,6 +9,7 @@ import (
 
 type Placed struct {
 	Index  int
+	ID     string
 	Camera string
 	Codec  string // h264 | h265 — which decoder this tile needs
 	URL    string
@@ -63,20 +64,42 @@ func (g *grid) firstFit(cols, rows int) (col, row int, ok bool) {
 // Place assigns every tile a cell block and a pixel rectangle on `screen`.
 func Place(c *config.Config, screen config.Screen) ([]Placed, error) {
 	cols, rows := c.GridDims()
+	if cols < 1 || rows < 1 || cols > 32 || rows > 32 {
+		return nil, fmt.Errorf("layout: invalid grid dimensions %dx%d", cols, rows)
+	}
 	g := &grid{cols: cols, rows: rows, used: make([]bool, cols*rows)}
 	out := make([]Placed, len(c.Tiles))
 	placed := make([]bool, len(c.Tiles))
 
 	toPixels := func(p *Placed) {
-		cellW, cellH := screen.Width/cols, screen.Height/rows
-		p.X, p.Y = p.Col*cellW, p.Row*cellH
-		p.W, p.H = p.Cols*cellW, p.Rows*cellH
-		if p.Col+p.Cols == cols { // last column absorbs rounding
-			p.W = screen.Width - p.X
+		p.X, p.Y = p.Col*screen.Width/cols, p.Row*screen.Height/rows
+		p.W = (p.Col+p.Cols)*screen.Width/cols - p.X
+		p.H = (p.Row+p.Rows)*screen.Height/rows - p.Y
+	}
+	if screen.Width < 1 || screen.Height < 1 {
+		return nil, fmt.Errorf("layout: screen must have positive width and height")
+	}
+	if c.Layout == "custom" {
+		for i, t := range c.Tiles {
+			if t.Rect == nil {
+				return nil, fmt.Errorf("layout: tiles[%d].rect is required", i)
+			}
+			r := *t.Rect
+			if r.X < 0 || r.Y < 0 || r.W < 1 || r.H < 1 || r.X+r.W > cols || r.Y+r.H > rows {
+				return nil, fmt.Errorf("layout: tiles[%d].rect outside canvas", i)
+			}
+			if !g.fits(r.X, r.Y, r.W, r.H) {
+				return nil, fmt.Errorf("layout: tiles[%d].rect overlaps another tile", i)
+			}
+			p := Placed{Index: i, ID: t.ID, Camera: t.Camera, Codec: t.Codec, URL: c.TileURL(t), Col: r.X, Row: r.Y, Cols: r.W, Rows: r.H}
+			toPixels(&p)
+			if p.W < 1 || p.H < 1 {
+				return nil, fmt.Errorf("layout: tiles[%d].rect has zero pixels at %dx%d", i, screen.Width, screen.Height)
+			}
+			g.take(r.X, r.Y, r.W, r.H)
+			out[i] = p
 		}
-		if p.Row+p.Rows == rows {
-			p.H = screen.Height - p.Y
-		}
+		return out, nil
 	}
 
 	// Primary for 1+5: explicit role, else the first tile. Fixed position, 2x2.
@@ -92,7 +115,7 @@ func Place(c *config.Config, screen config.Screen) ([]Placed, error) {
 		if c.PrimaryPosition == "right" {
 			col = 1
 		}
-		p := Placed{Index: pi, Camera: c.Tiles[pi].Camera, Codec: c.Tiles[pi].Codec, URL: c.TileURL(c.Tiles[pi]), Col: col, Row: 0, Cols: 2, Rows: 2}
+		p := Placed{Index: pi, ID: c.Tiles[pi].ID, Camera: c.Tiles[pi].Camera, Codec: c.Tiles[pi].Codec, URL: c.TileURL(c.Tiles[pi]), Col: col, Row: 0, Cols: 2, Rows: 2}
 		g.take(col, 0, 2, 2)
 		toPixels(&p)
 		out[pi] = p
@@ -110,7 +133,7 @@ func Place(c *config.Config, screen config.Screen) ([]Placed, error) {
 		if t.Span != nil {
 			want = *t.Span
 		}
-		p := Placed{Index: i, Camera: t.Camera, Codec: t.Codec, URL: c.TileURL(t)}
+		p := Placed{Index: i, ID: t.ID, Camera: t.Camera, Codec: t.Codec, URL: c.TileURL(t)}
 		col, row, ok := g.firstFit(want.Cols, want.Rows)
 		if !ok && t.Aspect == "tall" && t.Span == nil {
 			want = config.Span{Cols: 1, Rows: 1}
@@ -123,6 +146,9 @@ func Place(c *config.Config, screen config.Screen) ([]Placed, error) {
 		p.Col, p.Row, p.Cols, p.Rows = col, row, want.Cols, want.Rows
 		g.take(col, row, want.Cols, want.Rows)
 		toPixels(&p)
+		if p.W < 1 || p.H < 1 {
+			return nil, fmt.Errorf("layout: tile %d has zero pixels at %dx%d", i, screen.Width, screen.Height)
+		}
 		out[i] = p
 	}
 	return out, nil

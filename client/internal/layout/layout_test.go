@@ -126,3 +126,43 @@ func TestTwoUpFillsTheScreen(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomRectanglesUseIndependentEdges(t *testing.T) {
+	c, err := config.Parse([]byte(`schema_version: 2
+bridge_url: http://s:3000
+rtsp_base: rtsp://s:8554
+layout: custom
+canvas: {cols: 32, rows: 32}
+tiles:
+  - {id: left, camera: A, rect: {x: 0, y: 0, w: 13, h: 32}}
+  - {id: right, camera: B, rect: {x: 13, y: 0, w: 19, h: 32}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, screen := range []config.Screen{{1920, 1080}, {1919, 1079}} {
+		p, err := Place(c, screen)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p[0].ID != "left" || p[1].ID != "right" || p[0].X != 0 || p[0].W != p[1].X || p[0].W+p[1].W != screen.Width || p[1].H != screen.Height {
+			t.Fatalf("screen=%+v, placement=%+v", screen, p)
+		}
+	}
+}
+
+func TestCustomRectanglesRejectZeroPixelTile(t *testing.T) {
+	c, err := config.Parse([]byte(`schema_version: 2
+bridge_url: http://s:3000
+rtsp_base: rtsp://s:8554
+layout: custom
+canvas: {cols: 32, rows: 32}
+tiles: [{id: tiny, camera: A, rect: {x: 0, y: 0, w: 1, h: 1}}]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Place(c, config.Screen{Width: 16, Height: 16}); err == nil {
+		t.Fatal("expected zero-pixel tile error")
+	}
+}
