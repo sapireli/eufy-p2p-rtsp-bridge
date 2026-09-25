@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -154,6 +155,9 @@ func TestInteractiveSetupCanSaveDraftAndRejectApply(t *testing.T) {
 	defer srv.Close()
 	draft := filepath.Join(t.TempDir(), "wall.draft.yaml")
 	answers := srv.URL + "\n\n\nA\n\n\n"
+	if runtime.GOOS == "darwin" {
+		answers = srv.URL + "\n\nA\n\n\n"
+	}
 	var out bytes.Buffer
 	if err := setupWall(context.Background(), []string{"--output", draft}, strings.NewReader(answers), &out); err != nil {
 		t.Fatal(err)
