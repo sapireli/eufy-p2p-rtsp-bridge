@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -134,5 +135,44 @@ func TestRecoveryRejectsCorruptBackupBeforeReplacingCandidate(t *testing.T) {
 	}
 	if _, err := os.Stat(dest + ".pending"); err != nil {
 		t.Fatalf("pending marker was removed despite corrupt backup: %v", err)
+	}
+}
+
+func TestInterruptedRecoveryStartsDespiteStatusWriteFailure(t *testing.T) {
+	dest, _ := pendingRecoveryFixture(t)
+	if err := os.Mkdir(dest+".apply-status.json", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverClientConfig(dest); err != nil {
+		t.Fatalf("status write prevented service pre-start recovery: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || string(got) != validWallYAML {
+		t.Fatalf("old config not restored: %q, %v", got, err)
+	}
+	if _, err := os.Stat(dest + ".pending"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending marker remains: %v", err)
+	}
+}
+
+func TestRollbackRestartsDespiteStatusWriteFailure(t *testing.T) {
+	dest, _ := pendingRecoveryFixture(t)
+	if err := os.Mkdir(dest+".apply-status.json", 0700); err != nil {
+		t.Fatal(err)
+	}
+	service := &fakeWallService{}
+	err := rollbackClientConfig(dest, service, errors.New("candidate has no frames"))
+	if err == nil || !strings.Contains(err.Error(), "rollback status failed") || !strings.Contains(err.Error(), "restored and healthy") {
+		t.Fatalf("rollback report did not explain status failure after recovery: %v", err)
+	}
+	if service.restarts != 1 || service.healthChecks != 1 || service.frameChecks != 1 {
+		t.Fatalf("restored wall was not verified: restarts=%d health=%d frames=%d", service.restarts, service.healthChecks, service.frameChecks)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || string(got) != validWallYAML {
+		t.Fatalf("old config not restored: %q, %v", got, err)
+	}
+	if _, err := os.Stat(dest + ".pending"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending marker remains: %v", err)
 	}
 }
