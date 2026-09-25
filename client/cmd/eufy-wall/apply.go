@@ -248,6 +248,15 @@ func rollbackClientConfig(dest string, service clientService, cause error) error
 	if err := service.Healthy(); err != nil {
 		return fmt.Errorf("new config failed (%v), previous config restored but recovery health check failed: %w", cause, err)
 	}
+	if frameService, ok := service.(clientFrameService); ok {
+		restored, err := os.ReadFile(dest)
+		if err != nil {
+			return fmt.Errorf("new config failed (%v), previous config restored but its frame check could not read config: %w", cause, err)
+		}
+		if err := frameService.FramesHealthy(restored); err != nil {
+			return fmt.Errorf("new config failed (%v), previous config restored but frames did not recover: %w", cause, err)
+		}
+	}
 	return fmt.Errorf("new config failed; previous config restored: %w", cause)
 }
 

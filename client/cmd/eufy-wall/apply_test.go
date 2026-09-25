@@ -20,6 +20,7 @@ type fakeWallService struct {
 	health       error
 	healthChecks int
 	frames       error
+	frameErrors  []error
 	frameChecks  int
 	restart      func() error
 }
@@ -44,6 +45,11 @@ func (f *fakeWallService) Stop() error {
 }
 func (f *fakeWallService) FramesHealthy(_ []byte) error {
 	f.frameChecks++
+	if len(f.frameErrors) > 0 {
+		err := f.frameErrors[0]
+		f.frameErrors = f.frameErrors[1:]
+		return err
+	}
 	return f.frames
 }
 
@@ -143,14 +149,29 @@ func TestApplyRollsBackWhenServiceRunsButFramesDoNotAdvance(t *testing.T) {
 	if err := os.WriteFile(dest, []byte(validWallYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeWallService{frames: errors.New("live tile is frozen")}
+	f := &fakeWallService{frameErrors: []error{errors.New("live tile is frozen"), nil}}
 	err := applyClientData(dest, []byte(otherWallYAML), f)
 	if err == nil || !strings.Contains(err.Error(), "frame progress") {
 		t.Fatalf("frozen candidate was accepted: %v", err)
 	}
 	got, readErr := os.ReadFile(dest)
-	if readErr != nil || string(got) != validWallYAML || f.frameChecks != 1 || f.restarts != 2 {
+	if readErr != nil || string(got) != validWallYAML || f.frameChecks != 2 || f.restarts != 2 {
 		t.Fatalf("frozen apply did not restore prior config: data=%q read=%v checks=%d restarts=%d", got, readErr, f.frameChecks, f.restarts)
+	}
+}
+
+func TestApplyReportsRestoredWallWithoutFrameProgress(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "wall.yaml")
+	if err := os.WriteFile(dest, []byte(validWallYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeWallService{frames: errors.New("decoder stalled")}
+	err := applyClientData(dest, []byte(otherWallYAML), f)
+	if err == nil || !strings.Contains(err.Error(), "previous config restored but frames did not recover") {
+		t.Fatalf("reported healthy rollback despite frozen prior wall: %v", err)
+	}
+	if f.frameChecks != 2 || f.restarts != 2 {
+		t.Fatalf("rollback checks=%d restarts=%d", f.frameChecks, f.restarts)
 	}
 }
 
