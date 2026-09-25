@@ -29,6 +29,7 @@ type setupAnswers struct {
 	Template      string   `yaml:"template"`
 	Decoder       string   `yaml:"decoder"`
 	Sink          string   `yaml:"sink"`
+	Planes        []int    `yaml:"planes"`
 	ProbeStreams  bool     `yaml:"probe_streams"`
 }
 
@@ -58,6 +59,7 @@ type setupFile struct {
 	Output        string        `yaml:"output,omitempty"`
 	Decoder       string        `yaml:"decoder,omitempty"`
 	Sink          string        `yaml:"sink,omitempty"`
+	Planes        []int         `yaml:"planes,omitempty"`
 	Layout        string        `yaml:"layout"`
 	Canvas        config.Canvas `yaml:"canvas"`
 	Tiles         []setupTile   `yaml:"tiles"`
@@ -129,8 +131,15 @@ func fetchSetupCameras(ctx context.Context, bridgeURL, inventoryFile string) ([]
 }
 
 func setupYAML(a setupAnswers, available []setupCamera) ([]byte, error) {
-	if runtime.GOOS == "darwin" && a.Output != "" {
+	return setupYAMLForOS(runtime.GOOS, a, available)
+}
+
+func setupYAMLForOS(goos string, a setupAnswers, available []setupCamera) ([]byte, error) {
+	if goos == "darwin" && a.Output != "" {
 		return nil, errors.New("macOS window sink opens on the main display; leave output empty")
+	}
+	if goos == "darwin" && (a.Sink != "" && a.Sink != "auto" && a.Sink != "window" || len(a.Planes) > 0) {
+		return nil, errors.New("macOS setup uses a window sink; leave planes empty")
 	}
 	if len(a.Cameras) == 0 {
 		return nil, errors.New("choose at least one camera")
@@ -183,7 +192,7 @@ func setupYAML(a setupAnswers, available []setupCamera) ([]byte, error) {
 		}
 	case "motion":
 	}
-	file := setupFile{SchemaVersion: 2, BridgeURL: a.BridgeURL, RTSPBase: a.RTSPBase, Output: a.Output, Decoder: a.Decoder, Sink: a.Sink, Layout: "custom", Canvas: config.Canvas{Cols: 32, Rows: 32}}
+	file := setupFile{SchemaVersion: 2, BridgeURL: a.BridgeURL, RTSPBase: a.RTSPBase, Output: a.Output, Decoder: a.Decoder, Sink: a.Sink, Planes: a.Planes, Layout: "custom", Canvas: config.Canvas{Cols: 32, Rows: 32}}
 	if template == "motion" {
 		file.Tiles = []setupTile{{ID: geometry[0].ID, Motion: "latest", Watch: a.Cameras, BlankAfterSeconds: 90, Rect: geometry[0].Rect}}
 	} else {
@@ -194,6 +203,9 @@ func setupYAML(a setupAnswers, available []setupCamera) ([]byte, error) {
 			}
 			file.Tiles = append(file.Tiles, tile)
 		}
+	}
+	if (a.Sink == "planes" || (a.Sink == "" || a.Sink == "auto") && len(a.Planes) > 0) && len(a.Planes) < len(file.Tiles) {
+		return nil, fmt.Errorf("setup: %d tiles need at least %d plane IDs; use sink: compositor or list one plane per tile", len(file.Tiles), len(file.Tiles))
 	}
 	b, err := yaml.Marshal(file)
 	if err != nil {

@@ -120,6 +120,26 @@ func TestSetupOnePlusFiveMatchesEditorAndRejectsPartialSelection(t *testing.T) {
 	}
 }
 
+func TestSetupAnswerFilePreservesExplicitPlanes(t *testing.T) {
+	a := setupAnswers{BridgeURL: "http://bridge:3000", RTSPBase: "rtsp://bridge:8554", Sink: "planes", Planes: []int{31, 32}, Cameras: []string{"A", "B"}, Template: "split"}
+	available := []setupCamera{{SN: "A"}, {SN: "B"}}
+	b, err := setupYAMLForOS("linux", a, available)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Parse(b)
+	if err != nil || c.Sink != "planes" || len(c.Planes) != 2 || c.Planes[0] != 31 || c.Planes[1] != 32 {
+		t.Fatalf("plane answer was lost: config=%+v err=%v", c, err)
+	}
+	a.Planes = a.Planes[:1]
+	if _, err := setupYAMLForOS("linux", a, available); err == nil || !strings.Contains(err.Error(), "one plane per tile") {
+		t.Fatalf("incomplete plane selection accepted: %v", err)
+	}
+	if _, err := setupYAMLForOS("darwin", a, available); err == nil || !strings.Contains(err.Error(), "window sink") {
+		t.Fatalf("macOS accepted DRM planes: %v", err)
+	}
+}
+
 func TestSetupAdversarialInventoryAndSelections(t *testing.T) {
 	available := []setupCamera{{SN: "A"}, {SN: "B"}}
 	base := setupAnswers{BridgeURL: "http://bridge:3000", RTSPBase: "rtsp://bridge:8554", Cameras: []string{"A", "B"}, Template: "split"}
