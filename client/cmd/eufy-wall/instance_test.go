@@ -153,6 +153,18 @@ func TestNamedInstanceRequiresExplicitDisplayOutput(t *testing.T) {
 	if err != nil || selected.Output != "HDMI-A-2" || validateTargetOutput(target, selected) != nil {
 		t.Fatalf("editor did not select named instance output: %+v, %v", selected, err)
 	}
+	for _, active := range []string{"/etc/eufy-wall.yaml", "/etc/eufy-wall-east.yaml", "/etc/eufy-wall-west.yaml"} {
+		if err := e.save(active); err == nil || !strings.Contains(err.Error(), "active config") {
+			t.Errorf("named editor could overwrite %q as a draft: %v", active, err)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "etc-link")
+	if err := os.Symlink("/etc", link); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.save(filepath.Join(link, "eufy-wall-west.yaml")); err == nil {
+		t.Fatal("named editor could overwrite another active config through a directory symlink")
+	}
 }
 
 func TestSeparateInstanceApplyRollbackKeepsOtherConfigAndStatus(t *testing.T) {

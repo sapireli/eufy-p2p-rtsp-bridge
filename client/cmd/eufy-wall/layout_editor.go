@@ -285,13 +285,27 @@ func (e *layoutEditor) save(target string) error {
 	if err != nil {
 		return err
 	}
-	if abs == active {
+	if abs == active || isInstalledClientConfig(abs) {
 		return errors.New("save drafts outside the active config; use apply to activate")
 	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil && resolved == active {
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil && (resolved == active || isInstalledClientConfig(resolved)) {
 		return errors.New("draft target points to the active config; use apply to activate")
 	}
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil && isInstalledClientConfig(filepath.Join(dir, filepath.Base(abs))) {
+		return errors.New("draft target points to an installed config; use apply to activate")
+	}
 	return atomicClientWrite(abs, e.history[e.at], 0600, nil)
+}
+
+func isInstalledClientConfig(path string) bool {
+	if filepath.Clean(path) == defaultClientConfigPath() || filepath.Clean(path) == "/etc/eufy-wall.yaml" {
+		return true
+	}
+	if filepath.Dir(path) != "/etc" {
+		return false
+	}
+	name := filepath.Base(path)
+	return strings.HasPrefix(name, "eufy-wall-") && strings.HasSuffix(name, ".yaml")
 }
 
 func (e *layoutEditor) png(path string) error {
