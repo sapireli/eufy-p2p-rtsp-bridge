@@ -12,6 +12,7 @@ import (
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/layout"
 	"eufy-wall/internal/pipeline"
+	"eufy-wall/internal/wallstate"
 	"github.com/coder/websocket"
 )
 
@@ -219,5 +220,26 @@ blank:
 		}
 	case <-deadline:
 		t.Fatal("expired motion tile did not release its hold")
+	}
+}
+
+func TestUnsupportedLateCodecOnOnePlaneKeepsOtherTileRendering(t *testing.T) {
+	c := &config.Config{RTSPBase: "rtsp://bridge:8554", Latency: 200, Planes: []int{31, 32}, Tiles: []config.Tile{{ID: "front", Camera: "A"}, {ID: "garage", Camera: "B"}}}
+	tiles := []layout.Placed{
+		{Index: 0, ID: "front", Camera: "A", W: 320, H: 480},
+		{Index: 1, ID: "garage", Camera: "B", X: 320, W: 320, H: 480},
+	}
+	caps := pipeline.Caps{Decoder: "software", Sink: "planes", Screen: config.Screen{Width: 640, Height: 480}}
+	plans := plansFor(c, caps, tiles, map[int]string{0: "A", 1: "B"}, map[int]string{0: wallstate.ContentLive, 1: wallstate.ContentLive}, nil, func(sn string) string {
+		if sn == "B" {
+			return "av1"
+		}
+		return "h264"
+	})
+	if len(plans) != 1 || plans[0].Name != "front" {
+		t.Fatalf("one unsupported camera stopped the other plane: %+v", plans)
+	}
+	if args := pipeline.String(plans[0].Args); !strings.Contains(args, "rtsp://bridge:8554/A") || strings.Contains(args, "/B") {
+		t.Fatalf("healthy plane no longer renders A: %s", args)
 	}
 }

@@ -324,6 +324,20 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 		}
 		live = append(live, t)
 	}
+	if caps.Sink == "planes" {
+		// Each plane is an independent process. A late codec change or bad URL on one camera must not
+		// tear down the other cameras while that tile waits for a compatible decoder or source.
+		plans := make([]pipeline.Plan, 0, len(live))
+		for _, tile := range live {
+			one, err := pipeline.Plans(c, []layout.Placed{tile}, caps)
+			if err != nil {
+				log.Printf("[wall] tile %s cannot build pipeline: %v", tile.ID, err)
+				continue
+			}
+			plans = append(plans, one...)
+		}
+		return plans
+	}
 	plans, err := pipeline.Plans(c, live, caps)
 	if err != nil {
 		log.Printf("[wall] cannot build pipelines: %v", err)
