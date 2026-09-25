@@ -99,7 +99,7 @@ export function createCameras(ctx) {
       dual: cam.isDual,
       dualView: cam.dualView,
       quality: cam.quality,
-      codec: st.codec,
+      codec: st.codec ?? cam.codec ?? null,
       width: st.width,
       height: st.height,
       streaming: Boolean(st.streaming),

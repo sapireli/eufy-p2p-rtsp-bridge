@@ -5,7 +5,7 @@
 //
 //   motion       {sn, event, at}                a camera reported something
 //   hold         {sn, until, owners}            a hold was taken, extended or released
-//   streamState  {sn, state: idle|live}         whether there is video to show right now
+//   streamState  {sn, state: idle|live, codec?} whether there is video to show right now
 //
 // Read-only deliberately. A client that wants to *request* a stream does it over HTTP (POST /hold/<sn>),
 // which keeps this a one-way fan-out with no command parsing, no auth surface and no per-client state to
@@ -33,6 +33,7 @@ export function createWsHub(ctx) {
           sn: c.sn,
           name: c.name,
           mode: c.mode ?? "always",
+          codec: ctx.streamStatus?.(c.sn)?.codec ?? c.codec ?? null,
           // The go2rtc stream key (the camera's name, slugged). The wall builds its RTSP URL from this
           // rather than from the serial, so renaming a camera moves its stream without a client change.
           streamKey: ctx.streamKeyFor?.(c.sn) ?? c.sn,

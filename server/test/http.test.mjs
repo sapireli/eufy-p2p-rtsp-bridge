@@ -82,9 +82,12 @@ test("auth endpoints drive login", async () => {
     assert.equal(Buffer.from(await img.arrayBuffer()).toString(), "hi");
     assert.equal((await fetch(`${base}/auth/tfa?code=123456`, { method: "POST" })).status, 200);
     assert.equal((await fetch(`${base}/auth/captcha?code=AB3D`, { method: "POST" })).status, 200);
+    assert.equal((await fetch(`${base}/auth/tfa`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "654321" }) })).status, 200);
+    assert.equal((await fetch(`${base}/auth/captcha`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "XY9" }) })).status, 200);
     assert.equal((await fetch(`${base}/auth/retry`, { method: "POST" })).status, 200);
-    assert.deepEqual(calls.map((c) => c.code ?? c.ans ?? c.status), ["123456", "AB3D", "ok"]);
+    assert.deepEqual(calls.map((c) => c.code ?? c.ans ?? c.status), ["123456", "AB3D", "654321", "XY9", "ok"]);
     assert.equal((await fetch(`${base}/auth/tfa`, { method: "POST" })).status, 400);
+    assert.equal((await fetch(`${base}/auth/tfa`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" })).status, 400);
   });
 });
 

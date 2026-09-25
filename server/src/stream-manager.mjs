@@ -20,7 +20,7 @@ export function createStreamManager(ctx) {
       state.starting.delete(slot.sn);
       state.streaming.add(slot.sn);
       console.log(`[bridge] ${slot.sn}: streaming`);
-      ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "live" });
+      ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "live", codec: slot.codec ?? ctx.getCamera?.(slot.sn)?.codec ?? null });
     }
     const sets = ctx.sdk.extractParamSets(chunk); // non-undefined ⇒ this chunk carries SPS/PPS (keyframe AU)
     if (sets) {
@@ -54,6 +54,7 @@ export function createStreamManager(ctx) {
         slot.codec = sets.codec;
         slot.width = g?.width;
         slot.height = g?.height;
+        ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "live", codec: slot.codec, width: slot.width, height: slot.height });
         console.log(`[bridge] ${slot.sn}: codec ${from}${sets.codec} ${slot.width ?? "?"}x${slot.height ?? "?"}`);
         if (sets.codec !== "h264")
           console.warn(`[bridge] ${slot.sn}: stream is ${sets.codec.toUpperCase()} — players without an HEVC decoder (Chrome, the Pi) cannot read it; set a lower streaming quality in the owner's eufy app, or enable go2rtc.transcode.`);

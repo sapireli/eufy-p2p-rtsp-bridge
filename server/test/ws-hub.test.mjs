@@ -61,7 +61,7 @@ test("a joining client is told the current state, not just future events", async
   ctx.state.streaming.add("BATT");
   const [hello] = await collect(url, 1);
   assert.equal(hello.type, "hello");
-  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", streamKey: "BATT", state: "live", still: false }]);
+  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", codec: null, streamKey: "BATT", state: "live", still: false }]);
   assert.ok(hello.at > 0, "every message is timestamped so a replay is distinguishable from a live event");
 });
 
@@ -114,4 +114,11 @@ test("hello says which cameras have a retained thumbnail", async (t) => {
   const [hello] = await collect(url, 1);
   const still = Object.fromEntries(hello.cameras.map((c) => [c.sn, c.still]));
   assert.deepEqual(still, { BATT: true, GAR: false });
+});
+
+test("hello uses live codec and falls back to configured codec", async (t) => {
+  const { ctx, url } = await withHub(t, [{ ...battery, codec: "h265" }, { sn: "GAR", name: "Garage", enabled: true, codec: "h264" }]);
+  ctx.streamStatus = (sn) => sn === "GAR" ? { codec: "h265" } : {};
+  const [hello] = await collect(url, 1);
+  assert.deepEqual(hello.cameras.map((c) => c.codec), ["h265", "h265"]);
 });
