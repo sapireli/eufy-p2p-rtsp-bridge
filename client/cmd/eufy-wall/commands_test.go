@@ -230,3 +230,23 @@ func TestDoctorReportsBridgeAuthFailure(t *testing.T) {
 		t.Fatalf("doctor failed to explain bridge auth: %+v", report)
 	}
 }
+
+func TestDoctorReportsConfiguredOutputMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wall.yaml")
+	if err := os.WriteFile(path, []byte(validWallYAML+"output: HDMI-A-2\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var selected string
+	var out bytes.Buffer
+	_ = clientDoctorAtWithScreen(path, true, &out, func(output string) (config.Screen, bool) {
+		selected = output
+		return config.Screen{Width: 800, Height: 600}, true
+	})
+	var report doctorReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if selected != "HDMI-A-2" || report.Screen != (config.Screen{Width: 800, Height: 600}) {
+		t.Fatalf("doctor reported another display: selected=%q screen=%+v", selected, report.Screen)
+	}
+}

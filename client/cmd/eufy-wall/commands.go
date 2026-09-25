@@ -236,12 +236,14 @@ func clientDoctor(jsonOutput bool, out io.Writer) error {
 }
 
 func clientDoctorAt(path string, jsonOutput bool, out io.Writer) error {
+	return clientDoctorAtWithScreen(path, jsonOutput, out, func(output string) (config.Screen, bool) {
+		return detect.HostScreen("/", output)
+	})
+}
+
+func clientDoctorAtWithScreen(path string, jsonOutput bool, out io.Writer, screenFor func(string) (config.Screen, bool)) error {
 	report := doctorReport{Problems: []string{}}
-	if s, ok := detect.HostScreen("/", ""); ok {
-		report.Screen = s
-	} else {
-		report.Problems = append(report.Problems, "no connected display found")
-	}
+	output := ""
 	report.Watchdog = detect.HasElement("watchdog")
 	if !report.Watchdog {
 		report.Problems = append(report.Problems, "GStreamer watchdog is missing (install gstreamer1.0-plugins-bad)")
@@ -252,6 +254,7 @@ func clientDoctorAt(path string, jsonOutput bool, out io.Writer) error {
 		if parseErr != nil {
 			report.Problems = append(report.Problems, parseErr.Error())
 		} else {
+			output = c.Output
 			report.ConfigValid = true
 			if _, placeErr := placeForValidation(c); placeErr != nil {
 				report.ConfigValid = false
@@ -274,6 +277,11 @@ func clientDoctorAt(path string, jsonOutput bool, out io.Writer) error {
 		report.Problems = append(report.Problems, err.Error())
 	} else {
 		report.Problems = append(report.Problems, "config not installed at "+path)
+	}
+	if s, ok := screenFor(output); ok {
+		report.Screen = s
+	} else {
+		report.Problems = append(report.Problems, fmt.Sprintf("no connected display found for output %q", output))
 	}
 	if _, err := exec.LookPath("gst-launch-1.0"); err == nil {
 		report.GstLaunch = true
