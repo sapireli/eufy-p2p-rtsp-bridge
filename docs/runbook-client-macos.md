@@ -1,6 +1,6 @@
 # macOS client runbook
 
-The macOS client is a per-user windowed wall. It uses `sink: window`, Homebrew GStreamer, and a launchd agent in the logged-in user's GUI session. It does not use systemd, apt, DRM planes, or `sudo`. Intel (`amd64`) and Apple Silicon (`arm64`) archives are built. Intel has only a four-second local H.264 smoke; neither display profile has a completed qualification run.
+The macOS client is a per-user windowed wall. It uses `sink: window`, Homebrew GStreamer, and a launchd agent in the logged-in user's GUI session. It does not use systemd, apt, DRM planes, or `sudo`. Intel (`amd64`) and Apple Silicon (`arm64`) archives are built. Intel has a bounded local H.264 window and recovery trial; neither display profile has a completed qualification run.
 
 ## Install a verified release
 
@@ -67,11 +67,13 @@ Inspect `~/Library/Application Support/eufy-wall/wall.err.log`, `eufy-wall statu
 
 ## Qualification evidence
 
-One bounded Intel window smoke was run locally on macOS 15.8 (24H23), x86_64, Intel Core i5-8500 3.00 GHz, GStreamer 1.28.7. MediaMTX 1.21.1 served a local FFmpeg H.264 `testsrc2` stream at 640×360 and 15 fps over TCP RTSP. A one-tile, 32×32 full-canvas config used `sink: window`, software decode, and a 320×180 window. The locally built client ran about four seconds, reported `output_frames=17`, `decoded_frames=15`, and `generation=1`, then exited cleanly after SIGTERM without a Cocoa warning. These are bounded frame counts, not a sustained FPS measurement, installer test, camera test, or soak result.
+An independent Intel window recovery trial ran locally on macOS 15.8 (24H23), x86_64, Intel Core i5-8500 3.00 GHz, and Homebrew GStreamer 1.28.7_1. MediaMTX 1.21.1 served an FFmpeg 9.0.2 H.264 `testsrc2` stream at 640×360 and 15 fps over TCP RTSP. A one-tile, 32×32 full-canvas config used `sink: window`, software decode, and a 320×180 window. Two publisher stop/restart cycles each held the source absent for 45 seconds through multiple failed reconnects. The pipeline output counter advanced 33→708 and 965→1637 during the outages, with worst sampled output-frame age 1.39 seconds. Decoded frames resumed on source generations 4 and 7, about 17 seconds after each publisher restart. The client and publisher exited cleanly. A prior four-second smoke also opened the window and reported 17 output and 15 decoded frames.
 
-No Intel or Apple Silicon 30-minute live run, sleep/wake result, source-loss recovery, codec-switch result, or Gatekeeper clean-host install has been recorded. Record OS and chip, GStreamer version, codecs and sizes, tile count, displayed FPS/drops, CPU and memory, source-loss/recovery times, and whether unaffected tiles continue rendering before marking either profile supported.
+The frame counter is upstream of the macOS display sink, so it proves pipeline progress rather than pixels on the screen. The local synthetic trial does not verify a real Eufy camera, a clean-host installer, sustained FPS/CPU, or a 30-minute soak.
+
+No Intel or Apple Silicon 30-minute live run, sleep/wake result, real-camera source-loss recovery, codec-switch result, or Gatekeeper clean-host install has been recorded. Record OS and chip, GStreamer version, codecs and sizes, tile count, displayed FPS/drops, CPU and memory, source-loss/recovery times, and whether unaffected tiles continue rendering before marking either profile supported.
 
 | Mac / OS | Streams / codec / size | Window FPS / drops / CPU | Source loss and sleep/wake | Gatekeeper install |
 | --- | --- | --- | --- | --- |
-| Intel / macOS 15.8, unverified | Local H.264 testsrc2, one tile, 640×360 at 15 fps source | Four-second window smoke: 17 output and 15 decoded frames; sustained FPS/drops/CPU unmeasured | Unmeasured | Unmeasured |
+| Intel / macOS 15.8, unverified | Local H.264 testsrc2, one tile, 640×360 at 15 fps source | Two 45-second outages: output +675 and +672 frames; displayed FPS/drops/CPU unmeasured | Pipeline output stayed live; decode recovered about 17 seconds after each restart. Sleep/wake unmeasured | Unmeasured |
 | Apple Silicon / unverified | | | | |
