@@ -44,25 +44,16 @@ func runCommand(args []string, in io.Reader, out io.Writer) (bool, error) {
 			if len(args) > 3 {
 				return true, errors.New("usage: eufy-wall config explain [field]")
 			}
-			fields := map[string]string{
-				"schema_version": "2 uses strict field validation and stable tile IDs; omit for legacy YAML",
-				"bridge_url":     "HTTP(S) control origin for events, inventory, stills, and holds",
-				"rtsp_base":      "RTSP origin for camera video, separate from bridge_url",
-				"layout":         "custom needs explicit nonoverlapping rects on a 1..32 canvas; presets remain available",
-				"tiles":          "stable id, camera or motion source, and rect for custom layouts",
-				"decoder":        "auto, v4l2, va, or software; actual codec must be installed on this host",
-				"sink":           "auto, planes, compositor, or window; planes need one verified ID per tile",
-			}
 			if len(args) == 3 {
-				value, ok := fields[args[2]]
+				value, ok := explainClientField(args[2])
 				if !ok {
 					return true, fmt.Errorf("unknown config field %q; see docs/config-client.md", args[2])
 				}
 				_, err := fmt.Fprintf(out, "%s: %s\n", args[2], value)
 				return true, err
 			}
-			for _, key := range []string{"schema_version", "bridge_url", "rtsp_base", "layout", "tiles", "decoder", "sink"} {
-				_, _ = fmt.Fprintf(out, "%s: %s\n", key, fields[key])
+			for _, key := range clientConfigFieldOrder {
+				_, _ = fmt.Fprintf(out, "%s: %s\n", key, clientConfigFields[key])
 			}
 			return true, nil
 		case "validate":
