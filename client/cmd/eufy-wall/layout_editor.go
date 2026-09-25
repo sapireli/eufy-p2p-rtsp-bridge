@@ -128,6 +128,9 @@ func editLayout(path string, in io.Reader, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if input, output, ok := fullScreenTerminal(in, out); ok {
+		return runLayoutScreen(e, input, output)
+	}
 	if _, err := io.WriteString(out, editorHelp); err != nil {
 		return err
 	}
