@@ -2,9 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/layout"
@@ -79,5 +85,73 @@ func TestTilesForSnapshotCodecAndPlanNames(t *testing.T) {
 	}
 	if got := planNames([]pipeline.Plan{{Name: "front"}, {Name: "yard"}}); got != "front, yard" {
 		t.Fatalf("plan names: %s", got)
+	}
+}
+
+func TestDynamicFixedOnDemandHoldAndOnMotionSleep(t *testing.T) {
+	stopServer := make(chan struct{})
+	holds := make(chan string, 8)
+	var motionHolds atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ws":
+			conn, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.CloseNow()
+			data, _ := json.Marshal(wallstate.Message{Type: "hello", At: time.Now().UnixMilli(),
+				Cameras: []wallstate.HelloCamera{
+					{SN: "DEMAND", Mode: "on_demand", State: "idle", HoldSeconds: 5},
+					{SN: "MOTION", Mode: "on_motion", State: "idle", HoldSeconds: 5},
+				}})
+			if conn.Write(context.Background(), websocket.MessageText, data) != nil {
+				return
+			}
+			<-stopServer
+		case "/hold/DEMAND":
+			select {
+			case holds <- r.Method:
+			default:
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case "/hold/MOTION":
+			motionHolds.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer func() { close(stopServer); server.Close() }()
+	cfg := &config.Config{BridgeURL: server.URL, RTSPBase: "rtsp://bridge:8554",
+		Tiles: []config.Tile{{ID: "demand", Camera: "DEMAND"}, {ID: "motion", Camera: "MOTION"}}}
+	tiles := []layout.Placed{
+		{ID: "demand", Index: 0, Camera: "DEMAND", URL: "rtsp://bridge:8554/DEMAND", W: 64, H: 64},
+		{ID: "motion", Index: 1, Camera: "MOTION", URL: "rtsp://bridge:8554/MOTION", X: 64, W: 64, H: 64},
+	}
+	native := &nativeRecorder{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runDynamicNative(ctx, cfg, pipeline.Caps{Sink: "window"}, tiles, tiles, native) }()
+	select {
+	case method := <-holds:
+		if method != http.MethodPost {
+			t.Fatalf("first on-demand hold method %s", method)
+		}
+	case <-time.After(3 * time.Second):
+		cancel()
+		t.Fatal("fixed on-demand camera never received hold")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("dynamic wall did not shut down")
+	}
+	if motionHolds.Load() != 0 {
+		t.Fatal("sleeping fixed on_motion camera was held")
 	}
 }
