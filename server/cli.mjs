@@ -3,14 +3,15 @@
 import fs from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout, stderr } from "node:process";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
-import { loadConfig } from "./src/config.mjs";
+import { loadConfig, parseConfigText } from "./src/config.mjs";
+import { migrateLegacyConfig } from "./src/config-migrate.mjs";
 import { applyConfig, applyStatus, recoverInterruptedApply } from "./src/config-apply.mjs";
 import { chooseCameraPolicies } from "./src/setup-cameras.mjs";
 import { bridgeBase } from "./src/cli-host.mjs";
@@ -72,6 +73,11 @@ async function local(path, options = {}) {
 function interfaces() {
   return Object.entries(os.networkInterfaces()).flatMap(([name, entries]) => entries.filter((e) => e.family === "IPv4" && !e.internal).map((e) => ({ name, address: e.address, cidr: e.cidr })));
 }
+function requireStreamKey(camera) {
+  if (typeof camera.streamKey !== "string" || !camera.streamKey.trim())
+    throw new Error(`camera ${camera.sn ?? "unknown"} has no RTSP stream key; check bridge camera discovery and go2rtc logs`);
+  return camera.streamKey;
+}
 async function question(rl, label, fallback) {
   const answer = (await rl.question(`${label}${fallback != null ? ` [${fallback}]` : ""}: `)).trim();
   return answer || fallback;
@@ -102,17 +108,16 @@ function envLine(key, value) {
 async function saveSecrets({ email, password, country }) {
   const oldEnv = Object.fromEntries(["EUFY_EMAIL", "EUFY_PASSWORD", "EUFY_COUNTRY"].map((key) => [key, process.env[key]]));
   const current = existsSync(envPath) ? await fs.readFile(envPath) : null;
-  const previousMode = current ? (await fs.stat(envPath)).mode & 0o777 : 0o600;
   const stage = `${envPath}.new-${process.pid}`;
   await fs.writeFile(stage, [envLine("EUFY_EMAIL", email), envLine("EUFY_PASSWORD", password), envLine("EUFY_COUNTRY", country), ""].join("\n"), { mode: 0o600, flag: "wx" });
   await fs.chmod(stage, 0o600);
-  if (current) await fs.writeFile(`${envPath}.bak-${Date.now()}`, current, { mode: previousMode, flag: "wx" });
+  if (current) await fs.writeFile(`${envPath}.bak-${Date.now()}`, current, { mode: 0o600, flag: "wx" });
   await fs.rename(stage, envPath);
   process.env.EUFY_EMAIL = email; process.env.EUFY_PASSWORD = password; process.env.EUFY_COUNTRY = country;
-  return { current, previousMode, oldEnv };
+  return { current, oldEnv };
 }
 async function restoreSecrets(saved) {
-  if (saved.current) { await fs.writeFile(envPath, saved.current, { mode: saved.previousMode }); await fs.chmod(envPath, saved.previousMode); }
+  if (saved.current) { await fs.writeFile(envPath, saved.current, { mode: 0o600 }); await fs.chmod(envPath, 0o600); }
   else await fs.unlink(envPath).catch(() => {});
   for (const [key, value] of Object.entries(saved.oldEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
@@ -211,8 +216,8 @@ async function setup(args, asJson) {
         const result = await probeCameraRtsp(cam, { bridgeUrl: bridgeBase(raw), host: localProbeHost(host, nics) });
         probes.push({ sn: cam.sn, ...result });
       }
+      const inventory = cams.map((c) => ({ sn: c.sn, name: c.name, mode: c.mode, powered: c.powered, codec: c.codec, streamKey: requireStreamKey(c), rtsp: `rtsp://${publicHost}:8554/${encodeURIComponent(c.streamKey)}` }));
       await enableService();
-      const inventory = cams.map((c) => ({ sn: c.sn, name: c.name, mode: c.mode, powered: c.powered, codec: c.codec, streamKey: c.streamKey, rtsp: `rtsp://${publicHost}:8554/${encodeURIComponent(c.streamKey)}` }));
       emit({ ok: true, serviceEnabled: true, applied: finalApply, bootstrapApply: applied, bridgeUrl: publicBridgeUrl, lanPolicy, cameras: inventory, probes, inventoryCommand: `eufy-bridge inventory export cameras.json --host ${publicHost}` }, asJson);
     } catch (error) {
       await restoreSecrets(saved);
@@ -240,6 +245,23 @@ async function main() {
     const text = await input(path);
     const { cfg } = loadConfig({ rawText: text });
     return emit({ ok: true, schemaVersion: parse(text)?.schema_version ?? 1, cameras: Object.keys(cfg.cameras).length, path: path ?? null }, asJson);
+  }
+  if (verb === "config" && sub === "migrate") {
+    const text = await input(path);
+    const outputFlag = clean.indexOf("--output");
+    if (outputFlag >= 0 && (!clean[outputFlag + 1] || clean[outputFlag + 1].startsWith("--"))) throw new Error("--output requires a candidate file path");
+    const output = outputFlag >= 0 ? clean[outputFlag + 1] : null;
+    if (output && resolve(output) === resolve(target)) throw new Error("candidate output cannot be the active config; use config apply after review");
+    if (!output && parseConfigText(text).eufy?.password != null) throw new Error("legacy YAML contains an inline password; use --output <file> to keep the candidate off the terminal");
+    const activeText = existsSync(target) ? await fs.readFile(target, "utf8") : null;
+    const report = migrateLegacyConfig(text, activeText);
+    if (output) await fs.writeFile(output, report.candidateYaml, { flag: "wx", mode: 0o600 });
+    emit({ ok: report.lossless, lossless: report.lossless, sourceSchemaVersion: report.sourceSchemaVersion,
+      candidateFile: output, ...(!output ? { candidateYaml: report.candidateYaml } : {}),
+      diff: report.diff, unsupportedPaths: report.unsupportedPaths,
+      next: output ? `Review ${output}, then run eufy-bridge config apply ${output}` : "Save candidateYaml to a file, review it, then run eufy-bridge config apply <file>" }, asJson);
+    if (!report.lossless) process.exitCode = 2;
+    return;
   }
   if (verb === "config" && sub === "apply") {
     const text = await input(path);
@@ -271,13 +293,17 @@ async function main() {
     const hostFlag = clean.indexOf("--host");
     const host = hostFlag >= 0 ? clean[hostFlag + 1] : (process.env.BRIDGE_PUBLIC_HOST || interfaces()[0]?.address);
     if (!host || !/^[a-zA-Z0-9.:-]+$/.test(host)) throw new Error("inventory export needs a valid --host or a detected LAN address");
-    const cameras = (await local("/api/cameras")).map(({ sn, name, model, modelName, enabled, mode, powered, powerOverride, dual, codec, streamKey }) => ({ sn, name, model, modelName, enabled, mode, powered, powerOverride, dual, codec, streamKey, rtsp: `rtsp://${host}:8554/${encodeURIComponent(streamKey)}` }));
+    const cameras = (await local("/api/cameras")).map((camera) => {
+      const { sn, name, model, modelName, enabled, mode, powered, powerOverride, dual, codec } = camera;
+      const streamKey = requireStreamKey(camera);
+      return { sn, name, model, modelName, enabled, mode, powered, powerOverride, dual, codec, streamKey, rtsp: `rtsp://${host}:8554/${encodeURIComponent(streamKey)}` };
+    });
     const inventory = { schema_version: 1, exported_at: new Date().toISOString(), bridge_url: `http://${host}:${loadConfig().cfg.port}`, cameras };
     await fs.writeFile(path, JSON.stringify(inventory, null, 2) + "\n", { flag: "wx", mode: 0o644 });
     return emit({ ok: true, file: path, cameras: cameras.length }, asJson);
   }
   if (verb === "setup") return setup(clean.slice(1), asJson);
-  emit("Usage: eufy-bridge setup [--answers file] | doctor | status | inventory export <file> | config example|explain [path]|validate <file|->|apply <file|-> [--json]", false);
+  emit("Usage: eufy-bridge setup [--answers file] | doctor | status | inventory export <file> | config example|explain [path]|validate <file|->|migrate <legacy-file|-> [--output candidate.yaml]|apply <file|-> [--json]", false);
   if (verb) process.exitCode = 2;
 }
 

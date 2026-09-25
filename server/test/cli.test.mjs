@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, writeFile, readFile, chmod, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, chmod, rm, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import http from "node:http";
@@ -40,6 +40,48 @@ test("example is nonsecret and can be validated with environment credentials", a
   assert.doesNotMatch(example.out, /password: change-me/);
   const valid = await run(["config", "validate", "-", "--json"], { input: example.out });
   assert.equal(valid.code, 0, valid.err);
+});
+
+test("migration produces a reviewable candidate and path diff without touching active config", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ewb-migrate-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const active = join(dir, "active.yaml"), output = join(dir, "candidate.yaml");
+  const old = "schema_version: 2\nport: 3000\n";
+  await writeFile(active, old);
+  const source = "schema_version: 1\nport: 3001\ncameras: { DOOR: { mode: on_motion } }\n";
+  const report = await run(["config", "migrate", "-", "--json"], { input: source, env: { BRIDGE_CONFIG: active } });
+  assert.equal(report.code, 0, report.err);
+  assert.equal(JSON.parse(report.out).lossless, true);
+  assert.match(JSON.parse(report.out).candidateYaml, /^schema_version: 2/m);
+  assert.deepEqual(JSON.parse(report.out).diff.changed, ["port"]);
+  assert.equal(await readFile(active, "utf8"), old);
+  const written = await run(["config", "migrate", "-", "--output", output, "--json"], { input: source, env: { BRIDGE_CONFIG: active } });
+  assert.equal(written.code, 0, written.err);
+  assert.equal(JSON.parse(written.out).candidateYaml, undefined);
+  assert.match(await readFile(output, "utf8"), /schema_version: 2/);
+  assert.equal((await stat(output)).mode & 0o777, 0o600);
+  const refused = await run(["config", "migrate", "-", "--output", active, "--json"], { input: source, env: { BRIDGE_CONFIG: active } });
+  assert.equal(refused.code, 1);
+  assert.match(JSON.parse(refused.err).error, /active config/);
+  assert.equal(await readFile(active, "utf8"), old);
+});
+
+test("migration reports lossy fields and keeps inline passwords out of CLI output", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ewb-migrate-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const output = join(dir, "candidate.yaml");
+  const source = "eufy: { email: wall@example.com, password: private-password }\nunknown: value\n";
+  const blocked = await run(["config", "migrate", "-", "--json"], { input: source, env: { BRIDGE_CONFIG: join(dir, "active.yaml") } });
+  assert.equal(blocked.code, 1);
+  assert.match(JSON.parse(blocked.err).error, /--output/);
+  assert.doesNotMatch(blocked.out + blocked.err, /private-password/);
+  const migrated = await run(["config", "migrate", "-", "--output", output, "--json"], { input: source, env: { BRIDGE_CONFIG: join(dir, "active.yaml") } });
+  assert.equal(migrated.code, 2);
+  assert.deepEqual(JSON.parse(migrated.out).unsupportedPaths, ["unknown"]);
+  assert.equal(JSON.parse(migrated.out).lossless, false);
+  assert.doesNotMatch(migrated.out + migrated.err, /private-password/);
+  assert.match(await readFile(output, "utf8"), /private-password/);
+  assert.equal((await stat(output)).mode & 0o777, 0o600);
 });
 
 test("headless setup requires an answer file and never starts a service", async () => {
@@ -141,6 +183,8 @@ test("a failed live probe rolls back setup without enabling the service", async 
   const dir = await mkdtemp(join(tmpdir(), "ewb-setup-fail-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const config = join(dir, "bridge.yaml"), environment = join(dir, "bridge.env"), answers = join(dir, "answers.yaml"), restartLog = join(dir, "actions.log");
+  const oldSecrets = 'EUFY_EMAIL="old@example.com"\nEUFY_PASSWORD="old-password"\n';
+  await writeFile(environment, oldSecrets, { mode: 0o644 });
   await writeFile(answers, `email: wall@example.com\npassword: test-password\nport: ${srv.address().port}\nlan_force: false\nhost: 0.0.0.0\nclient_host: bridge.example\nprobe_streams: true\n`, { mode: 0o600 });
   const systemctl = join(dir, "systemctl");
   await writeFile(systemctl, "#!/bin/sh\nif [ \"$1\" = is-enabled ]; then exit 1; fi\nprintf '%s ' \"$1\" >> \"$RESTART_LOG\"\nif [ -f \"$BRIDGE_CONFIG\" ]; then awk '/^host:/ { print $2 }' \"$BRIDGE_CONFIG\" >> \"$RESTART_LOG\"; else echo missing >> \"$RESTART_LOG\"; fi\nexit 0\n", { mode: 0o755 });
@@ -150,5 +194,26 @@ test("a failed live probe rolls back setup without enabling the service", async 
   assert.match(JSON.parse(result.err).error, /no RTSP stream key/);
   assert.deepEqual((await readFile(restartLog, "utf8")).trim().split("\n"), ["restart 127.0.0.1", "restart 0.0.0.0", "restart missing", "disable missing"]);
   await assert.rejects(readFile(config), { code: "ENOENT" });
-  await assert.rejects(readFile(environment), { code: "ENOENT" });
+  assert.equal(await readFile(environment, "utf8"), oldSecrets);
+  assert.equal((await stat(environment)).mode & 0o777, 0o600);
+  const backups = (await readdir(dir)).filter((name) => name.startsWith("bridge.env.bak-"));
+  assert.equal(backups.length, 1);
+  assert.equal((await stat(join(dir, backups[0]))).mode & 0o777, 0o600);
+});
+
+test("inventory refuses a camera without a stream key instead of exporting /null", async (t) => {
+  const srv = http.createServer((req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify([{ sn: "DOOR", name: "Door", enabled: true, streamKey: null }]));
+  });
+  await new Promise((resolve) => srv.listen(0, "127.0.0.1", resolve));
+  t.after(() => srv.close());
+  const dir = await mkdtemp(join(tmpdir(), "ewb-inventory-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const config = join(dir, "bridge.yaml"), output = join(dir, "cameras.json");
+  await writeFile(config, `schema_version: 2\nhost: 127.0.0.1\nport: ${srv.address().port}\n`);
+  const result = await run(["inventory", "export", output, "--host", "bridge.example", "--json"], { env: { BRIDGE_CONFIG: config } });
+  assert.equal(result.code, 1);
+  assert.match(JSON.parse(result.err).error, /DOOR has no RTSP stream key/);
+  await assert.rejects(readFile(output), { code: "ENOENT" });
 });

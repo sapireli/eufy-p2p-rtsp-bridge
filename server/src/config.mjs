@@ -23,8 +23,8 @@ const DUAL_VIEWS = new Set(["split", "pip-tl", "pip-tr", "pip-bl", "pip-br", "si
  */
 const CAMERA_MODES = new Set(["always", "on_motion", "on_demand"]);
 const POWER_OVERRIDES = new Set(["auto", "always-on", "battery"]);
-const TOP_LEVEL = new Set(["schema_version", "eufy", "host", "port", "self_host", "data_dir", "go2rtc_bin", "poll_ms", "lan", "defaults", "cameras", "stall", "go2rtc"]);
-const FIELDS = {
+export const TOP_LEVEL = new Set(["schema_version", "eufy", "host", "port", "self_host", "data_dir", "go2rtc_bin", "poll_ms", "lan", "defaults", "cameras", "stall", "go2rtc"]);
+export const FIELDS = {
   eufy: ["email", "password", "country"],
   lan: ["cidr", "force", "station_addresses", "upgrade"],
   "lan.upgrade": ["enabled", "interval_ms", "window_ms", "stable_ms", "initial_window_ms", "max_backoff_ms"],
