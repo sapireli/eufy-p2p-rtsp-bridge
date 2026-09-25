@@ -132,7 +132,8 @@ require_gstreamer_elements() {
   local element package
   for element in "$@"; do
     case $element in
-      appsrc|appsink|videoconvert|videoscale|videorate) package=gstreamer1.0-plugins-base ;;
+      appsrc|appsink|compositor|videoconvert|videoscale|videorate) package=gstreamer1.0-plugins-base ;;
+      watchdog) package=gstreamer1.0-plugins-bad ;;
       *) package='the package providing it' ;;
     esac
     gst-inspect-1.0 --exists "$element" >/dev/null 2>&1 ||

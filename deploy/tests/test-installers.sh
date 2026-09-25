@@ -174,7 +174,7 @@ fi
 grep -Fq '/etc/eufy-wall-bridge.example.yaml' "$repo/deploy/install-server.sh"
 grep -Fq '/etc/eufy-wall.example.yaml' "$repo/deploy/install-client.sh"
 grep -Fq 'export BRIDGE_CONFIG=${BRIDGE_CONFIG:-/etc/eufy-wall-bridge.yaml}' "$repo/deploy/install-server.sh"
-grep -Fq 'require_gstreamer_elements appsink appsrc videoconvert videoscale videorate' "$repo/deploy/install-client.sh"
+grep -Fq 'require_gstreamer_elements appsink appsrc compositor watchdog videoconvert videoscale videorate' "$repo/deploy/install-client.sh"
 grep -Fq 'require_gstreamer_app_library' "$repo/deploy/install-client.sh"
 cat > "$scratch/bin/gst-inspect-1.0" <<'EOF'
 #!/bin/sh
@@ -183,11 +183,17 @@ cat > "$scratch/bin/gst-inspect-1.0" <<'EOF'
 EOF
 chmod +x "$scratch/bin/gst-inspect-1.0"
 source "$repo/deploy/install-common.sh"
-require_gstreamer_elements appsink appsrc videoconvert videoscale videorate
-for element in appsink appsrc videoconvert videoscale videorate; do
+require_gstreamer_elements appsink appsrc compositor watchdog videoconvert videoscale videorate
+for element in appsink appsrc compositor watchdog videoconvert videoscale videorate; do
   export GST_MISSING_ELEMENT=$element
-  reject "missing $element element" bash -c 'source "$1"; require_gstreamer_elements appsink appsrc videoconvert videoscale videorate' bash "$repo/deploy/install-common.sh"
+  reject "missing $element element" bash -c 'source "$1"; require_gstreamer_elements appsink appsrc compositor watchdog videoconvert videoscale videorate' bash "$repo/deploy/install-common.sh"
 done
+export GST_MISSING_ELEMENT=compositor
+base_error=$(bash -c 'source "$1"; require_gstreamer_elements compositor' bash "$repo/deploy/install-common.sh" 2>&1 || true)
+[[ $base_error == *'install gstreamer1.0-plugins-base'* ]]
+export GST_MISSING_ELEMENT=watchdog
+bad_error=$(bash -c 'source "$1"; require_gstreamer_elements watchdog' bash "$repo/deploy/install-common.sh" 2>&1 || true)
+[[ $bad_error == *'install gstreamer1.0-plugins-bad'* ]]
 unset GST_MISSING_ELEMENT
 cat > "$scratch/bin/ldconfig" <<'EOF'
 #!/bin/sh
