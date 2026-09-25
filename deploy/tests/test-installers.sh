@@ -168,6 +168,12 @@ grep -q '^ExecStartPre=+/usr/local/bin/eufy-wall config recover$' "$repo/deploy/
 grep -q '^ExecStartPre=+/usr/local/bin/eufy-bridge config recover$' "$repo/deploy/eufy-wall-bridge.service"
 if grep -q '^EUFY_PASSWORD=' "$repo/deploy/eufy-wall-bridge.env.example"; then echo 'sample password would be loaded as a real secret' >&2; exit 1; fi
 if grep -q 'systemctl enable' "$repo/deploy/install-server.sh" "$repo/deploy/install-client.sh"; then echo 'fresh installer would enable an unconfigured service' >&2; exit 1; fi
+if grep -Eq 'install .* /etc/eufy-wall(-bridge)?\.yaml' "$repo/deploy/install-server.sh" "$repo/deploy/install-client.sh"; then
+  echo 'fresh installer would create active example YAML, making first-apply rollback unsafe' >&2; exit 1
+fi
+grep -Fq '/etc/eufy-wall-bridge.example.yaml' "$repo/deploy/install-server.sh"
+grep -Fq '/etc/eufy-wall.example.yaml' "$repo/deploy/install-client.sh"
+grep -Fq 'export BRIDGE_CONFIG=${BRIDGE_CONFIG:-/etc/eufy-wall-bridge.yaml}' "$repo/deploy/install-server.sh"
 grep -q 'if ((upgrade_active || old_active)); then' "$repo/deploy/install-server.sh"
 grep -q 'if ((upgrade_active || old_active)); then' "$repo/deploy/install-client.sh"
 echo 'installer verification tests passed'

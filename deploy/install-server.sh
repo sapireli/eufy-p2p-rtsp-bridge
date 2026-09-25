@@ -92,9 +92,9 @@ fi
 
 id -u eufy-wall >/dev/null 2>&1 || useradd --system --home /var/lib/eufy-wall-bridge --shell /usr/sbin/nologin eufy-wall
 chown eufy-wall:eufy-wall /var/lib/eufy-wall-bridge
-if [[ ! -e /etc/eufy-wall-bridge.yaml ]]; then
-  install -m 640 -o root -g eufy-wall "$release/server/config.example.yaml" /etc/eufy-wall-bridge.yaml
-  say 'created /etc/eufy-wall-bridge.yaml; run eufy-bridge setup or edit it before starting'
+if [[ ! -e /etc/eufy-wall-bridge.example.yaml ]]; then
+  install -m 644 -o root -g root "$release/server/config.example.yaml" /etc/eufy-wall-bridge.example.yaml
+  say 'installed /etc/eufy-wall-bridge.example.yaml; run eufy-bridge setup or apply YAML before starting'
 fi
 if [[ ! -e /etc/eufy-wall-bridge.env ]]; then
   install -m 600 -o root -g root "$release/deploy/eufy-wall-bridge.env.example" /etc/eufy-wall-bridge.env
@@ -113,7 +113,7 @@ else
   old_current=$current_release
   upgrade_active=$old_active
 fi
-if ! needs_activation "$current_release" "$release" "$base/.upgrade-pending" && cmp -s "$release/deploy/eufy-wall-bridge.service" "/etc/systemd/system/$service.service" && [[ -x /usr/local/bin/eufy-bridge ]]; then
+if ! needs_activation "$current_release" "$release" "$base/.upgrade-pending" && cmp -s "$release/deploy/eufy-wall-bridge.service" "/etc/systemd/system/$service.service" && [[ -x /usr/local/bin/eufy-bridge ]] && grep -Fqx 'export BRIDGE_CONFIG=${BRIDGE_CONFIG:-/etc/eufy-wall-bridge.yaml}' /usr/local/bin/eufy-bridge; then
   say "$version already installed; leaving service running"; exit 0
 fi
 if [[ -f /etc/systemd/system/$service.service && -z $current_release && ! -e $base/legacy.service ]]; then
@@ -134,6 +134,7 @@ install_unit "$release/deploy/eufy-wall-bridge.service" "/etc/systemd/system/$se
 install -d -m 755 /usr/local/bin
 cat > /usr/local/bin/eufy-bridge <<'EOF'
 #!/bin/sh
+export BRIDGE_CONFIG=${BRIDGE_CONFIG:-/etc/eufy-wall-bridge.yaml}
 exec /opt/eufy-wall-bridge/current/bin/node /opt/eufy-wall-bridge/current/server/cli.mjs "$@"
 EOF
 chmod 755 /usr/local/bin/eufy-bridge

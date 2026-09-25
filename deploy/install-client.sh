@@ -59,9 +59,9 @@ else
 fi
 
 id -u wall >/dev/null 2>&1 || useradd --system --shell /usr/sbin/nologin --groups video,render wall
-if [[ ! -e /etc/eufy-wall.yaml ]]; then
-  install -m 644 "$release/config.example.yaml" /etc/eufy-wall.yaml
-  say 'created /etc/eufy-wall.yaml; run eufy-wall setup or edit it before starting'
+if [[ ! -e /etc/eufy-wall.example.yaml ]]; then
+  install -m 644 "$release/config.example.yaml" /etc/eufy-wall.example.yaml
+  say 'installed /etc/eufy-wall.example.yaml; run eufy-wall setup or apply YAML before starting'
 fi
 
 current_release= old_current= old_active=0
