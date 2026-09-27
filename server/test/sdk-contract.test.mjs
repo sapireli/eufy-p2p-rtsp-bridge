@@ -53,7 +53,7 @@ test("battery policy is explicit while charging reports leave the automatic tier
   assert.equal(dev.camera()?.powerTier, undefined);
 });
 
-test("bridge config supplies an initial SDK claim and a per-station LAN restriction", async () => {
+test("bridge config supplies an initial SDK claim, per-pull power, and a per-station LAN restriction", async () => {
   const sn = "T8000P0000000000";
   let privateOnly = true;
   const { eufy, sdk: adapter } = createSdk({
@@ -71,10 +71,25 @@ test("bridge config supplies an initial SDK claim and a per-station LAN restrict
   eufy.getDevice = async () => ({
     describe: () => ({ sn, name: "Synthetic", model: "T8214", modelName: "Camera", capabilities: ["camera", "battery"] }),
     has: (capability) => capability === "battery",
+    camera: () => ({ openReadable: async (opts) => opts }),
   });
   const described = await adapter.describe(sn);
   assert.equal(described.powerOverride, "always-on");
   assert.equal(described.powerTier, "wired");
+  assert.deepEqual(await adapter.openFeed(eufy, sn), { powered: "wired" });
+});
+
+test("an explicit battery claim stays battery-budgeted on each media pull", async () => {
+  const sn = "T8000P0000000000";
+  const { eufy, sdk: adapter } = createSdk({
+    cfg: {
+      email: "synthetic@example.com", password: "synthetic", country: "US", session: "/tmp/synthetic-sdk-session",
+      cameras: { [sn]: { powerOverride: "battery" } }, lan: { stationAddresses: {} },
+    },
+    DEBUG: false,
+  });
+  eufy.getDevice = async () => ({ camera: () => ({ openReadable: async (opts) => opts }) });
+  assert.deepEqual(await adapter.openFeed(eufy, sn), { powered: "battery" });
 });
 
 test("EufyMega instance methods used by the bridge", () => {
