@@ -87,7 +87,7 @@ test("dual view is only written when the operator asks for it", () => {
   );
 });
 
-test("power override is an explicit SDK policy with validated values", () => {
+test("power override is an explicit host policy with validated values", () => {
   const config = (value) => tmpYaml(`eufy: { email: a@b.c, password: p }\ncameras: { T8214X: { power_override: ${value} } }\n`);
   for (const value of ["auto", "always-on", "battery"])
     assert.equal(loadConfig({ env: {}, configPath: config(value) }).cfg.cameras.T8214X.powerOverride, value);

@@ -13,7 +13,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@mega-yfue/eufy-sdk": "github:sapireli/eufy-sdk#eufy-wall",
+    "@mega-yfue/eufy-sdk": "github:sapireli/eufy-sdk#integration/pr280-bridge",
     "ws": "^8.21.3",
     "yaml": "2.9.1"
   }

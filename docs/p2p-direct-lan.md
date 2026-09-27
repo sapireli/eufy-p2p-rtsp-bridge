@@ -29,15 +29,18 @@ then ignored the resend as "stale". One lost datagram cost a whole frame permane
 report as `Could not find ref with POC` / `Error constructing the frame RPS` — a frozen picture. A
 capture of the official app shows 414 ACKs against 662 data packets: it depends on those resends.
 
-Both are fixed in the pinned SDK fork and open upstream: [#211][211], [#212][212]. Also upstreamed:
-[#213][213] (warm-up options were silently dropped) and [#214][214] (the per-station `lanOnly` callback,
-which rejects non-private IPv4 peers before connection). The bridge also checks its configured CIDR on
-connected control and media sessions.
+Both fixes are merged upstream: [#211][211] and [#212][212]. The warm-up option fix [#213][213] is
+merged too. The original peer-filter PR [#214][214] closed; [#280][280] proposes a host callback instead.
+This integration branch installs an SDK build based on #280 and passes the bridge's 90 software tests.
+Its host callback accepts candidates in the configured CIDR while a station is pinned, including separate
+media sessions. The bridge also checks connected peers. The #280 callback has not yet run on the doorbell;
+the deployed branch still uses the older fork callback.
 
 [211]: https://github.com/mega-yfue/eufy-sdk/pull/211
 [212]: https://github.com/mega-yfue/eufy-sdk/pull/212
 [213]: https://github.com/mega-yfue/eufy-sdk/pull/213
 [214]: https://github.com/mega-yfue/eufy-sdk/pull/214
+[280]: https://github.com/mega-yfue/eufy-sdk/pull/280
 
 ## Ruled out — do not re-investigate
 

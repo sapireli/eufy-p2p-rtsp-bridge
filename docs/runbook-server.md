@@ -61,8 +61,9 @@ Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session 
 - Cloud poll silent ≥ 30 min or push down ≥ 15 min → re-login in place, else exit(1).
 
 ## Upgrading
-- SDK: update the `eufy-wall` Git dependency in `server/package-lock.json`, run `npm ci && npm test`
-  (the contract test checks the installed SDK surface), then rerun the install script.
+- SDK: update the Git dependency in `server/package.json`, run `npm install && npm test`
+  (the contract test checks the installed SDK surface), then rerun the install script. This integration
+  branch pins an SDK build based on #280; use a device run before deploying it in place of `eufy-wall`.
 - Vendored ha-eufy-sdk-bridge modules: `server/scripts/sync-upstream.sh` shows diffs; `--apply` copies;
   update the SHA in server/src/vendor/ha-bridge/VENDOR.md.
 

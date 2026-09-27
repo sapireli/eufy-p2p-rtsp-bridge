@@ -1,6 +1,16 @@
 // The ONLY non-vendored file that imports @mega-yfue/eufy-sdk. Everything the bridge needs from the SDK
 // is re-exposed here with stable names, so an SDK API change is a one-file edit (+ the contract test).
-import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry, cameraPowerTier } from "@mega-yfue/eufy-sdk";
+import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry } from "@mega-yfue/eufy-sdk";
+import { inCidr } from "./lan-guard.mjs";
+
+/** Mains-only models whose battery settings do not represent a physical cell. */
+const MAINS_CAMERA_MODELS = ["T8425", "T8419", "T8410", "T84A1", "T8423"];
+
+/** Resolve the bridge's default display policy from device classification. */
+function automaticPowerTier(model, capabilities) {
+  if (!capabilities.includes("battery")) return "wired";
+  return MAINS_CAMERA_MODELS.some((prefix) => String(model ?? "").toUpperCase().startsWith(prefix)) ? "wired" : "battery";
+}
 
 /**
  * @param {object} o
@@ -24,11 +34,11 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     // camera pre-warm races our own open and wins nothing. For any other mode it would spend a battery
     // camera's radio opening a session nothing is going to stream.
     prewarmEvents: [],
-    powerOverrides,
     localAddresses: Object.keys(cfg.lan.stationAddresses).length ? cfg.lan.stationAddresses : undefined,
-    // Queried for every station and media session. The SDK rejects non-private IPv4 peers while this
-    // station is pinned; lan-guard.mjs checks the configured CIDR on control and media sessions.
-    lanOnly: (stationSn) => Boolean(hooks.lanOnlyForStation?.(stationSn)),
+    // Queried for every control and media session. The host's configured CIDR decides which peer
+    // addresses a pinned station may select; cloud lookup remains available.
+    acceptP2PPeer: (stationSn, peer) =>
+      !Boolean(hooks.forceLanForStation?.(stationSn) ?? cfg.lan.force) || Boolean(cfg.lan.cidr && inCidr(peer.host, cfg.lan.cidr)),
     logger: DEBUG ? new ConsoleLogger("debug") : undefined,
   });
 
@@ -94,7 +104,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
       const dev = await eufy.getDevice(sn);
       const m = dev.describe();
       const powerOverride = powerOverrides[sn] ?? "auto";
-      const automaticTier = cameraPowerTier(m.model, new Set(m.capabilities));
+      const automaticTier = automaticPowerTier(m.model, m.capabilities);
       return {
         sn: m.sn,
         name: m.name,

@@ -14,14 +14,11 @@ const entryPath = fileURLToPath(import.meta.resolve("@mega-yfue/eufy-sdk"));
 const pkgRoot = dirname(dirname(entryPath)); // dist/index.js -> dist -> root
 const version = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")).version;
 
-// The bridge pins a FORK branch (github:sapireli/eufy-sdk#eufy-wall) rather than a published version, so
-// there is no version string to assert: the fork follows beta commits without publishing each one. What matters is that
-// the fork's P2P fixes are actually in the build we resolved — reverting to a stock npm release would take
-// direct-LAN reliability and frame integrity with it. See docs/p2p-direct-lan.md and the upstream PRs.
-test("pinned sdk is the fork build, with its P2P fixes present", () => {
+// The integration branch is based on PR #280 and builds its own dist when installed from git.
+test("pinned SDK includes the reviewed P2P fixes and peer acceptance callback", () => {
   const dist = readFileSync(entryPath, "utf8");
-  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "lanOnly"])
-    assert.ok(dist.includes(marker), `missing ${marker} — is @mega-yfue/eufy-sdk still pinned to the fork?`);
+  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "acceptP2PPeer"])
+    assert.ok(dist.includes(marker), `missing ${marker} from the pinned SDK build`);
   assert.ok(version, "sdk package.json has a version");
 });
 
@@ -31,43 +28,41 @@ test("exports used by the bridge exist", () => {
   assert.ok(sdk.LoginStatus.Ok && sdk.LoginStatus.Captcha && sdk.LoginStatus.TwoFactor);
 });
 
-test("battery policy is explicit while charging reports leave the automatic tier conservative", () => {
-  const dev = sdk.Device.fromRecord("T8000P0000000000", {
-    model: "T8214",
-    deviceType: 16,
-    params: { 1101: "42", 2111: "1" },
-  });
-  let override = "auto";
-  dev.bindActions(
-    { channel: 0, codec: "camera", model: "T8214", paramIds: new Set([1101, 2111]), capabilities: new Set(dev.capabilities) },
-    { dispatch: async () => {} },
-    undefined, undefined, undefined,
-    { getOverride: () => override, setOverride: (value) => { override = value; } },
-  );
-  assert.equal(sdk.cameraPowerTier("T8214", new Set(dev.capabilities)), "battery");
-  dev.applyParams({ 2111: "4" });
-  assert.equal(sdk.cameraPowerTier("T8214", new Set(dev.capabilities)), "battery");
-  assert.equal(dev.battery()?.powerOverride?.(), "auto");
-  dev.battery()?.setPowerOverride?.("always-on");
-  assert.equal(dev.battery()?.powerOverride?.(), "always-on");
-  assert.equal(dev.camera()?.powerTier, undefined);
-});
-
-test("bridge config supplies an initial SDK claim, per-pull power, and a per-station LAN restriction", async () => {
+test("automatic display policy keeps a battery doorbell budgeted and a mains floodlight continuous", async () => {
   const sn = "T8000P0000000000";
-  let privateOnly = true;
   const { eufy, sdk: adapter } = createSdk({
     cfg: {
       email: "synthetic@example.com", password: "synthetic", country: "US", session: "/tmp/synthetic-sdk-session",
-      cameras: { [sn]: { powerOverride: "always-on" } }, lan: { stationAddresses: {} },
+      cameras: {}, lan: { stationAddresses: {}, cidr: null, force: false },
     },
     DEBUG: false,
-    hooks: { lanOnlyForStation: () => privateOnly },
   });
-  assert.equal(eufy.powerOverrides.get(sn), "always-on");
-  assert.equal(eufy.p2p.deps.lanOnly("STATION"), true);
-  privateOnly = false;
-  assert.equal(eufy.p2p.deps.lanOnly("STATION"), false);
+  let model = "T8214";
+  eufy.getDevice = async () => ({
+    describe: () => ({ sn, name: "Synthetic", model, modelName: "Camera", capabilities: ["camera", "battery"] }),
+    has: (capability) => capability === "battery",
+  });
+  assert.equal((await adapter.describe(sn)).powerTier, "battery");
+  model = "T8423";
+  assert.equal((await adapter.describe(sn)).powerTier, "wired");
+});
+
+test("bridge config supplies per-pull power and a per-station peer decision", async () => {
+  const sn = "T8000P0000000000";
+  let forceLan = true;
+  const { eufy, sdk: adapter } = createSdk({
+    cfg: {
+      email: "synthetic@example.com", password: "synthetic", country: "US", session: "/tmp/synthetic-sdk-session",
+      cameras: { [sn]: { powerOverride: "always-on" } }, lan: { stationAddresses: {}, cidr: "192.168.1.0/24", force: false },
+    },
+    DEBUG: false,
+    hooks: { forceLanForStation: () => forceLan },
+  });
+  const accept = eufy.p2p.deps.acceptP2PPeer;
+  assert.equal(accept("STATION", { host: "192.168.1.20", port: 32100 }), true);
+  assert.equal(accept("STATION", { host: "203.0.113.20", port: 32100 }), false);
+  forceLan = false;
+  assert.equal(accept("STATION", { host: "203.0.113.20", port: 32100 }), true);
   eufy.getDevice = async () => ({
     describe: () => ({ sn, name: "Synthetic", model: "T8214", modelName: "Camera", capabilities: ["camera", "battery"] }),
     has: (capability) => capability === "battery",
@@ -100,7 +95,6 @@ test("EufyMega instance methods used by the bridge", () => {
   // Internal escape hatch used by pins.mjs for the dual-view raw command (no public capability yet).
   assert.equal(typeof eufy.commandSinkFor, "function", "commandSinkFor (private in TS, reachable in JS)");
   assert.equal(typeof eufy.commandContext, "function", "commandContext (private in TS; supplies the device channel for set-payload)");
-  assert.equal(typeof sdk.cameraPowerTier, "function");
 });
 
 test("annex-b helpers behave", () => {

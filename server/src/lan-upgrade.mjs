@@ -15,8 +15,8 @@
 //
 // Levers (both scoped per station, so one HomeBase attempting LAN never disturbs another):
 //   - guard force: lan-guard.mjs calls isForced(stationSn); forced ⇒ WAN peers are closed.
-//   - force-LAN: the SDK's `lanOnly` callback, asked per session, rejects non-private IPv4 peers while
-//     a station is pinned. The bridge checks its configured CIDR on observed control and media sessions.
+//   - force-LAN: the SDK's `acceptP2PPeer` callback asks this host whether a candidate is in the
+//     configured CIDR while a station is pinned. The bridge also checks connected control and media sessions.
 //
 // Only meaningful when lan.force is false and a lan.cidr is set (lan.force=true is already LAN-only).
 
@@ -32,9 +32,8 @@ export function createLanUpgrade(ctx) {
   const st = new Map(); // stationSn -> { mode, attempts, deadline, nextTryAt, sawLan }
   const forced = new Set(); // stations currently forced LAN-only
   state.peerPath = new Map(); // stationSn -> "lan" | "wan" (last observed), for /healthz + decisions
-  // Force-LAN is enforced INSIDE the SDK, via the `lanOnly` option it asks for every session, so
-  // it covers the media #live sessions too — those look up independently, and a guard that only sees the
-  // control session's p2pConnect cannot pin them.
+  // The SDK asks the host's `acceptP2PPeer` callback for every control and media session, so a
+  // separately opened #live session uses the same pinned-station decision.
   // Multi-socket punch applies to EVERY station. Measured: with it, both the HomeBase and the standalone
   // camera land a direct-LAN peer and decode 300/300 frames; restricting it to HomeBases dropped the
   // standalone to relay (or no connect at all, which is what a frozen single-frame stream looks like).
