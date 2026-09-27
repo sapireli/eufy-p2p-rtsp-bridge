@@ -32,14 +32,16 @@ capture of the official app shows 414 ACKs against 662 data packets: it depends 
 Both fixes are merged upstream: [#211][211] and [#212][212]. The warm-up option fix [#213][213] is
 merged too. The bridge's pinned SDK fork still supplies a per-station `lanOnly` callback that rejects
 non-private IPv4 peers before connection. Its original upstream PR [#214][214] was closed; [#280][280]
-proposes a host-supplied peer callback instead and is still under review. The bridge has not yet run
-against that revised callback. It also checks its configured CIDR on connected control and media sessions.
+proposes a host-supplied peer callback instead and is still under review. A [separate integration
+branch][integration] passes 90 software tests against #280, but the deployed bridge has not run that
+callback on a device. It also checks its configured CIDR on connected control and media sessions.
 
 [211]: https://github.com/mega-yfue/eufy-sdk/pull/211
 [212]: https://github.com/mega-yfue/eufy-sdk/pull/212
 [213]: https://github.com/mega-yfue/eufy-sdk/pull/213
 [214]: https://github.com/mega-yfue/eufy-sdk/pull/214
 [280]: https://github.com/mega-yfue/eufy-sdk/pull/280
+[integration]: https://github.com/sapireli/eufy-p2p-rtsp-bridge/tree/feat/pr280-bridge-integration
 
 ## Ruled out — do not re-investigate
 
