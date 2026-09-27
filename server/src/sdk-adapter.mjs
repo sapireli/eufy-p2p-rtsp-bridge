@@ -63,7 +63,9 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     async openFeed(client, sn) {
       const cam = (await client.getDevice(sn)).camera?.();
       if (!cam?.openReadable) throw new Error(`${sn}: no live video (not a camera or openReadable unavailable)`);
-      return cam.openReadable();
+      const claim = powerOverrides[sn];
+      const powered = claim === "always-on" ? "wired" : claim === "battery" ? "battery" : undefined;
+      return powered ? cam.openReadable({ powered }) : cam.openReadable();
     },
 
     /**
