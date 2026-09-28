@@ -20,7 +20,7 @@ const version = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")).
 // direct-LAN reliability and frame integrity with it. See docs/p2p-direct-lan.md and the upstream PRs.
 test("pinned sdk is the fork build, with its P2P fixes present", () => {
   const dist = readFileSync(entryPath, "utf8");
-  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "lanOnly"])
+  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "acceptP2PPeer"])
     assert.ok(dist.includes(marker), `missing ${marker} — is @mega-yfue/eufy-sdk still pinned to the fork?`);
   assert.ok(version, "sdk package.json has a version");
 });
@@ -53,21 +53,23 @@ test("battery policy is explicit while charging reports leave the automatic tier
   assert.equal(dev.camera()?.powerTier, undefined);
 });
 
-test("bridge config supplies an initial SDK claim, per-pull power, and a per-station LAN restriction", async () => {
+test("bridge config supplies an initial SDK claim, per-pull power, and per-station CIDR selection", async () => {
   const sn = "T8000P0000000000";
-  let privateOnly = true;
+  let forceLan = true;
   const { eufy, sdk: adapter } = createSdk({
     cfg: {
       email: "synthetic@example.com", password: "synthetic", country: "US", session: "/tmp/synthetic-sdk-session",
-      cameras: { [sn]: { powerOverride: "always-on" } }, lan: { stationAddresses: {} },
+      cameras: { [sn]: { powerOverride: "always-on" } }, lan: { stationAddresses: {}, cidr: "192.168.1.0/24", force: false },
     },
     DEBUG: false,
-    hooks: { lanOnlyForStation: () => privateOnly },
+    hooks: { forceLanForStation: () => forceLan },
   });
   assert.equal(eufy.powerOverrides.get(sn), "always-on");
-  assert.equal(eufy.p2p.deps.lanOnly("STATION"), true);
-  privateOnly = false;
-  assert.equal(eufy.p2p.deps.lanOnly("STATION"), false);
+  assert.equal(eufy.p2p.deps.acceptP2PPeer("STATION", { host: "192.168.1.50", port: 4000 }), true);
+  assert.equal(eufy.p2p.deps.acceptP2PPeer("STATION", { host: "192.168.2.50", port: 4000 }), false);
+  assert.equal(eufy.p2p.deps.acceptP2PPeer("STATION", { host: "203.0.113.9", port: 4000 }), false);
+  forceLan = false;
+  assert.equal(eufy.p2p.deps.acceptP2PPeer("STATION", { host: "203.0.113.9", port: 4000 }), true);
   eufy.getDevice = async () => ({
     describe: () => ({ sn, name: "Synthetic", model: "T8214", modelName: "Camera", capabilities: ["camera", "battery"] }),
     has: (capability) => capability === "battery",

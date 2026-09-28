@@ -33,17 +33,19 @@ Opening the eufy phone app with the SAME account kicks the bridge (state "reauth
 - A battery device reports charging without proving that its external input can support continuous video.
   The SDK keeps its battery budget by default. For a camera whose installation supports a persistent
   stream, set `cameras.<sn>.power_override: always-on` in the bridge YAML. This records a bridge-side
-  installation choice and passes `powered: "wired"` on each SDK media pull; it sends no command to the
-  camera and makes `always` the default mode. `mode: always` on a battery-budgeted
+  installation choice. The pinned SDK fork also applies it to the station's session and active stream
+  budget; the bridge passes `powered: "wired"` on each media pull. It sends no command to the camera
+  and makes `always` the default mode. `mode: always` on a battery-budgeted
   camera requires that claim; the bridge refuses the conflicting configuration. `/api/cameras` reports
   `powerOverride`, `powered`, and `mode` so the decision is visible.
 
 ## Force-LAN
-`lan.force: true` asks the SDK to reject non-private IPv4 peers before connecting. The bridge closes any
-connected control or media session whose peer is outside `lan.cidr` and marks the camera
+`lan.force: true` asks the SDK to reject peers outside `lan.cidr` before connecting a control or media
+session. Cloud broker lookup remains available. The bridge also closes any connected session whose
+peer is outside that CIDR and marks the camera
 `blocked: wan-path <ip>` in /healthz and /api/cameras (HTTP 423 on /stream). The stream manager retries
 with backoff. Verify with: `sudo tcpdump -ni <iface> udp and not net <lan.cidr>` — no sustained traffic.
-If a station keeps connecting via WAN, add its LAN IP under `lan.station_addresses`.
+If a station cannot establish a local connection, add its LAN IP under `lan.station_addresses`.
 
 ## Security (LAN-trust model)
 Nothing on the bridge is authenticated: `:3000` (HTTP /stream, /api, /auth) and `:8554` (RTSP) trust
