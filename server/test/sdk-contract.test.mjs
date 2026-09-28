@@ -18,7 +18,7 @@ const version = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")).
 // bridge needs so a future move from the fork to upstream main cannot silently drop a P2P fix.
 test("pinned sdk includes the P2P fixes the bridge needs", () => {
   const dist = readFileSync(entryPath, "utf8");
-  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "acceptP2PPeer", "p2pIdleMsByStation"])
+  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "acceptP2PPeer"])
     assert.ok(dist.includes(marker), `missing ${marker} from the pinned SDK`);
   assert.ok(version, "sdk package.json has a version");
 });
@@ -40,7 +40,7 @@ test("charging reports leave the automatic battery tier conservative", () => {
   assert.equal(sdk.cameraPowerTier("T8214", new Set(dev.capabilities)), "battery");
 });
 
-test("bridge config supplies station idle policy, per-pull power, and per-station CIDR selection", async () => {
+test("bridge config supplies per-pull power and per-station CIDR selection", async () => {
   const sn = "T8000P0000000000";
   let forceLan = true;
   const { eufy, sdk: adapter } = createSdk({
@@ -51,7 +51,6 @@ test("bridge config supplies station idle policy, per-pull power, and per-statio
     DEBUG: false,
     hooks: { forceLanForStation: () => forceLan },
   });
-  assert.equal(eufy.p2p.manager.opts.idleMsByStation[sn], null);
   assert.equal(eufy.p2p.deps.acceptP2PPeer("STATION", { host: "192.168.1.50", port: 4000 }), true);
   assert.equal(eufy.p2p.deps.acceptP2PPeer("STATION", { host: "192.168.2.50", port: 4000 }), false);
   assert.equal(eufy.p2p.deps.acceptP2PPeer("STATION", { host: "203.0.113.9", port: 4000 }), false);
@@ -77,7 +76,6 @@ test("an explicit battery claim stays battery-budgeted on each media pull", asyn
     },
     DEBUG: false,
   });
-  assert.equal(eufy.p2p.manager.opts.idleMsByStation[sn], 300_000);
   eufy.getDevice = async () => ({ camera: () => ({ openReadable: async (opts) => opts }) });
   assert.deepEqual(await adapter.openFeed(eufy, sn), { powered: "battery" });
 });

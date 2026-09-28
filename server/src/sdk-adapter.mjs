@@ -3,8 +3,6 @@
 import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry, cameraPowerTier } from "@mega-yfue/eufy-sdk";
 import { inCidr } from "./lan-guard.mjs";
 
-const BATTERY_IDLE_MS = 300_000;
-
 /**
  * @param {object} o
  * @param {object} [o.hooks] late-bound callbacks read at call time: `onStreamClient(client, sn)` is
@@ -15,9 +13,6 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     Object.entries(cfg.cameras ?? {})
       .filter(([, camera]) => camera.powerOverride && camera.powerOverride !== "auto")
       .map(([sn, camera]) => [sn, camera.powerOverride]),
-  );
-  const p2pIdleMsByStation = Object.fromEntries(
-    Object.entries(powerClaims).map(([sn, claim]) => [sn, claim === "always-on" ? null : BATTERY_IDLE_MS]),
   );
   const eufy = new EufyMega({
     email: cfg.email,
@@ -30,7 +25,6 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     // camera pre-warm races our own open and wins nothing. For any other mode it would spend a battery
     // camera's radio opening a session nothing is going to stream.
     prewarmEvents: [],
-    p2pIdleMsByStation,
     localAddresses: Object.keys(cfg.lan.stationAddresses).length ? cfg.lan.stationAddresses : undefined,
     // The SDK asks before selecting a control or media peer; a pinned station accepts only the
     // configured CIDR while cloud lookup remains available.
