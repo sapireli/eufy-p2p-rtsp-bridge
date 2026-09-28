@@ -30,18 +30,22 @@ report as `Could not find ref with POC` / `Error constructing the frame RPS` —
 capture of the official app shows 414 ACKs against 662 data packets: it depends on those resends.
 
 Both fixes are merged upstream: [#211][211] and [#212][212]. The warm-up option fix [#213][213] is
-merged too. The bridge's pinned SDK fork still supplies a per-station `lanOnly` callback that rejects
-non-private IPv4 peers before connection. Its original upstream PR [#214][214] was closed; [#280][280]
-proposes a host-supplied peer callback instead and is still under review. A [separate integration
-branch][integration] passes 90 software tests against #280, but the deployed bridge has not run that
-callback on a device. It also checks its configured CIDR on connected control and media sessions.
+merged too. The bridge's pinned SDK fork now includes [#280][280]'s host-supplied peer callback.
+When a station is pinned to LAN, the bridge passes its configured CIDR to that callback so both control
+and media sessions reject outside peers before connection; cloud lookup remains available. The bridge
+also checks connected sessions against the CIDR. The original fixed private-IP proposal [#214][214]
+was closed. The fork also includes [#235][235]'s active-stream stop, [#279][279]'s cached-source cleanup,
+and [#282][282]'s selected-peer liveness correction on the beta-0.4.0 base. Those four PRs remain under
+upstream review.
 
 [211]: https://github.com/mega-yfue/eufy-sdk/pull/211
 [212]: https://github.com/mega-yfue/eufy-sdk/pull/212
 [213]: https://github.com/mega-yfue/eufy-sdk/pull/213
 [214]: https://github.com/mega-yfue/eufy-sdk/pull/214
+[235]: https://github.com/mega-yfue/eufy-sdk/pull/235
+[279]: https://github.com/mega-yfue/eufy-sdk/pull/279
 [280]: https://github.com/mega-yfue/eufy-sdk/pull/280
-[integration]: https://github.com/sapireli/eufy-p2p-rtsp-bridge/tree/feat/pr280-bridge-integration
+[282]: https://github.com/mega-yfue/eufy-sdk/pull/282
 
 ## Ruled out — do not re-investigate
 

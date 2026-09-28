@@ -1,6 +1,7 @@
 // The ONLY non-vendored file that imports @mega-yfue/eufy-sdk. Everything the bridge needs from the SDK
 // is re-exposed here with stable names, so an SDK API change is a one-file edit (+ the contract test).
 import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry, cameraPowerTier } from "@mega-yfue/eufy-sdk";
+import { inCidr } from "./lan-guard.mjs";
 
 /**
  * @param {object} o
@@ -26,9 +27,10 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     prewarmEvents: [],
     powerOverrides,
     localAddresses: Object.keys(cfg.lan.stationAddresses).length ? cfg.lan.stationAddresses : undefined,
-    // Queried for every station and media session. The SDK rejects non-private IPv4 peers while this
-    // station is pinned; lan-guard.mjs checks the configured CIDR on control and media sessions.
-    lanOnly: (stationSn) => Boolean(hooks.lanOnlyForStation?.(stationSn)),
+    // The SDK asks before selecting a control or media peer; a pinned station accepts only the
+    // configured CIDR while cloud lookup remains available.
+    acceptP2PPeer: (stationSn, peer) =>
+      !Boolean(hooks.forceLanForStation?.(stationSn) ?? cfg.lan.force) || Boolean(cfg.lan.cidr && inCidr(peer.host, cfg.lan.cidr)),
     logger: DEBUG ? new ConsoleLogger("debug") : undefined,
   });
 

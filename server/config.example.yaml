@@ -14,7 +14,7 @@ port: 3000
 
 lan:
   cidr: 192.168.1.0/24           # your LAN
-  force: true                    # SDK refuses public IPv4 peers; bridge checks cidr on control and media sessions
+  force: true                    # SDK accepts only peers inside cidr before control/media connection
   station_addresses: {}          # optional LAN IP hints keyed by HomeBase/station serial, e.g. T8010XXXX: 192.168.1.50
 
 # Both of these are UNSET by default, and unset means the bridge writes nothing to the camera.
@@ -25,7 +25,7 @@ lan:
 #   quality: "Full HD (1080P)"   # live-view tier. Values: "HD (720P)" | "Full HD (1080P)" | "Max"
 #   dual_view: split             # dual-lens cameras: split | pip-tl | pip-tr | pip-bl | pip-br | single
 
-cameras:                         # keyed by camera serial; unlisted WIRED cameras are included, BATTERY excluded
+cameras:                         # keyed by camera serial; unlisted wired cameras stream continuously, battery cameras wake on motion
   T8410XXXXXXXXXXX: { name: Garage }
   T8214XXXXXXXXXXX: { name: Front door }
   T8113XXXXXXXXXXX: { enabled: false }

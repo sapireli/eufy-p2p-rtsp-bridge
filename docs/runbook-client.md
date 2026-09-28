@@ -5,6 +5,12 @@
 - Raspberry Pi OS **Lite** (Bookworm or Trixie), no desktop. Ethernet preferred.
 - `/boot/firmware/config.txt`: `dtoverlay=vc4-kms-v3d`, `gpu_mem=128`, `hdmi_blanking=0` (install script adds them).
 - Cameras must stream **H.264** (the bridge's /api/cameras shows `codec`). The Pi has no HEVC decoder.
+  The bridge now defaults to stream copy, so configure hardware transcoding on the server for HEVC
+  cameras shown on a Pi.
+
+Camera power claims and LAN peer policy are set on the bridge server. The wall client receives each
+camera's mode and stream state: a battery camera can show its retained snapshot while asleep, and an
+always-on camera keeps its tile through a brief reconnect.
 
 ## Install
 The install script expects the repo layout (`deploy/` next to `client/`), so copy both directories:

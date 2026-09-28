@@ -1,6 +1,6 @@
-// The SDK's lanOnly option rejects non-private peers when a station is pinned to LAN. This guard also
-// checks the configured CIDR on connected control and media sessions, closing an out-of-range peer and
-// marking the camera blocked until the stream manager can retry it.
+// The SDK's acceptP2PPeer callback checks the configured CIDR before peer selection. This guard also
+// checks connected control and media sessions, closing an out-of-range peer and marking the camera
+// blocked until the stream manager can retry it.
 
 export function inCidr(ip, cidr) {
   const [net, bitsStr] = cidr.split("/");

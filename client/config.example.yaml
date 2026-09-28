@@ -1,4 +1,6 @@
 # eufy-wall display client configuration (/etc/eufy-wall.yaml)
+# Camera power_override and LAN peer policy belong in the bridge server config. This client receives
+# each camera's stream state and mode from the server; its tile rules follow those values.
 rtsp_base: rtsp://192.168.1.10:8554   # the eufy-wall-bridge server (go2rtc RTSP)
 # output: HDMI-A-1                     # DRM connector this instance drives; omit = first connected.
 # TWO MONITORS: run one instance per monitor, each with its own config file, its own `output:` and its
@@ -43,8 +45,8 @@ latency_ms: 200
 # retained yet (a camera that has never reported motion) means a dark tile until there is.
 #
 # codec: what the camera actually sends, so the tile decodes it directly.
-#   Omit (or h264) when the bridge transcodes for you — the default.
-#   Set h265 when the bridge passes that camera through with `go2rtc.transcode: never`: several eufy
+#   Omit (or h264) when the device sends H.264 or the bridge is configured to transcode.
+#   Set h265 when the bridge passes that camera through with `go2rtc.transcode: never` (the default): several eufy
 #   models encode HEVC at EVERY quality tier, so this is the only way to avoid a server-side transcode.
 #   The decoder must support it — check `vainfo | grep -i hevc` (VAAPI) or `gst-inspect-1.0 v4l2h265dec`.
 tiles:                                 # order = placement order (row-major after the primary)
