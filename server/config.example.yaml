@@ -59,8 +59,9 @@ go2rtc:
 #   on_demand  stream only while something is watching
 # hold_seconds bounds how long motion keeps a camera up; further motion extends it.
 #
-# power_override changes SDK stream/session limits without writing to the device. Set it only when the
-# installation can support a persistent stream; auto clears the claim, battery forces battery limits.
+# power_override sets the power tier on each stream pull and the station's P2P idle policy without
+# writing to the device. Set always-on only when the installation can support a persistent stream;
+# auto uses SDK defaults, battery forces a timed idle disconnect and a battery-budgeted stream.
 # cameras:
 #   T8000P0000000000: { power_override: always-on, mode: always }  # synthetic serial
 #   T81A0XXXXXXXXXXX: { mode: on_motion, hold_seconds: 60 }

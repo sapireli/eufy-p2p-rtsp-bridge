@@ -33,8 +33,8 @@ Opening the eufy phone app with the SAME account kicks the bridge (state "reauth
 - A battery device reports charging without proving that its external input can support continuous video.
   The SDK keeps its battery budget by default. For a camera whose installation supports a persistent
   stream, set `cameras.<sn>.power_override: always-on` in the bridge YAML. This records a bridge-side
-  installation choice. The pinned SDK fork also applies it to the station's session and active stream
-  budget; the bridge passes `powered: "wired"` on each media pull. It sends no command to the camera
+  installation choice. The bridge passes `powered: "wired"` on each media pull and asks the SDK to keep
+  a standalone station's idle P2P session connected. It sends no command to the camera
   and makes `always` the default mode. `mode: always` on a battery-budgeted
   camera requires that claim; the bridge refuses the conflicting configuration. `/api/cameras` reports
   `powerOverride`, `powered`, and `mode` so the decision is visible.

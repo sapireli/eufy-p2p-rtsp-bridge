@@ -3,16 +3,21 @@
 import { EufyMega, FileSessionStore, LoginStatus, ConsoleLogger, extractParamSets, codedGeometry, cameraPowerTier } from "@mega-yfue/eufy-sdk";
 import { inCidr } from "./lan-guard.mjs";
 
+const BATTERY_IDLE_MS = 300_000;
+
 /**
  * @param {object} o
  * @param {object} [o.hooks] late-bound callbacks read at call time: `onStreamClient(client, sn)` is
  *   invoked for every per-camera client as soon as it is constructed (server.mjs points it at the LAN guard).
  */
 export function createSdk({ cfg, DEBUG, hooks = {} }) {
-  const powerOverrides = Object.fromEntries(
+  const powerClaims = Object.fromEntries(
     Object.entries(cfg.cameras ?? {})
       .filter(([, camera]) => camera.powerOverride && camera.powerOverride !== "auto")
       .map(([sn, camera]) => [sn, camera.powerOverride]),
+  );
+  const p2pIdleMsByStation = Object.fromEntries(
+    Object.entries(powerClaims).map(([sn, claim]) => [sn, claim === "always-on" ? null : BATTERY_IDLE_MS]),
   );
   const eufy = new EufyMega({
     email: cfg.email,
@@ -25,7 +30,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     // camera pre-warm races our own open and wins nothing. For any other mode it would spend a battery
     // camera's radio opening a session nothing is going to stream.
     prewarmEvents: [],
-    powerOverrides,
+    p2pIdleMsByStation,
     localAddresses: Object.keys(cfg.lan.stationAddresses).length ? cfg.lan.stationAddresses : undefined,
     // The SDK asks before selecting a control or media peer; a pinned station accepts only the
     // configured CIDR while cloud lookup remains available.
@@ -65,7 +70,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     async openFeed(client, sn) {
       const cam = (await client.getDevice(sn)).camera?.();
       if (!cam?.openReadable) throw new Error(`${sn}: no live video (not a camera or openReadable unavailable)`);
-      const claim = powerOverrides[sn];
+      const claim = powerClaims[sn];
       const powered = claim === "always-on" ? "wired" : claim === "battery" ? "battery" : undefined;
       return powered ? cam.openReadable({ powered }) : cam.openReadable();
     },
@@ -95,7 +100,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     async describe(sn) {
       const dev = await eufy.getDevice(sn);
       const m = dev.describe();
-      const powerOverride = powerOverrides[sn] ?? "auto";
+      const powerOverride = powerClaims[sn] ?? "auto";
       const automaticTier = cameraPowerTier(m.model, new Set(m.capabilities));
       return {
         sn: m.sn,
