@@ -36,7 +36,7 @@ and media sessions reject outside peers before connection; cloud lookup remains 
 also checks connected sessions against the CIDR. The original fixed private-IP proposal [#214][214]
 was closed. [#282][282]'s selected-peer liveness correction and [#279][279]'s cached-source cleanup
 are merged upstream and included in the fork's current beta base. The fork also includes
-[#235][235]'s active-stream stop. PRs #235 and #280 remain under upstream review.
+[#235][235]'s active-stream stop. Upstream closed #235 without merging it; #280 remains under review.
 
 [211]: https://github.com/mega-yfue/eufy-sdk/pull/211
 [212]: https://github.com/mega-yfue/eufy-sdk/pull/212
