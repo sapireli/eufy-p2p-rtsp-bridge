@@ -34,9 +34,9 @@ merged too. The bridge's pinned SDK fork now includes [#280][280]'s host-supplie
 When a station is pinned to LAN, the bridge passes its configured CIDR to that callback so both control
 and media sessions reject outside peers before connection; cloud lookup remains available. The bridge
 also checks connected sessions against the CIDR. The original fixed private-IP proposal [#214][214]
-was closed. The fork also includes [#235][235]'s active-stream stop, [#279][279]'s cached-source cleanup,
-and [#282][282]'s selected-peer liveness correction on the beta-0.4.0 base. Those four PRs remain under
-upstream review.
+was closed. [#282][282]'s selected-peer liveness correction is merged upstream and included in the
+fork's current beta base. The fork also includes [#235][235]'s active-stream stop and [#279][279]'s
+cached-source cleanup. Those three PRs (#235, #279, and #280) remain under upstream review.
 
 [211]: https://github.com/mega-yfue/eufy-sdk/pull/211
 [212]: https://github.com/mega-yfue/eufy-sdk/pull/212
