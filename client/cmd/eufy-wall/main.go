@@ -97,6 +97,9 @@ func main() {
 		}
 		return
 	}
+	if !detect.HasElement("watchdog") {
+		log.Fatal("[wall] GStreamer watchdog element is missing (install gstreamer1.0-plugins-bad)")
+	}
 	if os.Getenv("GST_DEBUG") == "" {
 		os.Setenv("GST_DEBUG", "2")
 	}

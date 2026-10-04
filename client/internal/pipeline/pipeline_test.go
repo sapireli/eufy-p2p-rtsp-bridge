@@ -25,8 +25,8 @@ func TestPlanesPipeline(t *testing.T) {
 	}
 	got := String(args)
 	want := "-e " +
-		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! v4l2h264dec ! kmssink name=sink0 plane-id=31 render-rectangle=<0,0,960,1080> force-aspect-ratio=true sync=false " +
-		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! v4l2h264dec ! kmssink name=sink1 plane-id=32 render-rectangle=<960,0,960,1080> force-aspect-ratio=true sync=false"
+		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! v4l2h264dec ! watchdog timeout=15000 ! kmssink name=sink0 plane-id=31 render-rectangle=<0,0,960,1080> force-aspect-ratio=true sync=false " +
+		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! v4l2h264dec ! watchdog timeout=15000 ! kmssink name=sink1 plane-id=32 render-rectangle=<960,0,960,1080> force-aspect-ratio=true sync=false"
 	if got != want {
 		t.Fatalf("\n got: %s\nwant: %s", got, want)
 	}
@@ -48,8 +48,8 @@ func TestCompositorPipeline(t *testing.T) {
 	}
 	got := String(args)
 	want := "-e " +
-		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! vah264dec ! videoconvert ! mix.sink_0 " +
-		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! vah264dec ! videoconvert ! mix.sink_1 " +
+		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! vah264dec ! watchdog timeout=15000 ! videoconvert ! mix.sink_0 " +
+		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! vah264dec ! watchdog timeout=15000 ! videoconvert ! mix.sink_1 " +
 		"compositor name=mix background=black sink_0::xpos=0 sink_0::ypos=0 sink_0::width=960 sink_0::height=1080 sink_0::sizing-policy=keep-aspect-ratio " +
 		"sink_1::xpos=960 sink_1::ypos=0 sink_1::width=960 sink_1::height=1080 sink_1::sizing-policy=keep-aspect-ratio " +
 		"! video/x-raw,width=1920,height=1080 ! kmssink sync=false"
@@ -213,7 +213,7 @@ func TestStillTileRendersTheJPEGAndNeverOpensTheStream(t *testing.T) {
 			t.Errorf("missing %q in: %s", want, got)
 		}
 	}
-	for _, unwanted := range []string{"rtspsrc", "v4l2h264dec"} {
+	for _, unwanted := range []string{"rtspsrc", "v4l2h264dec", "watchdog"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("a still must not use %q: %s", unwanted, got)
 		}

@@ -135,7 +135,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		dp := depayParse[codec]
 		return []string{
 			"rtspsrc", "location=" + t.URL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp", fmt.Sprintf("name=src%d", i),
-			"!", dp[0], "!", dp[1], "!", family[codec],
+			"!", dp[0], "!", dp[1], "!", family[codec], "!", "watchdog", "timeout=15000",
 		}
 	}
 	switch caps.Sink {
