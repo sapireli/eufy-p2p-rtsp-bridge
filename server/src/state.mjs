@@ -37,7 +37,6 @@ export function newSlot(sn) {
     codec: undefined,
     width: undefined,
     height: undefined,
-    lastKeyChunk: undefined,
     stalls: 0,
   };
 }

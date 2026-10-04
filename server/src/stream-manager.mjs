@@ -24,7 +24,6 @@ export function createStreamManager(ctx) {
     }
     const sets = ctx.sdk.extractParamSets(chunk); // non-undefined ⇒ this chunk carries SPS/PPS (keyframe AU)
     if (sets) {
-      slot.lastKeyChunk = chunk;
       const g = ctx.sdk.codedGeometry(sets);
       // Compare GEOMETRY as well as codec. Live-view quality is "Auto" on these cameras (streamingQuality
       // tier 0) and the station re-picks a resolution on its own, so a stream can change size mid-session.
@@ -195,8 +194,11 @@ export function createStreamManager(ctx) {
   /** Pipe the live feed into an HTTP response. Returns a detach function. */
   function attachConsumer(sn, res) {
     const slot = slotFor(sn);
+    // The last keyframe is stale by the time a consumer attaches. Sending it followed by live
+    // inter-frames leaves missing references and produces gray blocks until the next IDR.
+    // Start this consumer on a keyframe from the live feed instead.
+    res._ewbDropping = true;
     slot.consumers.add(res);
-    if (slot.lastKeyChunk) res.write(slot.lastKeyChunk);
     void ensureWarm(sn);
     return () => slot.consumers.delete(res);
   }

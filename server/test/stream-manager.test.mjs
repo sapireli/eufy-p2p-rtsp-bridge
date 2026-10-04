@@ -54,7 +54,7 @@ async function waitUntil(predicate, capMs = 500) {
   }
 }
 
-test("warm feed sniffs codec/geometry, primes late consumer with last keyframe, streams deltas", async () => {
+test("warm feed sniffs codec/geometry, starts a late consumer at the next live keyframe", async () => {
   const feed = new PassThrough();
   const ctx = ctxWith({ feeds: [() => feed] });
   const sm = createStreamManager(ctx);
@@ -69,10 +69,14 @@ test("warm feed sniffs codec/geometry, primes late consumer with last keyframe, 
     assert.equal(st.width, 640);
     const res = fakeRes();
     sm.attachConsumer("A", res);
-    assert.equal(res.chunks[0], KEY, "primed with last keyframe");
+    assert.equal(res.chunks.length, 0, "stale keyframe is not replayed");
     feed.write(DELTA);
     await new Promise((r) => setImmediate(r));
-    assert.equal(res.chunks.length, 2);
+    assert.equal(res.chunks.length, 0, "dependent frames before a fresh keyframe are skipped");
+    feed.write(KEY);
+    feed.write(DELTA);
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(res.chunks, [KEY, DELTA]);
     assert.equal(ctx.state.streaming.has("A"), true);
   } finally {
     await sm.stopAll();
@@ -107,14 +111,14 @@ test("consumer under backpressure drops until next keyframe", async () => {
     res.writableNeedDrain = true;
     feed.write(DELTA);
     await new Promise((r) => setImmediate(r));
-    assert.equal(res.chunks.length, 1, "delta dropped while draining");
+    assert.equal(res.chunks.length, 0, "delta dropped while draining");
     res.writableNeedDrain = false;
     feed.write(DELTA);
     await new Promise((r) => setImmediate(r));
-    assert.equal(res.chunks.length, 1, "still waiting for a keyframe");
+    assert.equal(res.chunks.length, 0, "still waiting for a keyframe");
     feed.write(KEY);
     await new Promise((r) => setImmediate(r));
-    assert.equal(res.chunks.length, 2, "resumed at keyframe");
+    assert.equal(res.chunks.length, 1, "resumed at keyframe");
   } finally {
     await sm.stopAll();
   }
