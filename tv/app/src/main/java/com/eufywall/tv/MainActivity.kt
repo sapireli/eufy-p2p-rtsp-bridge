@@ -14,6 +14,7 @@ import android.os.Process
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -25,7 +26,6 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.PlayerView
@@ -179,8 +179,7 @@ class MainActivity : Activity() {
         wallVisible = true
         val selected = chosen.mapNotNull { sn -> cameras.firstOrNull { it.sn == sn } }.take(4)
         if (selected.isEmpty()) { showSetup("Selected cameras unavailable"); return }
-        val grid = GridLayout(this).apply { rowCount = if (selected.size <= 2) 1 else 2; columnCount = if (selected.size == 1) 1 else 2; setBackgroundColor(0xff000000.toInt()) }
-        selected.forEachIndexed { index, cam ->
+        fun tileFor(cam: Camera): FrameLayout {
             val tile = FrameLayout(this).apply { setBackgroundColor(0xff000000.toInt()) }
             val videoView = layoutInflater.inflate(R.layout.video_tile, tile, false) as PlayerView
             videoView.keepScreenOn = true
@@ -188,11 +187,40 @@ class MainActivity : Activity() {
             val label = text("${cam.name} • waiting", 18f).apply { setBackgroundColor(0x99000000.toInt()) }
             tile.addView(label, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
             labels[cam.sn] = label; surfaces[cam.sn] = videoView
-            val params = GridLayout.LayoutParams(GridLayout.spec(if (selected.size <= 2) 0 else index / 2, 1f), GridLayout.spec(if (selected.size == 1) 0 else index % 2, 1f)).apply { width = 0; height = 0; setMargins(2, 2, 2, 2) }
-            grid.addView(tile, params)
             updateTile(cam.sn)
+            return tile
         }
-        setContentView(grid)
+        val frontDoor = selected.firstOrNull { it.name.contains("front door", ignoreCase = true) }
+        val garage = selected.firstOrNull { it.name.equals("Garage CLE", ignoreCase = true) }
+        val balcony = selected.firstOrNull { it.name.contains("balcony", ignoreCase = true) }
+        val portraitPair = selected.size == 4 && frontDoor != null && garage != null && balcony != null
+        val wall: ViewGroup = if (portraitPair) {
+            // Two portrait views use the full height on the left. The landscape views each use half
+            // the height on the right, giving a 16:9 source a 16:9 tile on a 16:9 television.
+            val root = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(0xff000000.toInt()) }
+            val left = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            root.addView(left, LinearLayout.LayoutParams(0, -1, 1f))
+            root.addView(right, LinearLayout.LayoutParams(0, -1, 1f))
+            listOf(frontDoor!!, garage!!).forEach { cam ->
+                left.addView(tileFor(cam), LinearLayout.LayoutParams(0, -1, 1f).apply { setMargins(2, 2, 2, 2) })
+            }
+            listOf(balcony!!, selected.first { it.sn != frontDoor.sn && it.sn != garage.sn && it.sn != balcony.sn }).forEach { cam ->
+                right.addView(tileFor(cam), LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(2, 2, 2, 2) })
+            }
+            root
+        } else {
+            GridLayout(this).apply {
+                rowCount = if (selected.size <= 2) 1 else 2
+                columnCount = if (selected.size == 1) 1 else 2
+                setBackgroundColor(0xff000000.toInt())
+                selected.forEachIndexed { index, cam ->
+                    val params = GridLayout.LayoutParams(GridLayout.spec(if (selected.size <= 2) 0 else index / 2, 1f), GridLayout.spec(if (selected.size == 1) 0 else index % 2, 1f)).apply { width = 0; height = 0; setMargins(2, 2, 2, 2) }
+                    addView(tileFor(cam), params)
+                }
+            }
+        }
+        setContentView(wall)
         chosen.forEach { hold(it, "POST") }
         ui.postDelayed(holdRefresh, 20_000)
         connectEvents()
@@ -206,13 +234,8 @@ class MainActivity : Activity() {
         if (state == "live") {
             if (players.containsKey(sn)) return
             label.text = "${cam.name} • connecting"
-            val hardwareVideoDecoders = MediaCodecSelector { mimeType, secure, tunneling ->
-                val decoders = MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, secure, tunneling)
-                if (mimeType.startsWith("video/")) decoders.filter { it.hardwareAccelerated } else decoders
-            }
             val renderers = DefaultRenderersFactory(this)
-                .setMediaCodecSelector(hardwareVideoDecoders)
-                .setEnableDecoderFallback(false)
+                .setEnableDecoderFallback(true)
             val player = ExoPlayer.Builder(this, renderers).build()
             val startedAt = SystemClock.elapsedRealtime()
             val firstFrameRendered = AtomicBoolean(false)
