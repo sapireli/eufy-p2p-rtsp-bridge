@@ -32,7 +32,7 @@ cameras:                         # keyed by camera serial; unlisted wired camera
   # `codec:` (h264 | h265) declares what a camera sends so automatic transcoding can be selected before
   # its first frame. Passthrough streams use go2rtc's raw HTTP source without an ffmpeg probe.
   # Otherwise the codec is learned from the live feed; a feed that disagrees with this value wins.
-  T8423XXXXXXXXXXX: { name: Balcony, codec: h265 }
+  T8423XXXXXXXXXXX: { name: Balcony, codec: h265, transcode: never } # override global go2rtc.transcode for this camera
 
 # stall:                         # media watchdog (defaults shown)
 #   stall_ms: 30000              # no bytes for this long → restart the feed

@@ -3,6 +3,16 @@
 // eufy-frigate-bridge (12 s stall / 45 s gap / 300 s exit), which were calibrated over a 19 h run.
 import { newSlot } from "./state.mjs";
 
+// The Linux VA-API egress fixes output height and evaluates its scale per frame. When the source
+// changes size at the same aspect ratio, its H.264 output keeps the same dimensions and RTSP SDP.
+function stableVaapiOutput(ctx, sn, oldCodec, oldWidth, oldHeight, codec, width, height) {
+  const { cfg } = ctx;
+  const mode = ctx.getCamera?.(sn)?.transcode ?? cfg.go2rtcTranscode;
+  if ((ctx.platform ?? process.platform) !== "linux" || !cfg.go2rtcVaapiDevice || !(cfg.go2rtcMaxHeight > 0)) return false;
+  if (mode !== "always" && !(mode === "auto" && codec === "h265")) return false;
+  return oldCodec === codec && !!oldWidth && !!oldHeight && !!width && !!height && oldWidth * height === width * oldHeight;
+}
+
 export function createStreamManager(ctx) {
   const { state, cfg } = ctx;
   const exit = (code) => (ctx.exit ?? process.exit)(code);
@@ -27,9 +37,8 @@ export function createStreamManager(ctx) {
       const g = ctx.sdk.codedGeometry(sets);
       // Compare GEOMETRY as well as codec. Live-view quality is "Auto" on these cameras (streamingQuality
       // tier 0) and the station re-picks a resolution on its own, so a stream can change size mid-session.
-      // An RTSP consumer negotiated its SDP from the first keyframe, so once the size moves under -c:v copy
-      // its decoder is set up for the old one and the picture freezes. Dropping the consumers makes go2rtc
-      // re-run its source and hand out an SDP that matches what the camera is actually sending now.
+      // A copy consumer needs a fresh SDP when geometry changes. The Linux VA-API transcoder can keep
+      // its consumer across a same-aspect change because the H.264 output dimensions stay fixed.
       const differs = slot.codec !== sets.codec || slot.width !== g?.width || slot.height !== g?.height;
       // CONFIRM a change before acting on it. Parameter sets are read from a chunk, and a keyframe whose
       // SPS straddles a chunk boundary parses into a plausible-looking but wrong size. Measured on the
@@ -49,6 +58,7 @@ export function createStreamManager(ctx) {
       else slot.pendingGeom = undefined;
       const moved = slot.codec !== undefined && differs && !unconfirmed;
       if (differs && !unconfirmed) {
+        const outputUnchanged = stableVaapiOutput(ctx, slot.sn, slot.codec, slot.width, slot.height, sets.codec, g?.width, g?.height);
         const from = slot.codec ? `${slot.codec} ${slot.width ?? "?"}x${slot.height ?? "?"} → ` : "";
         slot.codec = sets.codec;
         slot.width = g?.width;
@@ -56,7 +66,7 @@ export function createStreamManager(ctx) {
         console.log(`[bridge] ${slot.sn}: codec ${from}${sets.codec} ${slot.width ?? "?"}x${slot.height ?? "?"}`);
         if (sets.codec !== "h264")
           console.warn(`[bridge] ${slot.sn}: stream is ${sets.codec.toUpperCase()} — players without an HEVC decoder (Chrome, the Pi) cannot read it; set a lower streaming quality in the owner's eufy app, or enable go2rtc.transcode.`);
-        if (moved && slot.consumers.size) {
+        if (moved && slot.consumers.size && !outputUnchanged) {
           console.warn(`[bridge] ${slot.sn}: stream geometry changed mid-session — dropping ${slot.consumers.size} consumer(s) so RTSP re-negotiates`);
           for (const c of slot.consumers) c.end();
           slot.consumers.clear();

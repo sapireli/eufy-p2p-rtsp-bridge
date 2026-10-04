@@ -349,3 +349,66 @@ test("a one-off geometry misparse is ignored; a real change is acted on once con
     await sm.stopAll();
   }
 });
+
+test("dynamic VA-API keeps one consumer across same-aspect input size changes", async () => {
+  const feed = new PassThrough();
+  let geom = { width: 1280, height: 720 };
+  const ctx = ctxWith({ feeds: [() => feed] });
+  ctx.platform = "linux";
+  ctx.cfg.go2rtcTranscode = "always";
+  ctx.cfg.go2rtcVaapiDevice = "/dev/dri/renderD128";
+  ctx.cfg.go2rtcMaxHeight = 720;
+  ctx.sdk.extractParamSets = () => ({ codec: "h265", sps: [], pps: [] });
+  ctx.sdk.codedGeometry = () => geom;
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    const res = fakeRes();
+    sm.attachConsumer("A", res);
+    geom = { width: 960, height: 540 };
+    feed.write(KEY);
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(sm.streamStatus("A").width, 960);
+    assert.equal(res.destroyed, false);
+    assert.ok(res.chunks.length >= 2);
+
+    geom = { width: 1024, height: 768 };
+    feed.write(KEY);
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(res.destroyed, true, "different output aspect ratio needs a fresh SDP");
+  } finally {
+    await sm.stopAll();
+  }
+});
+
+test("passthrough still reconnects on a confirmed input size change", async () => {
+  const feed = new PassThrough();
+  let geom = { width: 1280, height: 720 };
+  const ctx = ctxWith({ feeds: [() => feed] });
+  ctx.platform = "linux";
+  ctx.cfg.go2rtcTranscode = "always";
+  ctx.cfg.go2rtcVaapiDevice = "/dev/dri/renderD128";
+  ctx.cfg.go2rtcMaxHeight = 720;
+  ctx.getCamera = () => ({ enabled: true, transcode: "never" });
+  ctx.sdk.extractParamSets = () => ({ codec: "h265", sps: [], pps: [] });
+  ctx.sdk.codedGeometry = () => geom;
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    const res = fakeRes();
+    sm.attachConsumer("A", res);
+    geom = { width: 960, height: 540 };
+    feed.write(KEY);
+    feed.write(KEY);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(res.destroyed, true);
+  } finally {
+    await sm.stopAll();
+  }
+});

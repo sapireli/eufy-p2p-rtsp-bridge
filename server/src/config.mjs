@@ -23,6 +23,7 @@ const DUAL_VIEWS = new Set(["split", "pip-tl", "pip-tr", "pip-bl", "pip-br", "si
  */
 const CAMERA_MODES = new Set(["always", "on_motion", "on_demand"]);
 const POWER_OVERRIDES = new Set(["auto", "always-on", "battery"]);
+const TRANSCODE_MODES = new Set(["never", "auto", "always"]);
 
 /** Codecs a camera can be declared as; anything else is a typo we should not silently accept. */
 export const CAMERA_CODECS = new Set(["h264", "h265"]);
@@ -51,6 +52,11 @@ function cameraEntry(sn, raw) {
     const codec = String(raw.codec).toLowerCase();
     if (!CAMERA_CODECS.has(codec)) throw new Error(`cameras.${sn}.codec must be one of ${[...CAMERA_CODECS].join(", ")}`);
     out.codec = codec;
+  }
+  if (raw.transcode != null) {
+    if (!TRANSCODE_MODES.has(raw.transcode))
+      throw new Error(`cameras.${sn}.transcode must be one of ${[...TRANSCODE_MODES].join(", ")}`);
+    out.transcode = raw.transcode;
   }
   if (raw.quality != null) out.quality = String(raw.quality);
   if (raw.dual_view != null) {

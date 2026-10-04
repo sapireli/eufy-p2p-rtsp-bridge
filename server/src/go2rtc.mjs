@@ -18,7 +18,7 @@ export function egressFor(codec, mode, maxHeight = 0, platform = process.platfor
   if (!transcode) return "#video=copy";
   // go2rtc's VideoToolbox preset yields hardware pixel buffers that its scale filter cannot read.
   // Decode to ordinary frames and use VideoToolbox only for the encoder when resizing on macOS.
-  if (platform === "linux" && vaapiDevice && maxHeight > 0) return "#video=tvh264";
+  if (platform === "linux" && vaapiDevice && maxHeight > 0) return "#input=ewb_dynamic_http#video=tvh264";
   const video = platform === "darwin" && maxHeight > 0 ? "tvh264" : "h264#hardware";
   return `#video=${video}${maxHeight > 0 ? `#height=${maxHeight}` : ""}`; // "auto"
 }
@@ -92,6 +92,7 @@ export function withNamedStreams(text, cameras) {
 
 export function createGo2rtc(ctx) {
   const { cfg, state } = ctx;
+  const platform = ctx.platform ?? process.platform;
   let stopping = false;
   // Watchdog and fatal paths call process.exit() directly. A child left behind keeps the
   // RTSP/API ports bound, so the next bridge instance can look healthy while serving stale video.
@@ -102,7 +103,7 @@ export function createGo2rtc(ctx) {
   /** The egress suffix each enabled camera should get right now, keyed by sn. */
   function egressPlan() {
     const plan = {};
-    for (const c of ctx.listCameras().filter((x) => x.enabled)) plan[c.sn] = egressFor(codecOf(c.sn), cfg.go2rtcTranscode, cfg.go2rtcMaxHeight, process.platform, cfg.go2rtcVaapiDevice);
+    for (const c of ctx.listCameras().filter((x) => x.enabled)) plan[c.sn] = egressFor(codecOf(c.sn), c.transcode ?? cfg.go2rtcTranscode, cfg.go2rtcMaxHeight, platform, cfg.go2rtcVaapiDevice);
     return plan;
   }
   let lastPlan = {};
@@ -113,16 +114,19 @@ export function createGo2rtc(ctx) {
     // The vendored generator always emits "#video=copy"; rewrite each source to this camera's egress mode.
     const plan = egressPlan();
     let text = hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8"), { rtspPort: cfg.rtspPort, apiPort: cfg.go2rtcApiPort });
-    if (process.platform === "darwin" && cfg.go2rtcMaxHeight > 0 && cfg.go2rtcTranscode !== "never") {
+    if (platform === "darwin" && cfg.go2rtcMaxHeight > 0 && Object.values(plan).some((x) => x.includes("tvh264"))) {
       const doc = parseDocument(text);
       doc.setIn(["ffmpeg", "tvh264"], "-codec:v h264_videotoolbox -g:v 30 -bf:v 0");
       text = doc.toString();
     }
-    if (process.platform === "linux" && cfg.go2rtcVaapiDevice && cfg.go2rtcMaxHeight > 0 && cfg.go2rtcTranscode !== "never") {
+    if (platform === "linux" && cfg.go2rtcVaapiDevice && cfg.go2rtcMaxHeight > 0 && Object.values(plan).some((x) => x.includes("tvh264"))) {
       const doc = parseDocument(text);
       // The source is decoded to ordinary frames first; Ivy Bridge VA-API cannot decode HEVC.
       // Upload the scaled NV12 frames only for the hardware H.264 encoder.
-      doc.setIn(["ffmpeg", "tvh264"], `-vaapi_device ${cfg.go2rtcVaapiDevice} -vf scale=-2:${cfg.go2rtcMaxHeight},format=nv12,hwupload -codec:v h264_vaapi -g:v 30 -bf:v 0`);
+      // A camera can change resolution mid-stream. Keep the filter graph and H.264 encoder output
+      // stable when the aspect ratio stays the same; otherwise FFmpeg reinitialization fails at hwupload.
+      doc.setIn(["ffmpeg", "ewb_dynamic_http"], "-reinit_filter 0 -i {input}");
+      doc.setIn(["ffmpeg", "tvh264"], `-vaapi_device ${cfg.go2rtcVaapiDevice} -vf scale=-2:${cfg.go2rtcMaxHeight}:eval=frame,format=nv12,hwupload -codec:v h264_vaapi -g:v 30 -bf:v 0`);
       text = doc.toString();
     }
     for (const [sn, suffix] of Object.entries(plan)) {

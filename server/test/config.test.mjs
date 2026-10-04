@@ -93,3 +93,10 @@ test("power override is a validated bridge installation choice", () => {
     assert.equal(loadConfig({ env: {}, configPath: config(value) }).cfg.cameras.T8214X.powerOverride, value);
   assert.throws(() => loadConfig({ env: {}, configPath: config("wired") }), /power_override must be one of/);
 });
+
+test("per-camera transcode mode overrides the global mode", () => {
+  const config = (value) => tmpYaml(`eufy: { email: a@b.c, password: p }\ngo2rtc: { transcode: always }\ncameras: { T8423X: { transcode: ${value} } }\n`);
+  for (const value of ["never", "auto", "always"])
+    assert.equal(loadConfig({ env: {}, configPath: config(value) }).cfg.cameras.T8423X.transcode, value);
+  assert.throws(() => loadConfig({ env: {}, configPath: config("sometimes") }), /transcode must be one of/);
+});
