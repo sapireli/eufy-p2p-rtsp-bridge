@@ -193,21 +193,22 @@ class MainActivity : Activity() {
         val frontDoor = selected.firstOrNull { it.name.contains("front door", ignoreCase = true) }
         val garage = selected.firstOrNull { it.name.equals("Garage CLE", ignoreCase = true) }
         val balcony = selected.firstOrNull { it.name.contains("balcony", ignoreCase = true) }
-        val portraitPair = selected.size == 4 && frontDoor != null && garage != null && balcony != null
+        val portraitPair = selected.size >= 3 && frontDoor != null && garage != null && balcony != null
         val wall: ViewGroup = if (portraitPair) {
-            // Two portrait views use the full height on the left. The landscape views each use half
-            // the height on the right, giving a 16:9 source a 16:9 tile on a 16:9 television.
+            // Two portrait views use the full height on the left. Balcony occupies the upper-right
+            // 16:9 tile; the lower-right tile stays empty until a fourth camera is selected.
             val root = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(0xff000000.toInt()) }
             val left = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            root.addView(left, LinearLayout.LayoutParams(0, -1, 1f))
-            root.addView(right, LinearLayout.LayoutParams(0, -1, 1f))
+            root.addView(left, LinearLayout.LayoutParams(0, -1, 7f))
+            root.addView(right, LinearLayout.LayoutParams(0, -1, 3f))
             listOf(frontDoor!!, garage!!).forEach { cam ->
                 left.addView(tileFor(cam), LinearLayout.LayoutParams(0, -1, 1f).apply { setMargins(2, 2, 2, 2) })
             }
-            listOf(balcony!!, selected.first { it.sn != frontDoor.sn && it.sn != garage.sn && it.sn != balcony.sn }).forEach { cam ->
-                right.addView(tileFor(cam), LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(2, 2, 2, 2) })
-            }
+            right.addView(tileFor(balcony!!), LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(2, 2, 2, 2) })
+            val fourth = selected.firstOrNull { it.sn != frontDoor.sn && it.sn != garage.sn && it.sn != balcony.sn }
+            right.addView(fourth?.let(::tileFor) ?: FrameLayout(this).apply { setBackgroundColor(0xff000000.toInt()) },
+                LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(2, 2, 2, 2) })
             root
         } else {
             GridLayout(this).apply {
