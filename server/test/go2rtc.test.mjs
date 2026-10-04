@@ -4,7 +4,14 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "yaml";
-import { createGo2rtc, hardenGo2rtcYaml, withNamedStreams, streamKeys, streamSlug } from "../src/go2rtc.mjs";
+import { createGo2rtc, egressFor, hardenGo2rtcYaml, withNamedStreams, streamKeys, streamSlug } from "../src/go2rtc.mjs";
+
+test("optional hardware transcode height fits a TV decoder", () => {
+  assert.equal(egressFor("h264", "always", 720, "linux"), "#video=h264#hardware#height=720");
+  assert.equal(egressFor("h265", "always", 720, "linux", "/dev/dri/renderD128"), "#video=tvh264");
+  assert.equal(egressFor("h264", "always", 720, "darwin"), "#video=tvh264#height=720");
+  assert.equal(egressFor("h264", "never", 720), "#video=copy");
+});
 import { createState } from "../src/state.mjs";
 
 const originals = {};
@@ -56,6 +63,12 @@ test("hardenGo2rtcYaml is idempotent and tolerates a file without webrtc", () =>
   assert.equal(parse(once).api.listen, "127.0.0.1:1984");
   assert.equal(parse(once).webrtc.listen, "");
   assert.equal(hardenGo2rtcYaml(once), once);
+});
+
+test("local bridge can use alternate RTSP and API ports without changing defaults", () => {
+  const text = hardenGo2rtcYaml('api:\n  listen: ":1984"\nrtsp:\n  listen: ":8554"\nstreams: {}\n', { rtspPort: 8565, apiPort: 1985 });
+  assert.equal(parse(text).rtsp.listen, ":8565");
+  assert.equal(parse(text).api.listen, "127.0.0.1:1985");
 });
 
 // go2rtc lists stream keys, and a wall of serial numbers tells an operator nothing about which camera

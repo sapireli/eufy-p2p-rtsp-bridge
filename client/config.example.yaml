@@ -1,7 +1,7 @@
 # eufy-wall display client configuration (/etc/eufy-wall.yaml)
 # Camera power_override and LAN peer policy belong in the bridge server config. This client receives
 # each camera's stream state and mode from the server; its tile rules follow those values.
-rtsp_base: rtsp://192.168.1.10:8554   # the eufy-wall-bridge server (go2rtc RTSP)
+rtsp_base: auto   # discover _eufy-wall._tcp; an explicit rtsp://host:8554 also works
 # output: HDMI-A-1                     # DRM connector this instance drives; omit = first connected.
 # TWO MONITORS: run one instance per monitor, each with its own config file, its own `output:` and its
 # own `tiles:`. Each drives its own CRTC and keeps the cheap hardware-plane path. Do NOT span one

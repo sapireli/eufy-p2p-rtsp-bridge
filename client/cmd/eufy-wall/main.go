@@ -6,9 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -33,6 +36,18 @@ func main() {
 	c, err := config.Load(*cfgPath)
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
+	}
+	if c.RTSPBase == "auto" {
+		for {
+			base, err := discoverBridge()
+			if err == nil {
+				c.RTSPBase = base
+				log.Printf("[wall] discovered bridge at %s", base)
+				break
+			}
+			log.Printf("[wall] _eufy-wall._tcp discovery failed: %v; retrying in 5s", err)
+			time.Sleep(5 * time.Second)
+		}
 	}
 	if c.Screen.Width == 0 || c.Screen.Height == 0 {
 		if s, ok := detect.ScreenFor("/", c.Output); ok {
@@ -92,6 +107,42 @@ func main() {
 
 	runDynamic(ctx, c, caps, tiles, mgr, plans)
 	log.Printf("[wall] stopped")
+}
+
+// discoverBridge accepts only a resolved _eufy-wall._tcp Avahi record. Its HTTP
+// port is advertised as the service port and its RTSP port is in TXT.
+func discoverBridge() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "avahi-browse", "--resolve", "--terminate", "--parsable", "_eufy-wall._tcp").Output()
+	if err != nil {
+		return "", fmt.Errorf("avahi-browse: %w", err)
+	}
+	return parseAvahi(string(out))
+}
+
+func parseAvahi(output string) (string, error) {
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Split(line, ";")
+		if len(fields) < 10 || fields[0] != "=" || fields[4] != "_eufy-wall._tcp" || fields[8] != "3000" {
+			continue
+		}
+		port := ""
+		for _, field := range fields[9:] {
+			if value, ok := strings.CutPrefix(strings.Trim(field, "\""), "rtsp="); ok {
+				if n, err := strconv.Atoi(value); err == nil && n > 0 && n <= 65535 {
+					port = value
+				}
+			}
+		}
+		if port == "" {
+			continue
+		}
+		if ip := net.ParseIP(fields[7]); ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+			return "rtsp://" + net.JoinHostPort(ip.String(), port), nil
+		}
+	}
+	return "", fmt.Errorf("no resolved bridge with HTTP port 3000 and a valid rtsp TXT port")
 }
 
 // runDynamic follows /ws and keeps the running pipelines matching what each tile should be showing.

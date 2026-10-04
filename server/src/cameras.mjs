@@ -108,7 +108,7 @@ export function createCameras(ctx) {
       // The go2rtc stream is keyed by the camera's name, not its serial — see streamKeys(). Reported
       // here so a client uses the bridge's key rather than deriving its own and getting it subtly wrong.
       streamKey: streamKeyFor(cam.sn),
-      rtsp: `rtsp://${host}:8554/${streamKeyFor(cam.sn)}`,
+      rtsp: `rtsp://${host}:${ctx.cfg.rtspPort ?? 8554}/${streamKeyFor(cam.sn)}`,
       stream: `/stream/${cam.sn}`,
     };
   }

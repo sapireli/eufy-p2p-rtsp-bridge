@@ -23,6 +23,9 @@ Opening the eufy phone app with the SAME account kicks the bridge (state "reauth
 ## Check
     curl -s localhost:3000/healthz | jq          # auth ok, streaming [...], blocked {}, go2rtc running
     curl -s localhost:3000/api/cameras | jq      # codec must be "h264" for Pi clients
+
+    # On another LAN device, confirm the installer-created Avahi service resolves:
+    avahi-browse -rt _eufy-wall._tcp
     ffplay rtsp://<server>:8554/<sn>             # from any machine on the LAN
 
 ## Camera settings the wall depends on
@@ -63,6 +66,10 @@ Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session 
 - Cloud poll silent ≥ 30 min or push down ≥ 15 min → re-login in place, else exit(1).
 
 ## Upgrading
+- From the Mac checkout used for this installation: `deploy/update-debian.sh`. It syncs `server/`
+  and `deploy/`, reruns the idempotent installer, restarts an already-running service, and checks
+  `/healthz`. Server credentials, camera config, and session live outside the code directory and
+  are preserved. Use an SSH key in `~/.ssh/eufy-wall-debian` or set `EUFY_WALL_SSH_KEY`.
 - SDK: update the `eufy-wall` Git dependency in `server/package-lock.json`, run `npm ci && npm test`
   (the contract test checks the installed SDK surface), then rerun the install script.
 - Vendored ha-eufy-sdk-bridge modules: `server/scripts/sync-upstream.sh` shows diffs; `--apply` copies;

@@ -9,7 +9,7 @@ BIN=${1:?path to eufy-wall binary}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 
 apt-get update
-apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad libdrm-tests
+apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad libdrm-tests avahi-utils
 # x86 VAAPI / software fallback (harmless on the Pi if unavailable)
 apt-get install -y gstreamer1.0-vaapi gstreamer1.0-libav 2>/dev/null || true
 

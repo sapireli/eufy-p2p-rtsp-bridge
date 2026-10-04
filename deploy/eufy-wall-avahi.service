@@ -1,0 +1,10 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Eufy Wall on %h</name>
+  <service>
+    <type>_eufy-wall._tcp</type>
+    <port>3000</port>
+    <txt-record>rtsp=8554</txt-record>
+  </service>
+</service-group>

@@ -70,6 +70,8 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     country: env.EUFY_COUNTRY || raw.eufy?.country || "US",
     host: env.BRIDGE_HOST || raw.host || "0.0.0.0",
     port: Number(env.BRIDGE_PORT || raw.port || 3000),
+    rtspPort: Number(env.BRIDGE_RTSP_PORT || raw.rtsp_port || 8554),
+    go2rtcApiPort: Number(env.BRIDGE_GO2RTC_API_PORT || raw.go2rtc_api_port || 1984),
     selfHost: env.BRIDGE_SELF_HOST || raw.self_host || "127.0.0.1", // what go2rtc dials to reach us
     dataDir,
     session: resolve(dataDir, ".eufy-session.json"),
@@ -81,7 +83,11 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     // HEVC cameras (VideoToolbox measured 0.9x), and go2rtc kills a producer that falls behind, taking
     // the stream down mid-view. "auto" transcodes H.265 to H.264 for players without an HEVC decoder;
     // "always" transcodes everything. Both are opt-in and hardware-only (see egressFor).
-    go2rtcTranscode: String(raw.go2rtc?.transcode ?? "never"),
+    go2rtcTranscode: String(env.BRIDGE_GO2RTC_TRANSCODE || raw.go2rtc?.transcode || "never"),
+    go2rtcMaxHeight: Number(env.BRIDGE_GO2RTC_MAX_HEIGHT || raw.go2rtc?.max_height || 0),
+    // Optional VA-API H.264 encoder for Linux hosts. Decode remains in software so older Intel
+    // GPUs without HEVC support can still take an HEVC camera and serve H.264 to a TV.
+    go2rtcVaapiDevice: String(env.BRIDGE_GO2RTC_VAAPI_DEVICE || raw.go2rtc?.vaapi_device || ""),
     pollMs: raw.poll_ms != null ? Number(raw.poll_ms) : undefined,
     lan: {
       cidr: lanRaw.cidr ?? null,

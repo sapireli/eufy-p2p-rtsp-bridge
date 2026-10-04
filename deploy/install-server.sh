@@ -8,9 +8,11 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 PREFIX=/opt/eufy-wall-bridge
 GO2RTC_VERSION=${GO2RTC_VERSION:-1.9.14}
+WAS_ACTIVE=0
+systemctl is-active --quiet eufy-wall-bridge && WAS_ACTIVE=1
 
 # 1. Node 24 + rsync (step 3) + ffmpeg (go2rtc's generated `ffmpeg:` sources spawn the ffmpeg binary)
-apt-get update && apt-get install -y ca-certificates curl gnupg rsync ffmpeg
+apt-get update && apt-get install -y ca-certificates curl gnupg rsync ffmpeg avahi-daemon
 if ! command -v node >/dev/null || [[ $(node -v | sed 's/v\([0-9]*\).*/\1/') -lt 24 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
@@ -23,8 +25,11 @@ case "$(uname -m)" in
   *) echo "unsupported arch $(uname -m)"; exit 1 ;;
 esac
 mkdir -p "$PREFIX/bin"
-curl -fsSL -o "$PREFIX/bin/go2rtc" "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${ARCH}"
-chmod +x "$PREFIX/bin/go2rtc"
+GO2RTC_TMP="$PREFIX/bin/go2rtc.tmp.$$"
+trap 'rm -f "$GO2RTC_TMP"' EXIT
+curl -fsSL -o "$GO2RTC_TMP" "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${ARCH}"
+chmod +x "$GO2RTC_TMP"
+mv -f "$GO2RTC_TMP" "$PREFIX/bin/go2rtc"
 "$PREFIX/bin/go2rtc" --version || true
 
 # 3. app files + deps
@@ -40,6 +45,20 @@ chown -R eufy-wall:eufy-wall "$PREFIX" /var/lib/eufy-wall-bridge
 
 # 5. systemd
 cp "$REPO/deploy/eufy-wall-bridge.service" /etc/systemd/system/
+# Avahi publishes the bridge's fixed HTTP and RTSP ports on the local network.
+install -d -m 755 /etc/avahi/services
+install -m 644 "$REPO/deploy/eufy-wall-avahi.service" /etc/avahi/services/eufy-wall.service
 systemctl daemon-reload
+systemctl enable --now avahi-daemon
 systemctl enable eufy-wall-bridge
-echo "installed. next: edit /etc/eufy-wall-bridge.{env,yaml}; systemctl start eufy-wall-bridge; journalctl -fu eufy-wall-bridge"
+# DietPi's service menu uses its own include list; a systemd unit alone does not appear there.
+DIETPI_SERVICES=/boot/dietpi/.dietpi-services_include_exclude
+if [[ -f $DIETPI_SERVICES ]] && ! grep -Fqx '+ eufy-wall-bridge' "$DIETPI_SERVICES"; then
+  printf '\n+ eufy-wall-bridge\n' >> "$DIETPI_SERVICES"
+fi
+if [[ $WAS_ACTIVE -eq 1 ]]; then
+  systemctl restart eufy-wall-bridge
+  echo "updated and restarted eufy-wall-bridge"
+else
+  echo "installed. next: edit /etc/eufy-wall-bridge.{env,yaml}; systemctl start eufy-wall-bridge; journalctl -fu eufy-wall-bridge"
+fi

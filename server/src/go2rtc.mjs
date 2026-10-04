@@ -12,10 +12,15 @@ import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
  * go2rtc kills the producer on its exec timeout, which takes the RTSP stream down mid-view. Where hardware
  * accel is unavailable, pass the bitstream through with copy instead.
  */
-export function egressFor(codec, mode) {
+export function egressFor(codec, mode, maxHeight = 0, platform = process.platform, vaapiDevice = "") {
   if (mode === "never") return "#video=copy";
-  if (mode === "always") return "#video=h264#hardware";
-  return codec === "h265" ? "#video=h264#hardware" : "#video=copy"; // "auto"
+  const transcode = mode === "always" || codec === "h265";
+  if (!transcode) return "#video=copy";
+  // go2rtc's VideoToolbox preset yields hardware pixel buffers that its scale filter cannot read.
+  // Decode to ordinary frames and use VideoToolbox only for the encoder when resizing on macOS.
+  if (platform === "linux" && vaapiDevice && maxHeight > 0) return "#video=tvh264";
+  const video = platform === "darwin" && maxHeight > 0 ? "tvh264" : "h264#hardware";
+  return `#video=${video}${maxHeight > 0 ? `#height=${maxHeight}` : ""}`; // "auto"
 }
 
 /**
@@ -25,9 +30,10 @@ export function egressFor(codec, mode) {
  * `webrtc:` block, so the block must exist with an empty listen). Done as a post-pass so the vendored generator
  * stays verbatim. Comments in the generated file are preserved (yaml Document round-trip).
  */
-export function hardenGo2rtcYaml(text) {
+export function hardenGo2rtcYaml(text, { rtspPort = 8554, apiPort = 1984 } = {}) {
   const doc = parseDocument(text);
-  doc.setIn(["api", "listen"], "127.0.0.1:1984");
+  doc.setIn(["api", "listen"], `127.0.0.1:${apiPort}`);
+  doc.setIn(["rtsp", "listen"], `:${rtspPort}`);
   doc.setIn(["webrtc", "listen"], "");
   return doc.toString();
 }
@@ -87,13 +93,16 @@ export function withNamedStreams(text, cameras) {
 export function createGo2rtc(ctx) {
   const { cfg, state } = ctx;
   let stopping = false;
+  // Watchdog and fatal paths call process.exit() directly. A child left behind keeps the
+  // RTSP/API ports bound, so the next bridge instance can look healthy while serving stale video.
+  process.once("exit", () => state.flags.go2rtcProc?.kill("SIGKILL"));
 
   /** Codec we currently believe a camera speaks (learned from its live feed, else whatever /api reported). */
   const codecOf = (sn) => state.slots.get(sn)?.codec ?? ctx.getCamera?.(sn)?.codec;
   /** The egress suffix each enabled camera should get right now, keyed by sn. */
   function egressPlan() {
     const plan = {};
-    for (const c of ctx.listCameras().filter((x) => x.enabled)) plan[c.sn] = egressFor(codecOf(c.sn), cfg.go2rtcTranscode);
+    for (const c of ctx.listCameras().filter((x) => x.enabled)) plan[c.sn] = egressFor(codecOf(c.sn), cfg.go2rtcTranscode, cfg.go2rtcMaxHeight, process.platform, cfg.go2rtcVaapiDevice);
     return plan;
   }
   let lastPlan = {};
@@ -103,7 +112,19 @@ export function createGo2rtc(ctx) {
     const sns = await writeGo2rtcConfig(cfg, devices);
     // The vendored generator always emits "#video=copy"; rewrite each source to this camera's egress mode.
     const plan = egressPlan();
-    let text = hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8"));
+    let text = hardenGo2rtcYaml(await readFile(cfg.go2rtcConfig, "utf8"), { rtspPort: cfg.rtspPort, apiPort: cfg.go2rtcApiPort });
+    if (process.platform === "darwin" && cfg.go2rtcMaxHeight > 0 && cfg.go2rtcTranscode !== "never") {
+      const doc = parseDocument(text);
+      doc.setIn(["ffmpeg", "tvh264"], "-codec:v h264_videotoolbox -g:v 30 -bf:v 0");
+      text = doc.toString();
+    }
+    if (process.platform === "linux" && cfg.go2rtcVaapiDevice && cfg.go2rtcMaxHeight > 0 && cfg.go2rtcTranscode !== "never") {
+      const doc = parseDocument(text);
+      // The source is decoded to ordinary frames first; Ivy Bridge VA-API cannot decode HEVC.
+      // Upload the scaled NV12 frames only for the hardware H.264 encoder.
+      doc.setIn(["ffmpeg", "tvh264"], `-vaapi_device ${cfg.go2rtcVaapiDevice} -vf scale=-2:${cfg.go2rtcMaxHeight},format=nv12,hwupload -codec:v h264_vaapi -g:v 30 -bf:v 0`);
+      text = doc.toString();
+    }
     for (const [sn, suffix] of Object.entries(plan)) {
       const url = `http://${cfg.selfHost}:${cfg.port}/stream/${sn}`;
       const source = suffix === "#video=copy" ? url : `ffmpeg:${url}${suffix}`;
@@ -145,7 +166,7 @@ export function createGo2rtc(ctx) {
       console.error(`[bridge] go2rtc exited (${code ?? sig}) — restarting in 3 s`);
       setTimeout(startGo2rtc, 3000);
     });
-    console.log(`[bridge] go2rtc started (${cfg.go2rtcBin}) — RTSP on :8554`);
+    console.log(`[bridge] go2rtc started (${cfg.go2rtcBin}) — RTSP on :${cfg.rtspPort}`);
   }
 
   function stopGo2rtc() {
