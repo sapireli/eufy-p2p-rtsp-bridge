@@ -42,6 +42,7 @@ import java.net.URI
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 data class Camera(val sn: String, val name: String, val rtsp: String, val mode: String, val streaming: Boolean)
@@ -70,7 +71,8 @@ class MainActivity : Activity() {
     private var decoderFailures = 0
     private var decoderRecoveryScheduled = false
     private val reconnect = Runnable { if (wallVisible) connectEvents() }
-    private val frameTimeoutMs = 15_000L
+    private val firstFrameTimeoutMs = 15_000L
+    private val liveFrameTimeoutMs = 5_000L
     private val holdRefresh = object : Runnable {
         override fun run() {
             if (!wallVisible) return
@@ -212,28 +214,31 @@ class MainActivity : Activity() {
                 .setMediaCodecSelector(hardwareVideoDecoders)
                 .setEnableDecoderFallback(false)
             val player = ExoPlayer.Builder(this, renderers).build()
-            val lastFrameAt = AtomicLong(SystemClock.elapsedRealtime())
+            val startedAt = SystemClock.elapsedRealtime()
+            val firstFrameRendered = AtomicBoolean(false)
+            val lastFrameAt = AtomicLong(startedAt)
             player.setVideoFrameMetadataListener(VideoFrameMetadataListener { _, _, _, _ ->
-                lastFrameAt.set(SystemClock.elapsedRealtime())
+                if (firstFrameRendered.get()) lastFrameAt.set(SystemClock.elapsedRealtime())
             })
             players[sn] = player
             surfaces[sn]?.player = player
             val watchdog = object : Runnable {
                 override fun run() {
                     if (!wallVisible || states[sn] != "live" || players[sn] !== player) return
-                    val silentForMs = SystemClock.elapsedRealtime() - lastFrameAt.get()
-                    if (silentForMs >= frameTimeoutMs) {
+                    val rendered = firstFrameRendered.get()
+                    val silentForMs = SystemClock.elapsedRealtime() - (if (rendered) lastFrameAt.get() else startedAt)
+                    if (silentForMs >= (if (rendered) liveFrameTimeoutMs else firstFrameTimeoutMs)) {
                         label.text = "${cam.name} • video stalled, reconnecting"
                         android.util.Log.w("EufyWallTV", "No video frames for ${silentForMs}ms: ${cam.sn}; restarting RTSP player")
                         release(sn)
                         updateTile(sn)
                     } else {
-                        ui.postDelayed(this, 3_000)
+                        ui.postDelayed(this, 1_000)
                     }
                 }
             }
             frameWatchdogs[sn] = watchdog
-            ui.postDelayed(watchdog, 3_000)
+            ui.postDelayed(watchdog, 1_000)
             player.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (players[sn] !== player) return
@@ -242,6 +247,7 @@ class MainActivity : Activity() {
                 override fun onRenderedFirstFrame() {
                     if (players[sn] !== player) return
                     lastFrameAt.set(SystemClock.elapsedRealtime())
+                    firstFrameRendered.set(true)
                     decoderFailures = 0
                     android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn}")
                 }
