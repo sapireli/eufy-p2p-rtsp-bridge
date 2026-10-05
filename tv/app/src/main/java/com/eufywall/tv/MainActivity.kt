@@ -45,7 +45,8 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-data class Camera(val sn: String, val name: String, val rtsp: String, val mode: String, val streaming: Boolean)
+data class Camera(val sn: String, val name: String, val rtsp: String, val mode: String, val streaming: Boolean,
+                  val dual: Boolean, val dualView: String?, val width: Int, val height: Int)
 
 class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
@@ -141,7 +142,7 @@ class MainActivity : Activity() {
                 val parsed = JSONArray(body)
                 val list = (0 until parsed.length()).map { parsed.getJSONObject(it) }
                     .filter { it.optBoolean("enabled") }
-                    .map { Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming")) }
+                    .map { Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming"), it.optBoolean("dual"), if (it.isNull("dualView")) null else it.optString("dualView").ifBlank { null }, it.optInt("width"), it.optInt("height")) }
                 ui.post {
                     bridge = url; cameras = list; prefs.edit().putString("bridge", url).apply()
                     states.clear(); list.forEach { states[it.sn] = if (it.streaming) "live" else "idle" }
@@ -166,12 +167,40 @@ class MainActivity : Activity() {
                 (itForCamera(root, cam.sn))?.text = chooseLabel(cam)
             }
             b.tag = cam.sn; root.addView(b)
+            if (cam.dual) {
+                val viewButton = button(viewLabel(cam)) { setDualView(cam.sn, itForView(root, cam.sn)) }
+                viewButton.tag = "view:${cam.sn}"
+                root.addView(viewButton)
+            }
         }
         root.addView(button("Start live wall") { if (chosen.isEmpty()) status?.text = "Choose a camera first" else showWall() })
     }
 
     private fun itForCamera(root: LinearLayout, sn: String): Button? = (0 until root.childCount).mapNotNull { root.getChildAt(it) as? Button }.firstOrNull { it.tag == sn }
+    private fun itForView(root: LinearLayout, sn: String): Button? = (0 until root.childCount).mapNotNull { root.getChildAt(it) as? Button }.firstOrNull { it.tag == "view:$sn" }
     private fun chooseLabel(cam: Camera) = (if (chosen.contains(cam.sn)) "✓ " else "○ ") + cam.name
+    private fun viewLabel(cam: Camera) = "${cam.name} view: ${if (cam.dualView?.startsWith("pip-") == true) "PiP" else "Split"} (switch)"
+
+    private fun setDualView(sn: String, control: Button?) {
+        val cam = cameras.firstOrNull { it.sn == sn } ?: return
+        val next = if (cam.dualView?.startsWith("pip-") == true) "split" else "pip-br"
+        control?.isEnabled = false
+        status?.text = "Switching ${cam.name} to ${if (next == "split") "Split" else "PiP"}…"
+        work.execute {
+            try {
+                val url = "$bridge/api/cameras/$sn/view?mode=$next"
+                http.newCall(Request.Builder().url(url).post(ByteArray(0).toRequestBody(null)).build()).execute().use { response ->
+                    if (!response.isSuccessful) error(response.body?.string() ?: "HTTP ${response.code}")
+                }
+                ui.post {
+                    cameras = cameras.map { if (it.sn == sn) it.copy(dualView = next, width = 0, height = 0) else it }
+                    control?.text = viewLabel(cameras.first { it.sn == sn })
+                    status?.text = "${cam.name}: ${if (next == "split") "Split" else "PiP"} selected. Start live wall to see it."
+                    control?.isEnabled = true
+                }
+            } catch (e: Exception) { ui.post { status?.text = "Could not switch ${cam.name}: ${e.message}"; control?.isEnabled = true } }
+        }
+    }
 
     private fun showWall() {
         if (bridge.isBlank()) return
@@ -190,10 +219,16 @@ class MainActivity : Activity() {
             updateTile(cam.sn)
             return tile
         }
-        val frontDoor = selected.firstOrNull { it.name.contains("front door", ignoreCase = true) }
-        val garage = selected.firstOrNull { it.name.equals("Garage CLE", ignoreCase = true) }
-        val balcony = selected.firstOrNull { it.name.contains("balcony", ignoreCase = true) }
-        val portraitPair = selected.size >= 3 && frontDoor != null && garage != null && balcony != null
+        fun isPortrait(cam: Camera): Boolean {
+            // Geometry from the live bridge stream is authoritative. The selected camera view is a
+            // fallback while a newly switched stream is still reporting its previous dimensions.
+            if (cam.dualView?.startsWith("pip-") == true || cam.dualView == "single") return false
+            if (cam.width > 0 && cam.height > 0) return cam.height > cam.width
+            return cam.dualView == "split"
+        }
+        val portraits = selected.filter(::isPortrait)
+        val landscapes = selected.filterNot(::isPortrait)
+        val portraitPair = portraits.size == 2 && landscapes.isNotEmpty() && selected.size in 3..4
         val wall: ViewGroup = if (portraitPair) {
             // Two portrait views use the full height on the left. Balcony occupies the upper-right
             // 16:9 tile; the lower-right tile stays empty until a fourth camera is selected.
@@ -202,13 +237,24 @@ class MainActivity : Activity() {
             val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             root.addView(left, LinearLayout.LayoutParams(0, -1, 7f))
             root.addView(right, LinearLayout.LayoutParams(0, -1, 3f))
-            listOf(frontDoor!!, garage!!).forEach { cam ->
+            portraits.forEach { cam ->
                 left.addView(tileFor(cam), LinearLayout.LayoutParams(0, -1, 1f).apply { setMargins(2, 2, 2, 2) })
             }
-            right.addView(tileFor(balcony!!), LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(2, 2, 2, 2) })
-            val fourth = selected.firstOrNull { it.sn != frontDoor.sn && it.sn != garage.sn && it.sn != balcony.sn }
+            right.addView(tileFor(landscapes[0]), LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(2, 2, 2, 2) })
+            val fourth = landscapes.getOrNull(1)
             right.addView(fourth?.let(::tileFor) ?: FrameLayout(this).apply { setBackgroundColor(0xff000000.toInt()) },
                 LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(2, 2, 2, 2) })
+            root
+        } else if (selected.size == 3 && portraits.size == 1 && landscapes.size == 2) {
+            // A camera in PiP emits landscape video. Keep the remaining split view tall and give
+            // Balcony and PiP landscape tiles on the right.
+            val root = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(0xff000000.toInt()) }
+            root.addView(tileFor(portraits[0]), LinearLayout.LayoutParams(0, -1, 4f).apply { setMargins(2, 2, 2, 2) })
+            val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            root.addView(right, LinearLayout.LayoutParams(0, -1, 6f))
+            landscapes.forEach { cam ->
+                right.addView(tileFor(cam), LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(2, 2, 2, 2) })
+            }
             root
         } else {
             GridLayout(this).apply {

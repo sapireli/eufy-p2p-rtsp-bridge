@@ -66,7 +66,7 @@ export function createCameras(ctx) {
         transcode: c.transcode,
         isDual,
         viewModeCmd: isDual ? DUAL_MODELS[modelKey] : null,
-        dualView: isDual ? (c.dualView ?? ctx.cfg.defaults.dualView) : null,
+        dualView: isDual ? (ctx.viewModes?.get(m.sn) ?? c.dualView ?? ctx.cfg.defaults.dualView) : null,
       });
     }
     cache = out;

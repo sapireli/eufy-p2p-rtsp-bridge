@@ -80,3 +80,42 @@ test("applyAllPins pins even right after a scoped pass", async () => {
   await pins.applyAllPins();
   assert.equal(ctx.sent.length, 2, "the deliberate pass is forced through");
 });
+
+test("a view switch commands the camera, persists only on success, and restarts its feed", async () => {
+  const cam = { sn: "DUAL", stationSn: "STATION", isDual: true, viewModeCmd: 6243, dualView: "split", enabled: true };
+  const ctx = ctxWith({ cam });
+  const saved = [];
+  const restarted = [];
+  ctx.viewModes = { save: (sn, mode) => saved.push([sn, mode]) };
+  ctx.restartCamera = (sn) => restarted.push(sn);
+  const pins = createPins(ctx);
+  await pins.setDualView("DUAL", "pip-br");
+  assert.deepEqual(ctx.sent, [{ sn: "DUAL", cmd: 6243, payload: { restore: 1, video_type: 5 } }]);
+  assert.deepEqual(saved, [["DUAL", "pip-br"]]);
+  assert.deepEqual(restarted, ["DUAL"]);
+  assert.equal(cam.dualView, "pip-br");
+
+  ctx.sdk.sendSetPayload = async () => { throw new Error("camera refused"); };
+  await assert.rejects(pins.setDualView("DUAL", "split"), /camera refused/);
+  assert.equal(cam.dualView, "pip-br");
+  assert.equal(saved.length, 1);
+});
+
+test("simultaneous switches of one camera are applied in request order", async () => {
+  const cam = { sn: "DUAL", stationSn: "STATION", isDual: true, viewModeCmd: 6243, dualView: "split", enabled: true };
+  const ctx = ctxWith({ cam });
+  const saved = [];
+  ctx.viewModes = { save: (_sn, mode) => saved.push(mode) };
+  const firstSent = new Promise((resolve) => { ctx.sdk.sendSetPayload = async (_client, _sn, _cmd, payload) => {
+    if (payload.video_type === 5) { resolve(); await new Promise((done) => { ctx.finishFirst = done; }); }
+  }; });
+  const pins = createPins(ctx);
+  const first = pins.setDualView("DUAL", "pip-br");
+  await firstSent;
+  const second = pins.setDualView("DUAL", "split");
+  assert.deepEqual(saved, [], "second request cannot overtake a command still in progress");
+  ctx.finishFirst();
+  await Promise.all([first, second]);
+  assert.deepEqual(saved, ["pip-br", "split"]);
+  assert.equal(cam.dualView, "split");
+});

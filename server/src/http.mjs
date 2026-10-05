@@ -147,6 +147,23 @@ export function createHttpHandler(ctx) {
 
     if (url.pathname === "/api/cameras") return json(res, 200, ctx.listCameras().map((c) => ctx.apiShape(c, host)));
 
+    const viewRoute = /^\/api\/cameras\/([^/]+)\/view$/.exec(url.pathname);
+    if (viewRoute) {
+      if (req.method !== "POST") return json(res, 405, { error: "POST required" });
+      const sn = decodeURIComponent(viewRoute[1]);
+      const cam = ctx.getCamera(sn);
+      if (!cam?.enabled || !cam.isDual) return json(res, 404, { error: "unknown or non-dual camera" });
+      const mode = url.searchParams.get("mode");
+      if (!["split", "pip-tl", "pip-tr", "pip-bl", "pip-br", "single"].includes(mode))
+        return json(res, 400, { error: "invalid dual view mode" });
+      try {
+        await ctx.setDualView(sn, mode);
+        return json(res, 200, { sn, dualView: mode });
+      } catch (e) {
+        return json(res, 502, { error: String(e?.message ?? e) });
+      }
+    }
+
     // The last thumbnail the SDK retained for a camera. Served so a tile can show something real while
     // its camera is asleep or still waking, instead of a black rectangle. Never wakes the camera.
     if (kind === "snapshot" && arg) {

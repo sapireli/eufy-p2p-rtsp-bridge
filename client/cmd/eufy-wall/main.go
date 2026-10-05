@@ -3,11 +3,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -30,6 +33,8 @@ func main() {
 	cfgPath := flag.String("config", "/etc/eufy-wall.yaml", "config file")
 	dryRun := flag.Bool("dry-run", false, "print the resolved layout and pipeline, then exit")
 	printLayout := flag.Bool("print-layout", false, "print the resolved layout table, then exit")
+	viewCamera := flag.String("view-camera", "", "camera name or serial to change (then exit)")
+	viewMode := flag.String("view-mode", "", "dual-lens mode: split, pip-tl, pip-tr, pip-bl, pip-br, or single")
 	flag.Parse()
 	log.SetFlags(log.Ltime)
 
@@ -48,6 +53,19 @@ func main() {
 			log.Printf("[wall] _eufy-wall._tcp discovery failed: %v; retrying in 5s", err)
 			time.Sleep(5 * time.Second)
 		}
+	}
+	if *viewCamera != "" || *viewMode != "" {
+		if *viewCamera == "" || *viewMode == "" {
+			log.Fatal("[wall] both -view-camera and -view-mode are required")
+		}
+		if err := changeView(c.RTSPBase, *viewCamera, *viewMode); err != nil {
+			log.Fatalf("[wall] view switch: %v", err)
+		}
+		log.Printf("[wall] %s view changed to %s", *viewCamera, *viewMode)
+		return
+	}
+	if err := detectAspects(c); err != nil {
+		log.Printf("[wall] camera geometry unavailable: %v; using configured tile aspects", err)
 	}
 	if c.Screen.Width == 0 || c.Screen.Height == 0 {
 		if s, ok := detect.ScreenFor("/", c.Output); ok {
@@ -110,6 +128,115 @@ func main() {
 
 	runDynamic(ctx, c, caps, tiles, mgr, plans)
 	log.Printf("[wall] stopped")
+}
+
+// detectAspects sizes fixed tiles from the bridge's observed stream geometry. An explicit aspect in
+// the client config still wins; an unavailable bridge leaves the original layout intact.
+func detectAspects(c *config.Config) error {
+	base := wsclient.APIBase(c.RTSPBase)
+	if base == "" {
+		return fmt.Errorf("no bridge API for %q", c.RTSPBase)
+	}
+	return detectAspectsAt(c, base)
+}
+
+func detectAspectsAt(c *config.Config, base string) error {
+	client := &http.Client{Timeout: 4 * time.Second}
+	response, err := client.Get(base + "/api/cameras")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("camera list: HTTP %d", response.StatusCode)
+	}
+	var cameras []struct {
+		SN     string `json:"sn"`
+		Width  int    `json:"width"`
+		Height int    `json:"height"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&cameras); err != nil {
+		return err
+	}
+	bySN := make(map[string]struct{ Width, Height int }, len(cameras))
+	for _, cam := range cameras {
+		bySN[cam.SN] = struct{ Width, Height int }{cam.Width, cam.Height}
+	}
+	for i := range c.Tiles {
+		tile := &c.Tiles[i]
+		if tile.Aspect != "" || tile.Camera == "" || tile.URL != "" {
+			continue
+		}
+		if dimensions, ok := bySN[tile.Camera]; ok && dimensions.Width > 0 && dimensions.Height > 0 {
+			if dimensions.Height > dimensions.Width {
+				tile.Aspect = "tall"
+			} else {
+				tile.Aspect = "wide"
+			}
+		}
+	}
+	return nil
+}
+
+// changeView uses the bridge's camera list so an operator can name a camera instead of looking up its serial.
+func changeView(rtspBase, camera, mode string) error {
+	base := wsclient.APIBase(rtspBase)
+	if base == "" {
+		return fmt.Errorf("cannot derive bridge API from rtsp_base %q", rtspBase)
+	}
+	return changeViewAt(base, camera, mode)
+}
+
+func changeViewAt(base, camera, mode string) error {
+	valid := map[string]bool{"split": true, "pip-tl": true, "pip-tr": true, "pip-bl": true, "pip-br": true, "single": true}
+	if !valid[mode] {
+		return fmt.Errorf("invalid mode %q", mode)
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	response, err := client.Get(base + "/api/cameras")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("camera list: HTTP %d", response.StatusCode)
+	}
+	var cameras []struct {
+		SN   string `json:"sn"`
+		Name string `json:"name"`
+		Dual bool   `json:"dual"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&cameras); err != nil {
+		return err
+	}
+	var sn string
+	for _, cam := range cameras {
+		if strings.EqualFold(cam.SN, camera) || strings.EqualFold(cam.Name, camera) {
+			if !cam.Dual {
+				return fmt.Errorf("%s is not a dual-lens camera", cam.Name)
+			}
+			sn = cam.SN
+			break
+		}
+	}
+	if sn == "" {
+		return fmt.Errorf("camera %q was not found", camera)
+	}
+	endpoint := base + "/api/cameras/" + url.PathEscape(sn) + "/view?mode=" + url.QueryEscape(mode)
+	request, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	result, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer result.Body.Close()
+	if result.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(result.Body, 512))
+		return fmt.Errorf("bridge HTTP %d: %s", result.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 // discoverBridge accepts only a resolved _eufy-wall._tcp Avahi record. Its HTTP

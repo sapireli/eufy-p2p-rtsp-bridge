@@ -33,6 +33,14 @@ Opening the eufy phone app with the SAME account kicks the bridge (state "reauth
   `codec` in `/api/cameras`; a wall tile must declare `codec: h265` if that stream is HEVC.
 - Dual-lens (E340 doorbell/floodlight, S340): the bridge sends `dual_view` only when configured for that
   camera or under `defaults`. It does not change a device setting on an unset value.
+  The TV setup screen and Linux `-view-camera` command can change one camera at a time through
+  `POST /api/cameras/<serial>/view?mode=split|pip-tl|pip-tr|pip-bl|pip-br|single`. The bridge stores these
+  overrides in `/var/lib/eufy-wall-bridge/dual-view-modes.json`, reapplies them after a restart, and
+  reports the chosen `dualView` in `/api/cameras`. Delete that JSON entry to return to YAML/app settings.
+  The camera composes the image before transmission, so switching modes adds no transcoding load. A
+  stream briefly restarts because its resolution and aspect can change. On the tested T8214 Front Door,
+  `pip-br` showed both lenses with the lower view inset. On the tested T8425 Garage, PiP commands were
+  accepted but the live frame showed only the main lens; use `split` to keep both Garage lenses visible.
 - A battery device reports charging without proving that its external input can support continuous video.
   The SDK keeps its battery budget by default. For a camera whose installation supports a persistent
   stream, set `cameras.<sn>.power_override: always-on` in the bridge YAML. This records a bridge-side

@@ -53,6 +53,15 @@ func StillURL(rtspBase, sn string) string {
 	return strings.Replace(strings.Replace(u, "ws://", "http://", 1), "/ws", "/snapshot/"+sn, 1)
 }
 
+// APIBase is the bridge HTTP endpoint paired with the configured RTSP service.
+func APIBase(rtspBase string) string {
+	endpoint := EventURL(rtspBase)
+	if endpoint == "" {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Replace(endpoint, "ws://", "http://", 1), "/ws")
+}
+
 // Run follows the channel until ctx is cancelled, applying every message to `store` and calling
 // `changed` whenever a tile could care. Store synchronizes updates with concurrent renderer reads.
 func Run(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), log func(string)) {

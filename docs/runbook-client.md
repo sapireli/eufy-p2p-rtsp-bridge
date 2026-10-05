@@ -27,6 +27,20 @@ The install script expects the repo layout (`deploy/` next to `client/`), so cop
 `1`, `2x2`, `3x3`, `1+5` (primary 2×2 at `left` or `right` of a 3×3 grid; `center` is not possible with 3
 columns). A tile with `aspect: tall` (an E340 in split-view) takes 1 column × 2 rows — in `1+5` that is the
 side column next to the primary; if there is no room it is letterboxed in one cell.
+For a fixed camera with no `aspect` setting, the client reads `/api/cameras` at startup and marks a
+portrait stream `tall` automatically. An explicit `aspect: tall` or `aspect: wide` overrides detection.
+If the bridge is unavailable during startup, the client keeps the configured/default layout.
+
+## Dual-lens Split / PiP
+The bridge controls each camera's composed view. On the Linux client, switch one by name or serial:
+
+    eufy-wall -config /etc/eufy-wall.yaml -view-camera 'Front Door CLE' -view-mode pip-br
+    eufy-wall -config /etc/eufy-wall.yaml -view-camera 'Front Door CLE' -view-mode split
+
+Modes are `split`, `pip-tl`, `pip-tr`, `pip-bl`, `pip-br`, and `single`. The bridge saves the choice and
+restarts that camera's stream; the Linux wall reconnects. PiP is landscape, so remove an explicit
+`aspect: tall` from that tile's config and restart the Linux wall to detect its new geometry. A TV can
+change the same setting from its setup screen; all clients then see the camera's new stream.
 
 ## Sink strategy (from Spike B — fill in measured numbers)
 | Pi | streams | sink=planes | sink=compositor | notes |

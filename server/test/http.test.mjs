@@ -44,6 +44,22 @@ test("healthz and api/cameras", async () => {
   });
 });
 
+test("per-camera view endpoint validates mode and reports command failure", async () => {
+  const commands = [];
+  const cam = { sn: "A", enabled: true, isDual: true };
+  const ctx = ctxWith({ getCamera: (sn) => sn === "A" ? cam : null,
+    setDualView: async (sn, mode) => { commands.push([sn, mode]); if (mode === "pip-tl") throw new Error("camera refused"); } });
+  await withServer(ctx, async (base) => {
+    const path = `${base}/api/cameras/A/view`;
+    assert.equal((await fetch(path)).status, 405);
+    assert.equal((await fetch(`${path}?mode=invalid`, { method: "POST" })).status, 400);
+    assert.equal((await fetch(`${base}/api/cameras/B/view?mode=split`, { method: "POST" })).status, 404);
+    assert.deepEqual(await (await fetch(`${path}?mode=pip-br`, { method: "POST" })).json(), { sn: "A", dualView: "pip-br" });
+    assert.equal((await fetch(`${path}?mode=pip-tl`, { method: "POST" })).status, 502);
+    assert.deepEqual(commands, [["A", "pip-br"], ["A", "pip-tl"]]);
+  });
+});
+
 test("stream: 200 for enabled, 404 disabled/unknown, 423 blocked, 503 not ready", async () => {
   const ctx = ctxWith();
   await withServer(ctx, async (base) => {

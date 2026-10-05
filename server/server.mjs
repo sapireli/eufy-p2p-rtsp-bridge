@@ -14,6 +14,7 @@ import { createSdk } from "./src/sdk-adapter.mjs";
 import { createCameras } from "./src/cameras.mjs";
 import { reportLanPreflight } from "./src/lan-preflight.mjs";
 import { createPins } from "./src/pins.mjs";
+import { createViewModes } from "./src/view-modes.mjs";
 import { createStreamManager } from "./src/stream-manager.mjs";
 import { createLanGuard } from "./src/lan-guard.mjs";
 import { createLanUpgrade } from "./src/lan-upgrade.mjs";
@@ -32,6 +33,7 @@ const state = createState();
 const hooks = {};
 const { eufy, sdk } = createSdk({ cfg, DEBUG, hooks });
 const ctx = { cfg, DEBUG, eufy, sdk, state, SCHEMA_VERSION: 1, PUSH_STALL_MS: 15 * 60_000 };
+ctx.viewModes = createViewModes(cfg.dataDir);
 
 // Vendored auth/watchdog broadcast auth changes to "clients"; we have none in phase 1 → log.
 ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);

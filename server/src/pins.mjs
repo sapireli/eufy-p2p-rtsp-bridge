@@ -16,6 +16,7 @@ const REPIN_MIN_GAP_MS = 30_000;
 export function createPins(ctx) {
   const warnedQuality = new Set();
   const lastPinnedAt = new Map(); // sn -> ms
+  const viewSwitches = new Map(); // serialize switches of one camera from multiple clients
 
   async function applyPins(sn, { force = false } = {}) {
     const cam = ctx.getCamera(sn);
@@ -65,5 +66,28 @@ export function createPins(ctx) {
     return out;
   }
 
-  return { applyPins, applyAllPins };
+  async function performViewSwitch(sn, mode) {
+    const cam = ctx.getCamera(sn);
+    if (!cam?.enabled || !cam.isDual || !cam.viewModeCmd) throw new Error("camera has no dual-lens view control");
+    if (!Object.hasOwn(DUAL_VIEW_VALUES, mode)) throw new Error("invalid dual view mode");
+    const client = await ctx.sdk.streamClientFor(sn, cam.stationSn);
+    await ctx.sdk.sendSetPayload(client, sn, cam.viewModeCmd, { restore: 1, video_type: DUAL_VIEW_VALUES[mode] });
+    ctx.viewModes.save(sn, mode);
+    cam.dualView = mode;
+    lastPinnedAt.set(sn, Date.now());
+    ctx.restartCamera?.(sn); // resolution/aspect may change; readers need a fresh keyframe and metadata
+    console.log(`[bridge] ${sn}: dual view changed to ${mode}`);
+    return mode;
+  }
+
+  function setDualView(sn, mode) {
+    const previous = viewSwitches.get(sn) ?? Promise.resolve();
+    const next = previous.catch(() => {}).then(() => performViewSwitch(sn, mode));
+    viewSwitches.set(sn, next);
+    next.then(() => { if (viewSwitches.get(sn) === next) viewSwitches.delete(sn); },
+      () => { if (viewSwitches.get(sn) === next) viewSwitches.delete(sn); });
+    return next;
+  }
+
+  return { applyPins, applyAllPins, setDualView };
 }

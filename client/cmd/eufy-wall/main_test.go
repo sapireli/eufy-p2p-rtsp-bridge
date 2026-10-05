@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"eufy-wall/internal/config"
+)
 
 func TestParseAvahi(t *testing.T) {
 	wrong := "=;eth0;IPv4;Other;_http._tcp;local;other.local;192.168.1.3;3000;\"rtsp=8554\"\n"
@@ -19,5 +26,45 @@ func TestParseAvahi(t *testing.T) {
 	base, err = parseAvahi("=;eth0;IPv4;Eufy Wall;_eufy-wall._tcp;local;bridge.local;192.168.1.8;3000;\"rtsp=8565\"\n")
 	if err != nil || base != "rtsp://192.168.1.8:8565" {
 		t.Fatalf("custom RTSP port: got %q, %v", base, err)
+	}
+}
+
+func TestDetectAspectsFromObservedStreamGeometry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"sn":"FRONT","width":1600,"height":2200},{"sn":"GARAGE","width":1280,"height":720}]`))
+	}))
+	defer server.Close()
+	c := &config.Config{Tiles: []config.Tile{{Camera: "FRONT"}, {Camera: "GARAGE"}, {Camera: "FRONT", Aspect: "wide"}}}
+	if err := detectAspectsAt(c, server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if c.Tiles[0].Aspect != "tall" || c.Tiles[1].Aspect != "wide" || c.Tiles[2].Aspect != "wide" {
+		t.Fatalf("aspects: %+v", c.Tiles)
+	}
+}
+
+func TestChangeViewByCameraName(t *testing.T) {
+	var posted string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/cameras" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"sn":"T8214","name":"Front Door CLE","dual":true},{"sn":"OTHER","name":"Balcony CLE","dual":false}]`))
+			return
+		}
+		posted = r.Method + " " + r.URL.String()
+		_, _ = w.Write([]byte(`{"sn":"T8214","dualView":"pip-br"}`))
+	}))
+	defer server.Close()
+	if err := changeViewAt(server.URL, "front door cle", "pip-br"); err != nil {
+		t.Fatal(err)
+	}
+	if posted != "POST /api/cameras/T8214/view?mode=pip-br" {
+		t.Fatalf("posted %q", posted)
+	}
+	if err := changeViewAt(server.URL, "Balcony CLE", "pip-br"); err == nil || !strings.Contains(err.Error(), "not a dual-lens") {
+		t.Fatalf("got %v", err)
+	}
+	if err := changeViewAt(server.URL, "Front Door CLE", "bad"); err == nil {
+		t.Fatal("accepted bad mode")
 	}
 }

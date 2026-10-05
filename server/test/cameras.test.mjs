@@ -47,6 +47,16 @@ test("config overrides name/enabled/quality/dual view; dual models flagged with 
   assert.equal(c.getCamera("T8410A").isDual, false);
 });
 
+test("saved per-camera view choice takes precedence over YAML without affecting siblings", async () => {
+  const other = { ...door, sn: "T8214D", name: "Other door" };
+  const ctx = ctxWith([door, other], { T8214C: { dualView: "split" } });
+  ctx.viewModes = { get: (sn) => sn === "T8214C" ? "pip-br" : undefined };
+  const registry = createCameras(ctx);
+  await registry.refreshCameras();
+  assert.equal(registry.getCamera("T8214C").dualView, "pip-br");
+  assert.equal(registry.getCamera("T8214D").dualView, "split");
+});
+
 test("apiShape merges stream status and rtsp url", async () => {
   const ctx = ctxWith([wired]);
   ctx.streamStatus = () => ({ streaming: true, stalls: 2, codec: "h264", width: 1920, height: 1080 });
