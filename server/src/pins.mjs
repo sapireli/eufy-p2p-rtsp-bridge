@@ -75,7 +75,8 @@ export function createPins(ctx) {
     ctx.viewModes.save(sn, mode);
     cam.dualView = mode;
     lastPinnedAt.set(sn, Date.now());
-    ctx.restartCamera?.(sn); // resolution/aspect may change; readers need a fresh keyframe and metadata
+    // Keep the live feed open. stream-manager detects a confirmed coded-geometry change
+    // and disconnects only consumers whose RTSP SDP must be renegotiated.
     console.log(`[bridge] ${sn}: dual view changed to ${mode}`);
     return mode;
   }

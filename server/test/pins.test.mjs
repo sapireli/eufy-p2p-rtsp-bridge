@@ -81,7 +81,7 @@ test("applyAllPins pins even right after a scoped pass", async () => {
   assert.equal(ctx.sent.length, 2, "the deliberate pass is forced through");
 });
 
-test("a view switch commands the camera, persists only on success, and restarts its feed", async () => {
+test("a view switch commands the camera and persists only on success without restarting its feed", async () => {
   const cam = { sn: "DUAL", stationSn: "STATION", isDual: true, viewModeCmd: 6243, dualView: "split", enabled: true };
   const ctx = ctxWith({ cam });
   const saved = [];
@@ -92,7 +92,7 @@ test("a view switch commands the camera, persists only on success, and restarts 
   await pins.setDualView("DUAL", "pip-br");
   assert.deepEqual(ctx.sent, [{ sn: "DUAL", cmd: 6243, payload: { restore: 1, video_type: 5 } }]);
   assert.deepEqual(saved, [["DUAL", "pip-br"]]);
-  assert.deepEqual(restarted, ["DUAL"]);
+  assert.deepEqual(restarted, [], "the live feed detects geometry changes without a forced restart");
   assert.equal(cam.dualView, "pip-br");
 
   ctx.sdk.sendSetPayload = async () => { throw new Error("camera refused"); };
