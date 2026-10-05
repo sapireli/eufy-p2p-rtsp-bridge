@@ -1,7 +1,7 @@
 # Vendored from mega-yfue/ha-eufy-sdk-bridge
 
 - Upstream: https://github.com/mega-yfue/ha-eufy-sdk-bridge
-- Commit: 1154026d179ef523e28d75a4554844f055549cba
+- Commit: f00dd987a7b86d1b5fd91731fcdb179513c88ac4
 - License: Apache-2.0 (see upstream LICENSE). Copyright the ha-eufy-sdk-bridge authors.
 - Files (verbatim, DO NOT EDIT — wrap them from ../../*.mjs instead):
   - go2rtc-config.mjs  ← upstream go2rtc-config.mjs  (go2rtc.yaml generator)
