@@ -6,6 +6,10 @@ Expose `streamType?: 1 | 2` on the managed live-source options and forward the f
 selection through every start and retry. Preserve the existing omitted-option defaults:
 HomeBase-attached starts use `1`; own-session starts use `2`.
 
+The submitted [upstream PR #339](https://github.com/mega-yfue/eufy-sdk/pull/339) also rejects
+an explicit own-session `1`: the app capture verifies `2` there, and no own-session `1` write
+has been observed. This narrows the earlier fork implementation.
+
 Need: on a HomeBase-attached T8214, a managed live request using the attached default caused the
 encoded Split composition to change to PiP during motion. A caller needs to select the captured
 first-party value `2` while retaining SDK-owned encryption, shared-source ownership, and recovery.
@@ -15,6 +19,9 @@ Implementation checkpoints:
 
 - [SDK df535e27](https://github.com/sapireli/eufy-sdk/commit/df535e27f013dea610d2a5b2f775105a71407293)
   implements the managed selector and restores the original defaults.
+- [SDK 773b748](https://github.com/sapireli/eufy-sdk/commit/773b7481d657c49e5bac986c9f8324f840b87a5b)
+  rejects the unverified own-session `1` selection. PR #339 carries this guard on the current
+  upstream beta along with the attached selector.
 - [Bridge b854115](https://github.com/sapireli/eufy-p2p-rtsp-bridge/commit/b854115bcc0b869df40a31ee1bc0f87faa49b61c)
   supplies `streamType: 2` on every camera pull and pins that SDK revision.
 - [Incident timeline](dual-view-stream-selection.md) includes the earlier controls and deployment checks.
@@ -160,20 +167,24 @@ Full SDK `npm run verify` passed on `df535e27`: **219 test files, 3,886 tests, 9
 snippets**, plus format, typecheck, architecture guards, build, ESM load, and example checks.
 On macOS the existing shell guards needed GNU coreutils and GNU sed ahead of BSD tools in PATH.
 
-The relevant specs decrypt synthetic emitted packets and cover:
+The original fork specs on `df535e27` decrypted synthetic emitted packets and covered:
 
 - Attached omitted-option default `1`, explicit `2`, and unchanged empty stop payload.
 - Public managed selection on attached and own-session level-2 starts.
 - First-opener ownership and conflicting later hints.
 - Warm retries, forced starts, and attached reassertion after silence.
 - Own-session omitted-option default `2`, selected level-1 starts, byte-identical retransmissions,
-  and forced starts.
+  and forced starts. The selected `1` test was synthetic only; it did not verify that wire value on
+  a device. PR #339 removes that selected-start path and tests rejection before sending.
 
 Specs: `src/transport/p2p/__tests__/attached-media-requires-level2.spec.ts` and
 `src/transport/p2p/__tests__/live-start-ack.spec.ts`. These prove plumbing/default behavior;
 the live device comparison establishes why a caller needs the selector.
+The adapted PR #339 passed the current beta's full SDK gate with **220 test files, 3,876 tests**
+and the docs build. The later fork guard commit `773b748` passed **219 files, 3,886 tests** and
+its docs build.
 
-The bridge passed **102 tests** with this installed revision. DietPi deployment verified the lock
+The bridge passed **102 tests** with `df535e27` installed. DietPi deployment verified the lock
 revision and compiled default `1`, then inspected `streamType: 2` on three active managed pulls
 (two attached, one own-session). A normal managed forced reassertion emitted two attached starts,
 both decrypted with selector `2`. The own-session start was not newly emitted during that short
@@ -184,20 +195,23 @@ running. RTSP probes returned H.264 524×720 and 640×720 for the two dual-lens 
 screenshot showed Split playback. Diagnostic wrappers were restored and the inspector was closed.
 No additional motion was measured after deploying the public-option implementation. State that
 limit in the PR: the controlled motion comparison and deployed wire verification are distinct tests.
+The deployed fork revision predates the own-session guard, while the attached selector path in
+PR #339 is the same. The exact upstream PR commit has not been run on hardware.
 
 ## Upstream patch boundaries
 
-Read the SDK's current `AGENTS.md` and `CONTRIBUTING.md`, re-fetch its target beta branch, search
-existing PRs/issues for this same fix, and follow its current PR rules. This handoff does not assert
-that a new upstream PR is ready against an unexamined current head.
+PR #339 was adapted to the then-current `beta-0.5.0` after reviewing the SDK rules and searching
+open, closed, and merged PRs and issues for the same fix. Its PR body records the physical
+comparison, the later managed-path check, and their distinct limits.
 
 Do not merge the entire fork branch: it contains unrelated local changes. Do not submit the earlier
 global-default change `7dba7e8`. The SDK option commit follows that change and reverses it, so blindly
 cherry-picking it onto upstream may conflict on a default that upstream already has.
 
-Use the net selector-only change from SDK `e347add323cb7af83d80115780d77ff7f9fac283` through
-`df535e27f013dea610d2a5b2f775105a71407293`, restricted to these seven files, and adapt it to the
-current upstream base:
+The submitted patch took the net selector-only change from SDK
+`e347add323cb7af83d80115780d77ff7f9fac283` through
+`df535e27f013dea610d2a5b2f775105a71407293`, restricted to these seven files and adapted
+to the upstream base:
 
 - `src/core/contracts.ts`
 - `src/transport/p2p/command-router.ts`
@@ -207,7 +221,8 @@ current upstream base:
 - `src/transport/p2p/__tests__/live-start-ack.spec.ts`
 - `docs/live-media.md`
 
-Inspect that net patch: omitted defaults must be unchanged relative to the chosen upstream base.
+PR #339 includes the later own-session guard, and its omitted defaults are unchanged from the
+upstream base.
 Keep this PR about managed start selection. Exclude loss signaling/gating, reorder waits, media-slot
 allocation, view-setting commands, frame suppression, transcoder changes, and client rendering.
 Use synthetic identifiers in SDK tests; public prose must omit actual device/account IDs, keys,
@@ -229,4 +244,6 @@ addresses, home images, and raw capture attachments. Keep the upstream PR consum
 >
 > The deployed managed path was checked with explicit selector 2 on active feeds and two decrypted
 > attached reassertions. Post-deployment playback was verified; additional motion after deployment was
-> not tested. Firmware semantics and broader model behavior remain unestablished.
+> not tested. The exact upstream commit was not run on hardware. Own-session selector 1 is rejected
+> because it has not been observed on a device. Firmware semantics and broader model behavior remain
+> unestablished.
