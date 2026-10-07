@@ -64,7 +64,7 @@ test("bridge config supplies per-pull power and per-station CIDR selection", asy
   const described = await adapter.describe(sn);
   assert.equal(described.powerOverride, "always-on");
   assert.equal(described.powerTier, "wired");
-  assert.deepEqual(await adapter.openFeed(eufy, sn), { powered: "wired" });
+  assert.deepEqual(await adapter.openFeed(eufy, sn), { streamType: 2, powered: "wired" });
 });
 
 test("an explicit battery claim stays battery-budgeted on each media pull", async () => {
@@ -77,7 +77,19 @@ test("an explicit battery claim stays battery-budgeted on each media pull", asyn
     DEBUG: false,
   });
   eufy.getDevice = async () => ({ camera: () => ({ openReadable: async (opts) => opts }) });
-  assert.deepEqual(await adapter.openFeed(eufy, sn), { powered: "battery" });
+  assert.deepEqual(await adapter.openFeed(eufy, sn), { streamType: 2, powered: "battery" });
+});
+
+test("every camera pull explicitly selects stream type 2 without requiring a power override", async () => {
+  const { eufy, sdk: adapter } = createSdk({
+    cfg: {
+      email: "synthetic@example.com", password: "synthetic", country: "US", session: "/tmp/synthetic-sdk-session",
+      cameras: {}, lan: { stationAddresses: {} },
+    },
+    DEBUG: false,
+  });
+  eufy.getDevice = async () => ({ camera: () => ({ openReadable: async (opts) => opts }) });
+  assert.deepEqual(await adapter.openFeed(eufy, "T8000P0000000000"), { streamType: 2 });
 });
 
 test("EufyMega instance methods used by the bridge", () => {

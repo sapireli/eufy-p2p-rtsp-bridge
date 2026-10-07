@@ -42,10 +42,12 @@ Opening the eufy phone app with the SAME account kicks the bridge (state "reauth
   On the tested T8214 Front Door,
   `pip-br` showed both lenses with the lower view inset. On the tested T8425 Garage, PiP commands were
   accepted but the live frame showed only the main lens; use `split` to keep both Garage lenses visible.
-- HomeBase live starts must use the SDK's `streamtype: 2` selector. The former value `1` caused a
+- The bridge explicitly requests `streamType: 2` on every camera pull. The SDK forwards it as the
+  wire field `streamtype` on starts and retries while retaining its existing defaults for other callers.
+  The HomeBase default value `1` caused a
   T8214 Split feed to become PiP during motion, including in the phone app while the bridge was open.
-  See [the measured diagnosis](dual-view-stream-selection.md). This fix is in the SDK used by the
-  server, so Android TV and Linux clients receive the corrected stream without an app update.
+  See [the measured diagnosis](dual-view-stream-selection.md). The bridge and its SDK dependency carry
+  the explicit choice, so Android TV and Linux clients receive the corrected stream without an app update.
 - A battery device reports charging without proving that its external input can support continuous video.
   The SDK keeps its battery budget by default. For a camera whose installation supports a persistent
   stream, set `cameras.<sn>.power_override: always-on` in the bridge YAML. This records a bridge-side

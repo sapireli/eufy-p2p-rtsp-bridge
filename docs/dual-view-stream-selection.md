@@ -2,12 +2,18 @@
 
 ## Cause and fix
 
-The SDK's HomeBase-attached live-start command (outer `1350`, inner `1003`) previously requested
+The bridge's managed live pull used the SDK's HomeBase-attached default (outer `1350`, inner `1003`),
 `payload.streamtype: 1`. A decrypted first-party app capture requests `2`. Controlled testing on a
 T8214 showed that changing this field from `2` to `1` brings back motion-time PiP, while `2` keeps
-Split. [SDK commit `7dba7e8`](https://github.com/sapireli/eufy-sdk/commit/7dba7e8b5ac3b1a00dd36a11f690289191abe00a)
-changes this start-only field to `2`; the stop command and view-mode commands keep their existing
-payloads.
+Split. The bridge explicitly passes `streamType: 2` to `openReadable()` for every camera, alongside
+any power claim. The SDK forwards that option into the managed start and subsequent retries. Its
+existing defaults remain `1` for HomeBase-attached cameras and `2` for own-session cameras; the stop
+command and view-mode commands retain their payloads.
+
+The low-level SDK command API accepts arbitrary payload fields, but a raw control command does not
+supply the managed stream's media-key handshake or retry state. Passing the option through the managed
+path keeps those existing responsibilities in the SDK. The earlier global-default change in commit
+`7dba7e8` is superseded by this explicit client selection.
 
 These measurements establish the selector's effect on this device. They do not establish a
 universal protocol name for values `1` and `2`, or the camera firmware's internal encoder routing.
@@ -39,15 +45,23 @@ are outside this fix.
 
 ## Verification boundaries
 
-The regression test decrypts synthetic emitted SDK packets and asserts selector `2` in the
-attached start, alongside the existing empty stop payload. It failed on the old selector and
-passed after the fix. Full SDK verification passed 3,881 tests; the bridge passed all 101 tests.
+The regression tests decrypt synthetic emitted SDK packets and assert that the public managed
+option reaches attached and own-session starts, retries, forced starts, and silence reassertions.
+They also preserve the original defaults and empty attached stop payload. Full SDK verification
+passed 3,886 tests, including 95 documented snippets. The explicit selector is implemented in
+[SDK commit df535e2](https://github.com/sapireli/eufy-sdk/commit/df535e27f013dea610d2a5b2f775105a71407293).
 
-DietPi deployment verified the locked SDK revision and the compiled selector `2`. All three active
-camera feeds recovered with zero reported stalls. RTSP probes reported the T8214 output as H.264
-524×720 and the T8425 output as H.264 640×720. The connected Fire TV displayed both cameras in Split.
-No additional post-deployment motion event was measured before this checkpoint; the controlled
-single-field motion comparison above is the prevention evidence.
+The bridge passed all 102 tests with that locked SDK commit. DietPi installation verified the locked
+revision and compiled attached default `1`. Runtime inspection found `streamType: 2` on all three
+active managed pulls (two attached, one own-session). A managed forced reassertion produced two
+attached starts, both decrypted with selector `2`; the own-session start was not newly emitted in that
+inspection window. The synthetic wire tests cover its selected starts and retries.
+
+All three feeds were active with zero reported stalls, authentication OK, push connected, and go2rtc
+running. RTSP probes reported the T8214 output as H.264 524×720 and the T8425 output as H.264
+640×720. A fresh connected Fire TV screenshot showed both cameras in Split. Diagnostic wrappers
+were restored and the temporary inspector was closed. Additional post-deployment motion has not been
+measured; the controlled single-field motion comparison above is the prevention evidence.
 
 The geometry suppression/reassert workaround was removed. This fix does not hide frames, crop
 PiP, or send a correction after motion. Existing explicit per-camera PiP controls remain available.
