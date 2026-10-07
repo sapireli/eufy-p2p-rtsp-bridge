@@ -7,6 +7,9 @@ Eufy cameras → RTSP (server) → grid on a Raspberry Pi's HDMI (client). No Do
 - Design: `docs/superpowers/specs/2026-09-18-eufy-wall-design.md`.
 
 ## Upstream
+
+- Managed live-start selector: [SDK PR evidence and handoff](docs/sdk-streamtype-pr-handoff.md),
+  with [sanitized motion traces](docs/evidence/streamtype-motion-2026-10-07.json).
 - `@mega-yfue/eufy-sdk` is pinned to the fork's `eufy-wall` branch in `server/package-lock.json`. The contract test in `server/test/sdk-contract.test.mjs` checks the installed API and P2P fixes when that pin moves. SDK PRs #279 and #282 are merged into beta; #235 was closed without merging, and #280 remains under review. The fork retains #235's active-stream teardown and #280's peer-selection callback, so the bridge cannot move to upstream `main` while it requires those behaviors. The bridge's power choice uses the SDK's existing per-pull media option.
 - Modules vendored from [`ha-eufy-sdk-bridge`](https://github.com/mega-yfue/ha-eufy-sdk-bridge) live in `server/src/vendor/ha-bridge/` (see `VENDOR.md`); the weekly `upstream-sync` workflow opens a PR when they drift. Locally: `server/scripts/sync-upstream.sh [--check|--apply]`.
 

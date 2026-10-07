@@ -1,5 +1,8 @@
 # Motion-time dual-view switching
 
+For upstream submission, use the [SDK PR handoff](sdk-streamtype-pr-handoff.md) and its
+[sanitized trace evidence](evidence/streamtype-motion-2026-10-07.json).
+
 ## Cause and fix
 
 The bridge's managed live pull used the SDK's HomeBase-attached default (outer `1350`, inner `1003`),
