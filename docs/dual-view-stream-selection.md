@@ -63,8 +63,9 @@ inspection window. The synthetic wire tests cover its selected starts and retrie
 All three feeds were active with zero reported stalls, authentication OK, push connected, and go2rtc
 running. RTSP probes reported the T8214 output as H.264 524×720 and the T8425 output as H.264
 640×720. A fresh connected Fire TV screenshot showed both cameras in Split. Diagnostic wrappers
-were restored and the temporary inspector was closed. Additional post-deployment motion has not been
-measured; the controlled single-field motion comparison above is the prevention evidence.
+were restored and the temporary inspector was closed. After deployment, the operator manually
+triggered motion and reports that the fix held. That follow-up has no timed packet/frame trace in
+this record; the controlled single-field comparison above supplies the instrumented evidence.
 
 The geometry suppression/reassert workaround was removed. This fix does not hide frames, crop
 PiP, or send a correction after motion. Existing explicit per-camera PiP controls remain available.

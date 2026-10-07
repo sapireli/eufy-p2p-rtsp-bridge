@@ -193,8 +193,9 @@ inspection, so its retry-wire coverage is synthetic.
 Health reported all three feeds active, zero stalls, authentication OK, push connected, and go2rtc
 running. RTSP probes returned H.264 524×720 and 640×720 for the two dual-lens cameras. A fresh Fire TV
 screenshot showed Split playback. Diagnostic wrappers were restored and the inspector was closed.
-No additional motion was measured after deploying the public-option implementation. State that
-limit in the PR: the controlled motion comparison and deployed wire verification are distinct tests.
+After deployment of the public option, the operator manually triggered motion and reports that
+the fix held. The handoff has no timestamped packet/frame trace for that follow-up. State the
+manual result separately from the instrumented selector comparison and deployed wire check.
 The deployed fork revision predates the own-session guard, while the attached selector path in
 PR #339 is the same. The exact upstream PR commit has not been run on hardware.
 
@@ -243,7 +244,8 @@ addresses, home images, and raw capture attachments. Keep the upstream PR consum
 > public selection, defaults, retries/reassertion, and stop payloads. The full verification gate passed.
 >
 > The deployed managed path was checked with explicit selector 2 on active feeds and two decrypted
-> attached reassertions. Post-deployment playback was verified; additional motion after deployment was
-> not tested. The exact upstream commit was not run on hardware. Own-session selector 1 is rejected
+> attached reassertions. Post-deployment playback was verified, and the operator reports a successful
+> manual motion check without a timed packet/frame trace for that follow-up. The exact upstream
+> commit was not run on hardware. Own-session selector 1 is rejected
 > because it has not been observed on a device. Firmware semantics and broader model behavior remain
 > unestablished.
