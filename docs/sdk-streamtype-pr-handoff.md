@@ -1,27 +1,27 @@
 # SDK PR handoff: managed live-start stream type selection
 
-## Proposed upstream change
+## Current upstream change
 
-Expose `streamType?: 1 | 2` on the managed live-source options and forward the first opener's
-selection through every start and retry. Preserve the existing omitted-option defaults:
-HomeBase-attached starts use `1`; own-session starts use `2`.
-
-The submitted [upstream PR #339](https://github.com/mega-yfue/eufy-sdk/pull/339) also rejects
-an explicit own-session `1`: the app capture verifies `2` there, and no own-session `1` write
-has been observed. This narrows the earlier fork implementation.
+The active [upstream PR #337](https://github.com/mega-yfue/eufy-sdk/pull/337) sets the attached
+media-start `payload.streamtype` to the current app's observed value `2` and adds one decrypted-wire
+regression spec. The own-session start already uses `2`; stop and media handling are unchanged.
+[PR #339](https://github.com/mega-yfue/eufy-sdk/pull/339) proposed a per-pull option but was closed
+after review requested the narrower default correction. That option remains in the deployed fork,
+where the bridge explicitly selects `2`; it is not part of the active upstream PR.
 
 Need: on a HomeBase-attached T8214, a managed live request using the attached default caused the
-encoded Split composition to change to PiP during motion. A caller needs to select the captured
-first-party value `2` while retaining SDK-owned encryption, shared-source ownership, and recovery.
-This is a requested option backed by a real-device comparison, not a speculative API extension.
+encoded Split composition to change to PiP during motion. The SDK needs to send the captured
+first-party value `2` through its existing managed start, preserving encryption, shared-source
+ownership, and recovery. The comparison supports a wire correction on the tested device; behavior
+on other attached models remains unverified.
 
 Implementation checkpoints:
 
 - [SDK df535e27](https://github.com/sapireli/eufy-sdk/commit/df535e27f013dea610d2a5b2f775105a71407293)
   implements the managed selector and restores the original defaults.
 - [SDK 773b748](https://github.com/sapireli/eufy-sdk/commit/773b7481d657c49e5bac986c9f8324f840b87a5b)
-  rejects the unverified own-session `1` selection. PR #339 carries this guard on the current
-  upstream beta along with the attached selector.
+  rejects the unverified own-session `1` selection in the fork. This guard was part of closed
+  PR #339, not active PR #337.
 - [Bridge b854115](https://github.com/sapireli/eufy-p2p-rtsp-bridge/commit/b854115bcc0b869df40a31ee1bc0f87faa49b61c)
   supplies `streamType: 2` on every camera pull and pins that SDK revision.
 - [Incident timeline](dual-view-stream-selection.md) includes the earlier controls and deployment checks.
@@ -175,14 +175,15 @@ The original fork specs on `df535e27` decrypted synthetic emitted packets and co
 - Warm retries, forced starts, and attached reassertion after silence.
 - Own-session omitted-option default `2`, selected level-1 starts, byte-identical retransmissions,
   and forced starts. The selected `1` test was synthetic only; it did not verify that wire value on
-  a device. PR #339 removes that selected-start path and tests rejection before sending.
+  a device. Closed PR #339 removed that selected-start path; active PR #337 does not expose the option.
 
 Specs: `src/transport/p2p/__tests__/attached-media-requires-level2.spec.ts` and
-`src/transport/p2p/__tests__/live-start-ack.spec.ts`. These prove plumbing/default behavior;
-the live device comparison establishes why a caller needs the selector.
-The adapted PR #339 passed the current beta's full SDK gate with **220 test files, 3,876 tests**
-and the docs build. The later fork guard commit `773b748` passed **219 files, 3,886 tests** and
-its docs build.
+`src/transport/p2p/__tests__/live-start-ack.spec.ts`. These prove the fork's option plumbing;
+the live device comparison establishes why the attached start value matters. Closed PR #339
+passed its beta gate with **220 test files, 3,876 tests** and the docs build. The later fork
+guard commit `773b748` passed **219 files, 3,886 tests** and its docs build. The exact two-file
+patch in active PR #337 passed the current beta gate with **221 files, 3,883 tests**; its
+encrypted-wire spec fails against the old value `1`.
 
 The bridge passed **102 tests** with `df535e27` installed. DietPi deployment verified the lock
 revision and compiled default `1`, then inspected `streamType: 2` on three active managed pulls
@@ -196,36 +197,22 @@ screenshot showed Split playback. Diagnostic wrappers were restored and the insp
 After deployment of the public option, the operator manually triggered motion and reports that
 the fix held. The handoff has no timestamped packet/frame trace for that follow-up. State the
 manual result separately from the instrumented selector comparison and deployed wire check.
-The deployed fork revision predates the own-session guard, while the attached selector path in
-PR #339 is the same. The exact upstream PR commit has not been run on hardware.
+The deployed fork revision predates the own-session guard. Its explicit `2` produces the same
+attached start field that PR #337 makes the SDK default. The exact upstream PR commit has not
+been run on hardware.
 
 ## Upstream patch boundaries
 
-PR #339 was adapted to the then-current `beta-0.5.0` after reviewing the SDK rules and searching
-open, closed, and merged PRs and issues for the same fix. Its PR body records the physical
-comparison, the later managed-path check, and their distinct limits.
+PR #337 was reopened after the reviewer rejected #339's per-pull option. The active diff has
+only `src/transport/p2p/p2p-session.ts` and
+`src/transport/p2p/__tests__/attached-media-requires-level2.spec.ts`. Its PR body records the
+physical comparison, the later managed-path check, and their distinct limits. That same patch
+passed full verification on the latest `beta-0.5.0` head.
 
-Do not merge the entire fork branch: it contains unrelated local changes. Do not submit the earlier
-global-default change `7dba7e8`. The SDK option commit follows that change and reverses it, so blindly
-cherry-picking it onto upstream may conflict on a default that upstream already has.
-
-The submitted patch took the net selector-only change from SDK
-`e347add323cb7af83d80115780d77ff7f9fac283` through
-`df535e27f013dea610d2a5b2f775105a71407293`, restricted to these seven files and adapted
-to the upstream base:
-
-- `src/core/contracts.ts`
-- `src/transport/p2p/command-router.ts`
-- `src/transport/p2p/live-stream.ts`
-- `src/transport/p2p/p2p-session.ts`
-- `src/transport/p2p/__tests__/attached-media-requires-level2.spec.ts`
-- `src/transport/p2p/__tests__/live-start-ack.spec.ts`
-- `docs/live-media.md`
-
-PR #339 includes the later own-session guard, and its omitted defaults are unchanged from the
-upstream base.
-Keep this PR about managed start selection. Exclude loss signaling/gating, reorder waits, media-slot
-allocation, view-setting commands, frame suppression, transcoder changes, and client rendering.
+Do not merge the entire fork branch: it contains unrelated local changes. The fork's seven-file
+option patch and bridge's explicit option remain separate from the upstream two-file default
+correction. PR #337 excludes loss signaling/gating, reorder waits, media-slot allocation,
+view-setting commands, frame suppression, transcoder changes, and client rendering.
 Use synthetic identifiers in SDK tests; public prose must omit actual device/account IDs, keys,
 addresses, home images, and raw capture attachments. Keep the upstream PR consumer-agnostic.
 
@@ -238,14 +225,13 @@ addresses, home images, and raw capture attachments. Keep the upstream PR consum
 > No view-setting command occurred in either motion window. This establishes the selector's observed
 > effect on this model, not a universal protocol meaning.
 >
-> The raw transport can send the field, but the managed live-source API did not forward a caller's
-> choice. This change adds an optional selector to that existing managed path and retains it through
-> retries. Omitted defaults remain attached 1 and own-session 2. Decrypted synthetic wire tests cover
-> public selection, defaults, retries/reassertion, and stop payloads. The full verification gate passed.
+> The SDK's attached serializer used 1 without support from the available current-app capture.
+> This change uses 2 in the existing attached start and adds a decrypted-wire spec that fails
+> against 1. The own-session start already uses 2; stop payloads and public options are unchanged.
+> The exact two-file patch passed the full verification gate on the current beta.
 >
 > The deployed managed path was checked with explicit selector 2 on active feeds and two decrypted
 > attached reassertions. Post-deployment playback was verified, and the operator reports a successful
 > manual motion check without a timed packet/frame trace for that follow-up. The exact upstream
-> commit was not run on hardware. Own-session selector 1 is rejected
-> because it has not been observed on a device. Firmware semantics and broader model behavior remain
-> unestablished.
+> commit was not run on hardware. The app's attached selector on other models and the firmware's
+> general meaning for these values remain unestablished.
