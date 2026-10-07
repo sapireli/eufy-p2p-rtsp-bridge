@@ -37,10 +37,15 @@ Opening the eufy phone app with the SAME account kicks the bridge (state "reauth
   `POST /api/cameras/<serial>/view?mode=split|pip-tl|pip-tr|pip-bl|pip-br|single`. The bridge stores these
   overrides in `/var/lib/eufy-wall-bridge/dual-view-modes.json`, reapplies them after a restart, and
   reports the chosen `dualView` in `/api/cameras`. Delete that JSON entry to return to YAML/app settings.
-  The camera composes the image before transmission, so switching modes adds no transcoding load. A
-  stream briefly restarts because its resolution and aspect can change. On the tested T8214 Front Door,
+  The camera composes the image before transmission, so switching modes adds no transcoding load.
+  RTSP consumers reconnect when its resolution or aspect changes; the camera's P2P feed stays open.
+  On the tested T8214 Front Door,
   `pip-br` showed both lenses with the lower view inset. On the tested T8425 Garage, PiP commands were
   accepted but the live frame showed only the main lens; use `split` to keep both Garage lenses visible.
+- HomeBase live starts must use the SDK's `streamtype: 2` selector. The former value `1` caused a
+  T8214 Split feed to become PiP during motion, including in the phone app while the bridge was open.
+  See [the measured diagnosis](dual-view-stream-selection.md). This fix is in the SDK used by the
+  server, so Android TV and Linux clients receive the corrected stream without an app update.
 - A battery device reports charging without proving that its external input can support continuous video.
   The SDK keeps its battery budget by default. For a camera whose installation supports a persistent
   stream, set `cameras.<sn>.power_override: always-on` in the bridge YAML. This records a bridge-side
