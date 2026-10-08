@@ -457,6 +457,9 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 		}
 		t.URL = c.TileURL(config.Tile{Camera: key})
 		if tc := c.TileFor(cam); tc != nil {
+			// Keep an explicit camera URL through event-driven reconnects, including a hello
+			// received before the bridge has populated its camera registry and stream keys.
+			t.URL = c.TileURL(config.Tile{Camera: key, URL: tc.URL})
 			t.Codec = tc.Codec
 		}
 		if content[t.Index] == wallstate.ContentSnapshot {

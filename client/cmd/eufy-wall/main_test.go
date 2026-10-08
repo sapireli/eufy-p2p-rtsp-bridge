@@ -7,7 +7,22 @@ import (
 	"testing"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/layout"
+	"eufy-wall/internal/pipeline"
 )
+
+func TestEventReconnectPreservesExplicitCameraURL(t *testing.T) {
+	c := &config.Config{RTSPBase: "rtsp://bridge:8554", Latency: 200, Planes: []int{98},
+		Tiles: []config.Tile{{Camera: "FRONT", URL: "rtsp://manual:8565/custom", Codec: "h264"}}}
+	tiles := []layout.Placed{{Index: 0, Camera: "FRONT", W: 960, H: 1080}}
+	for _, key := range []string{"FRONT", "front_door"} {
+		plans := plansFor(c, pipeline.Caps{Decoder: "v4l2", Sink: "planes"}, tiles,
+			map[int]string{0: "FRONT"}, map[int]string{0: "live"}, func(string) string { return key })
+		if len(plans) != 1 || !strings.Contains(pipeline.String(plans[0].Args), "location=rtsp://manual:8565/custom") {
+			t.Fatalf("explicit URL lost during reconnect with key %q: %+v", key, plans)
+		}
+	}
+}
 
 func TestParseAvahi(t *testing.T) {
 	wrong := "=;eth0;IPv4;Other;_http._tcp;local;other.local;192.168.1.3;3000;\"rtsp=8554\"\n"
