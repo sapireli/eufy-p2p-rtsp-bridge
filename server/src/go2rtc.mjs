@@ -125,10 +125,14 @@ export function createGo2rtc(ctx) {
       // Upload the scaled NV12 frames only for the hardware H.264 encoder.
       // A camera can change resolution mid-stream. Keep the filter graph and H.264 encoder output
       // stable when the aspect ratio stays the same; otherwise FFmpeg reinitialization fails at hwupload.
-      doc.setIn(["ffmpeg", "ewb_dynamic_http"], "-reinit_filter 0 -i {input}");
+      // Annex-B HTTP has no packet timestamps. Synthesizing time from a nominal SPS frame rate
+      // can run ahead of live delivery and cause playback delay.
+      // SPS/PPS arrive with the live keyframe. Bound startup analysis without discarding
+      // the probed packets, which the decoder still needs as reference frames.
+      doc.setIn(["ffmpeg", "ewb_dynamic_http"], "-reinit_filter 0 -use_wallclock_as_timestamps 1 -analyzeduration 100000 -probesize 262144 -i {input}");
       // Main is accepted by the Pi's V4L2 decoder. VA-API's automatic profile emits
       // constrained-high, which GStreamer can reject against the driver's advertised profiles.
-      doc.setIn(["ffmpeg", "tvh264"], `-vaapi_device ${cfg.go2rtcVaapiDevice} -vf scale=-2:${cfg.go2rtcMaxHeight}:eval=frame,format=nv12,hwupload -codec:v h264_vaapi -profile:v main -g:v 30 -bf:v 0`);
+      doc.setIn(["ffmpeg", "tvh264"], `-vaapi_device ${cfg.go2rtcVaapiDevice} -vf scale=-2:${cfg.go2rtcMaxHeight}:eval=frame,format=nv12,hwupload -codec:v h264_vaapi -profile:v main -g:v 30 -bf:v 0 -fps_mode:v passthrough -enc_time_base:v 1:90000`);
       text = doc.toString();
     }
     for (const [sn, suffix] of Object.entries(plan)) {

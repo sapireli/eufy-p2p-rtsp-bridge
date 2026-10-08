@@ -69,6 +69,11 @@ This pulls in the plugin sets. Configure with:
 KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the only valid sink.
 
 ## Troubleshooting
+- Delayed motion on both the Pi and TVs → check the bridge's outgoing RTP clock before changing
+  decoder settings. `latency_ms` sets the Linux RTSP jitter allowance (200 ms by default), not total
+  camera-to-screen latency. See [the live clock and startup measurements](evidence/live-timing-2026-10-08.md).
+- Explicit tile URL becomes a serial-number path after a bridge restart → update the client.
+  Configured per-camera URLs now survive early WebSocket hello events and stream-key changes.
 - Login text visible in uncovered margins → on a dedicated display appliance, mask the HDMI getty
   with `sudo systemctl mask --now getty@tty1.service`, then clear the console with
   `sudo sh -c 'TERM=linux setterm --clear all --cursor off --blank 0 --powerdown 0 </dev/tty1 >/dev/tty1'`.

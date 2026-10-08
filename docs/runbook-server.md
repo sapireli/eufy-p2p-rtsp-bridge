@@ -36,6 +36,22 @@ encoder presets are unchanged. Use `ffprobe` on the advertised RTSP URL to inspe
 `/api/cameras` describes the incoming camera stream, which can still be HEVC or a larger resolution.
 See [the live Pi deployment evidence](evidence/pi-hdmi-2026-10-08.md).
 
+## Live timing
+The resized Linux VA-API preset timestamps raw HTTP input by arrival time and preserves those
+timestamps through H.264 encoding. Raw Annex-B has no container PTS; synthesizing time from its
+nominal frame rate caused the outgoing media clock to run ahead of delivery on the tested Garage
+stream. Startup analysis is limited to 100 ms / 256 KiB while retaining the probed reference frames.
+These limits do not bound camera buffering or time waiting for a live keyframe.
+
+To compare outgoing video clock progression with arrival time:
+
+```sh
+python3 server/scripts/measure-rtsp-clock.py rtsp://<server>:8554/<stream-key>
+```
+
+A ratio near one verifies clock rate, not motion-to-screen latency. Compare a real movement with
+the display to check a constant delay. See [the measurements and limits](evidence/live-timing-2026-10-08.md).
+
 ## Camera settings the wall depends on
 - Streaming quality: set the device's quality in the eufy app when needed. The bridge reports the live
   source `codec` in `/api/cameras`; a wall tile must declare `codec: h265` if its RTSP output is HEVC.

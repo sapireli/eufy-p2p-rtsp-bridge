@@ -26,6 +26,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.PlayerView
@@ -283,7 +284,12 @@ class MainActivity : Activity() {
             label.text = "${cam.name} • connecting"
             val renderers = DefaultRenderersFactory(this)
                 .setEnableDecoderFallback(true)
-            val player = ExoPlayer.Builder(this, renderers).build()
+            // These are live RTSP cameras: the default 1s start / 2s rebuffer waits
+            // add a persistent delay. Keep a small jitter allowance instead.
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(500, 1500, 200, 500)
+                .build()
+            val player = ExoPlayer.Builder(this, renderers).setLoadControl(loadControl).build()
             val startedAt = SystemClock.elapsedRealtime()
             val firstFrameRendered = AtomicBoolean(false)
             val lastFrameAt = AtomicLong(startedAt)
@@ -313,13 +319,14 @@ class MainActivity : Activity() {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (players[sn] !== player) return
                     if (playbackState == Player.STATE_READY) label.text = cam.name
+                    android.util.Log.i("EufyWallTV", "Playback ${cam.sn}: state=$playbackState bufferedMs=${player.totalBufferedDuration} elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
                 }
                 override fun onRenderedFirstFrame() {
                     if (players[sn] !== player) return
                     lastFrameAt.set(SystemClock.elapsedRealtime())
                     firstFrameRendered.set(true)
                     decoderFailures = 0
-                    android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn}")
+                    android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn} after ${SystemClock.elapsedRealtime() - startedAt}ms; bufferedMs=${player.totalBufferedDuration}")
                 }
                 override fun onPlayerError(error: PlaybackException) {
                     if (players[sn] !== player) return
