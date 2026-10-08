@@ -46,13 +46,14 @@ func pump(r io.Reader, log func(string)) {
 }
 
 // Run blocks until ctx is cancelled. It never returns a process error; failures are logged and retried.
-func Run(ctx context.Context, bin string, args []string, r config.Restart, log func(string)) error {
+func Run(ctx context.Context, bin string, args []string, r config.Restart, log func(string), files ...*os.File) error {
 	b := newBackoff(r)
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
 		cmd := exec.Command(bin, args...)
+		cmd.ExtraFiles = files
 		cmd.Env = append(os.Environ(), "GST_DEBUG_NO_COLOR=1")
 		stdout, stdoutErr := cmd.StdoutPipe()
 		stderr, stderrErr := cmd.StderrPipe()

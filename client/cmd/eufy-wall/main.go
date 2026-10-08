@@ -1,4 +1,4 @@
-// eufy-wall: render N RTSP camera tiles on the HDMI output with one supervised GStreamer pipeline.
+// eufy-wall: render RTSP camera tiles with supervised GStreamer pipelines on HDMI.
 package main
 
 import (
@@ -93,6 +93,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
+	var sharedFiles []*os.File
+	if caps.Sink == "planes" && !*dryRun && !*printLayout {
+		device, err := detect.DRMDevice("/", c.Output)
+		if err != nil {
+			log.Fatalf("[wall] %v", err)
+		}
+		file, err := os.OpenFile(device, os.O_RDWR, 0)
+		if err != nil {
+			log.Fatalf("[wall] open shared DRM device: %v", err)
+		}
+		defer file.Close()
+		sharedFiles = []*os.File{file}
+		caps.DRMFD = 3 // exec.ExtraFiles starts after stdin/stdout/stderr.
+		log.Printf("[wall] sharing DRM device %s across tile processes", device)
+	}
 	plans, err := pipeline.Plans(c, tiles, caps)
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
@@ -123,7 +138,7 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) { log.Printf("[gst %s] %s", name, line) })
+	mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) { log.Printf("[gst %s] %s", name, line) }, sharedFiles...)
 	log.Printf("[wall] %d pipeline(s): %s", len(plans), planNames(plans))
 
 	runDynamic(ctx, c, caps, tiles, mgr, plans)

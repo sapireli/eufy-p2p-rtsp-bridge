@@ -126,7 +126,9 @@ export function createGo2rtc(ctx) {
       // A camera can change resolution mid-stream. Keep the filter graph and H.264 encoder output
       // stable when the aspect ratio stays the same; otherwise FFmpeg reinitialization fails at hwupload.
       doc.setIn(["ffmpeg", "ewb_dynamic_http"], "-reinit_filter 0 -i {input}");
-      doc.setIn(["ffmpeg", "tvh264"], `-vaapi_device ${cfg.go2rtcVaapiDevice} -vf scale=-2:${cfg.go2rtcMaxHeight}:eval=frame,format=nv12,hwupload -codec:v h264_vaapi -g:v 30 -bf:v 0`);
+      // Main is accepted by the Pi's V4L2 decoder. VA-API's automatic profile emits
+      // constrained-high, which GStreamer can reject against the driver's advertised profiles.
+      doc.setIn(["ffmpeg", "tvh264"], `-vaapi_device ${cfg.go2rtcVaapiDevice} -vf scale=-2:${cfg.go2rtcMaxHeight}:eval=frame,format=nv12,hwupload -codec:v h264_vaapi -profile:v main -g:v 30 -bf:v 0`);
       text = doc.toString();
     }
     for (const [sn, suffix] of Object.entries(plan)) {

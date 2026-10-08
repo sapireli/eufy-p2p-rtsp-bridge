@@ -4,7 +4,9 @@
 - Raspberry Pi 3 (recommended), Pi 1/Zero (H.264 only, ≤ 4×720p — see limits), or Debian x86 (VAAPI).
 - Raspberry Pi OS **Lite** (Bookworm or Trixie), no desktop. Ethernet preferred.
 - `/boot/firmware/config.txt`: `dtoverlay=vc4-kms-v3d`, `gpu_mem=128`, `hdmi_blanking=0` (install script adds them).
-- Cameras must stream **H.264** (the bridge's /api/cameras shows `codec`). The Pi has no HEVC decoder.
+- The Pi's RTSP input must be **H.264**. `/api/cameras` reports the camera's source codec, which can
+  differ from the transcoded RTSP output; inspect that output with `ffprobe` when troubleshooting.
+  The Pi has no HEVC decoder.
   The bridge now defaults to stream copy, so configure hardware transcoding on the server for HEVC
   cameras shown on a Pi.
 
@@ -48,7 +50,10 @@ change the same setting from its setup screen; all clients then see the camera's
 | Pi 3 | 6×720p15 | | | |
 | Pi 1 | 4×720p15 | | | |
 - `sink: planes` needs the DRM overlay plane ids: `modetest -M vc4 -p` → "Planes" table → ids whose
-  `type` is Overlay. Put ≥ N ids in `planes:`.
+  `type` is Overlay and whose possible-CRTC mask includes the selected HDMI CRTC. Put ≥ N ids in
+  `planes:`. The client opens the connector's DRM card once and passes the same open descriptor to
+  each tile process (`kmssink fd=3 skip-vsync=true`, GStreamer 1.22+). This preserves independent
+  tile restarts without competing DRM masters or CRTC page flips; hardware overlays still compose.
 - `sink: compositor` needs no ids and works on x86 too.
 
 ## macOS preview
@@ -64,10 +69,21 @@ This pulls in the plugin sets. Configure with:
 KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the only valid sink.
 
 ## Troubleshooting
+- Login text visible in uncovered margins → on a dedicated display appliance, mask the HDMI getty
+  with `sudo systemctl mask --now getty@tty1.service`, then clear the console with
+  `sudo sh -c 'TERM=linux setterm --clear all --cursor off --blank 0 --powerdown 0 </dev/tty1 >/dev/tty1'`.
+  Run that console clear from a root `ExecStartPre` in the display service to keep a black background
+  after reboot. Restore the HDMI login with `sudo systemctl unmask getty@tty1.service` and
+  `sudo systemctl start getty@tty1.service` when needed.
 - Black screen, logs say `Could not open DRM`/`Permission denied` → user `wall` must be in `video`+`render`
   and nothing else (X/Wayland/getty splash) may own the display; `systemctl stop getty@tty1` if needed.
 - `v4l2h264dec` missing → `apt install gstreamer1.0-plugins-good`; `/dev/video10` missing → kernel/firmware
   without `bcm2835-codec` — check `dmesg | grep codec`.
+- `not-negotiated` with parser profile `constrained-high` → compare `h264parse` output with the
+  decoder's advertised sink profiles. The bridge's resized VA-API H.264 preset explicitly uses Main
+  profile, verified to decode on a Pi Model B Rev 2; it keeps hardware encoding and decoding.
+- `no property "force-aspect-ratio" in element "kmssink"` → update the client. `kmssink` already
+  preserves the video's display ratio within its render rectangle and has no such property.
 - Decoder hangs after a while on kernel 6.6.x (`h264_v4l2m2m` regression) → `journalctl` shows no frames;
   the supervisor restarts the pipeline; upgrade the kernel (`sudo apt full-upgrade`).
 - One camera down restarts the whole wall (single pipeline) — expected in Phase 1; the bridge keeps the

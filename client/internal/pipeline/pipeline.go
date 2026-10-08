@@ -20,11 +20,18 @@ type Caps struct {
 	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
 	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.
 	ConnectorID int
+	DRMFD       int // inherited shared DRM descriptor (0 = let kmssink open the device)
 }
 
 // kmssinkArgs is the sink plus the output it renders on, shared by every sink strategy.
 func (c Caps) kmssinkArgs(extra ...string) []string {
 	args := append([]string{"kmssink"}, extra...)
+	if c.DRMFD > 0 {
+		args = append(args, fmt.Sprintf("fd=%d", c.DRMFD))
+		// Tile processes share one DRM event queue. Each updates only its overlay;
+		// independent page flips would compete for the same CRTC and consume sibling events.
+		args = append(args, "skip-vsync=true")
+	}
 	if c.ConnectorID > 0 {
 		args = append(args, fmt.Sprintf("connector-id=%d", c.ConnectorID))
 	}
@@ -144,7 +151,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 			args = append(args, src(i, t)...)
 			args = append(args, "!")
 			args = append(args, caps.kmssinkArgs(fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]),
-				fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H), "force-aspect-ratio=true", "sync=false")...)
+				fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H), "sync=false")...)
 		}
 	case "compositor", "window":
 		for i, t := range tiles {

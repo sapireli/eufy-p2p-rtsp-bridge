@@ -56,6 +56,23 @@ func FileExists(p string) bool {
 	return err == nil
 }
 
+// DRMDevice selects the card containing the configured connector, rather than assuming card0.
+func DRMDevice(fsRoot, output string) (string, error) {
+	if output == "" {
+		output = "HDMI-A-*"
+	}
+	matches, _ := filepath.Glob(filepath.Join(fsRoot, "sys/class/drm/card*-"+output))
+	for _, path := range matches {
+		status, err := os.ReadFile(filepath.Join(path, "status"))
+		if err != nil || strings.TrimSpace(string(status)) != "connected" {
+			continue
+		}
+		card, _, _ := strings.Cut(filepath.Base(path), "-")
+		return filepath.Join(fsRoot, "dev/dri", card), nil
+	}
+	return "", fmt.Errorf("detect: no connected DRM connector for %s", output)
+}
+
 // Resolve turns auto decoder/sink into concrete choices. `has`/`fileExists` are injectable for tests.
 func Resolve(c *config.Config, has func(string) bool, fileExists func(string) bool) (pipeline.Caps, error) {
 	caps := pipeline.Caps{Decoder: c.Decoder, Sink: c.Sink, Screen: c.Screen}

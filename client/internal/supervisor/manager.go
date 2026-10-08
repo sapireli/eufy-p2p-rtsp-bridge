@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"os"
 	"sync"
 
 	"eufy-wall/internal/config"
@@ -21,6 +22,7 @@ type Manager struct {
 	bin     string
 	restart config.Restart
 	log     func(name, line string)
+	files   []*os.File
 
 	mu      sync.Mutex
 	running map[string]*proc
@@ -33,8 +35,8 @@ type proc struct {
 	exited chan struct{}
 }
 
-func NewManager(bin string, r config.Restart, log func(name, line string)) *Manager {
-	return &Manager{bin: bin, restart: r, log: log, running: map[string]*proc{}, done: make(chan struct{})}
+func NewManager(bin string, r config.Restart, log func(name, line string), files ...*os.File) *Manager {
+	return &Manager{bin: bin, restart: r, log: log, files: files, running: map[string]*proc{}, done: make(chan struct{})}
 }
 
 // Run starts `plans` and blocks until ctx is cancelled, then stops everything it started.
@@ -79,7 +81,7 @@ func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
 		m.running[name] = p
 		go func(n string, args []string) {
 			defer close(p.exited)
-			_ = Run(pctx, m.bin, args, m.restart, func(line string) { m.log(n, line) })
+			_ = Run(pctx, m.bin, args, m.restart, func(line string) { m.log(n, line) }, m.files...)
 		}(name, plan.Args)
 	}
 }

@@ -65,6 +65,7 @@ test("one camera can bypass global VA-API transcode while other cameras use the 
   assert.equal(y.streams.FRONT, "ffmpeg:http://127.0.0.1:3000/stream/FRONT#input=ewb_dynamic_http#video=tvh264");
   assert.equal(y.ffmpeg.ewb_dynamic_http, "-reinit_filter 0 -i {input}");
   assert.match(y.ffmpeg.tvh264, /scale=-2:720:eval=frame/);
+  assert.match(y.ffmpeg.tvh264, /-codec:v h264_vaapi -profile:v main/);
 });
 
 test("copy source uses the configured bridge address", async () => {

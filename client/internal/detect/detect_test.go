@@ -22,6 +22,26 @@ func TestScreenFromSysfs(t *testing.T) {
 	}
 }
 
+func TestDRMDeviceUsesConnectedNamedCard(t *testing.T) {
+	root := t.TempDir()
+	for name, status := range map[string]string{"card0-HDMI-A-1": "disconnected", "card2-HDMI-A-1": "connected"} {
+		dir := filepath.Join(root, "sys/class/drm", name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "status"), []byte(status), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := DRMDevice(root, "HDMI-A-1")
+	if err != nil || got != filepath.Join(root, "dev/dri/card2") {
+		t.Fatalf("device=%s err=%v", got, err)
+	}
+	if _, err := DRMDevice(root, "HDMI-A-2"); err == nil {
+		t.Fatal("missing connector accepted")
+	}
+}
+
 func TestResolve(t *testing.T) {
 	has := func(set ...string) func(string) bool {
 		m := map[string]bool{}

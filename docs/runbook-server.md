@@ -22,15 +22,23 @@ Opening the eufy phone app with the SAME account kicks the bridge (state "reauth
 
 ## Check
     curl -s localhost:3000/healthz | jq          # auth ok, streaming [...], blocked {}, go2rtc running
-    curl -s localhost:3000/api/cameras | jq      # codec must be "h264" for Pi clients
+    curl -s localhost:3000/api/cameras | jq      # source codec and geometry, before RTSP transcoding
 
     # On another LAN device, confirm the installer-created Avahi service resolves:
     avahi-browse -rt _eufy-wall._tcp
     ffplay rtsp://<server>:8554/<sn>             # from any machine on the LAN
 
+## RTSP decoder compatibility
+The resized Linux VA-API H.264 preset uses `-profile:v main`, with the existing scale, GOP and
+no-B-frame settings. This avoids automatic `constrained-high` output rejected by the Pi Model B's
+GStreamer V4L2 sink caps. Encoding remains on VA-API; the Pi decodes on V4L2. Copy streams and other
+encoder presets are unchanged. Use `ffprobe` on the advertised RTSP URL to inspect the output;
+`/api/cameras` describes the incoming camera stream, which can still be HEVC or a larger resolution.
+See [the live Pi deployment evidence](evidence/pi-hdmi-2026-10-08.md).
+
 ## Camera settings the wall depends on
 - Streaming quality: set the device's quality in the eufy app when needed. The bridge reports the live
-  `codec` in `/api/cameras`; a wall tile must declare `codec: h265` if that stream is HEVC.
+  source `codec` in `/api/cameras`; a wall tile must declare `codec: h265` if its RTSP output is HEVC.
 - Dual-lens (E340 doorbell/floodlight, S340): the bridge sends `dual_view` only when configured for that
   camera or under `defaults`. It does not change a device setting on an unset value.
   The TV setup screen and Linux `-view-camera` command can change one camera at a time through

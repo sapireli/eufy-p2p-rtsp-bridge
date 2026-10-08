@@ -25,8 +25,8 @@ func TestPlanesPipeline(t *testing.T) {
 	}
 	got := String(args)
 	want := "-e " +
-		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! v4l2h264dec ! watchdog timeout=15000 ! kmssink name=sink0 plane-id=31 render-rectangle=<0,0,960,1080> force-aspect-ratio=true sync=false " +
-		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! v4l2h264dec ! watchdog timeout=15000 ! kmssink name=sink1 plane-id=32 render-rectangle=<960,0,960,1080> force-aspect-ratio=true sync=false"
+		"rtspsrc location=rtsp://s/A latency=200 protocols=tcp name=src0 ! rtph264depay ! h264parse ! v4l2h264dec ! watchdog timeout=15000 ! kmssink name=sink0 plane-id=31 render-rectangle=<0,0,960,1080> sync=false " +
+		"rtspsrc location=rtsp://s/B latency=200 protocols=tcp name=src1 ! rtph264depay ! h264parse ! v4l2h264dec ! watchdog timeout=15000 ! kmssink name=sink1 plane-id=32 render-rectangle=<960,0,960,1080> sync=false"
 	if got != want {
 		t.Fatalf("\n got: %s\nwant: %s", got, want)
 	}
@@ -37,6 +37,20 @@ func TestPlanesNeedsPlaneIDs(t *testing.T) {
 	c.Planes = []int{31}
 	if _, err := Build(c, tiles, Caps{Decoder: "v4l2", Sink: "planes"}); err == nil || !strings.Contains(err.Error(), "planes") {
 		t.Fatalf("expected plane error, got %v", err)
+	}
+}
+
+func TestPlaneProcessesShareDRMWithoutCompetingPageFlips(t *testing.T) {
+	c, tiles := two()
+	plans, err := Plans(c, tiles, Caps{Decoder: "v4l2", Sink: "planes", DRMFD: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, plan := range plans {
+		got := String(plan.Args)
+		if !strings.Contains(got, "fd=3 skip-vsync=true") || strings.Contains(got, "force-aspect-ratio") {
+			t.Fatalf("invalid shared plane pipeline: %s", got)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +10,46 @@ import (
 
 	"eufy-wall/internal/config"
 )
+
+func TestRestartsInheritTheSameOpenDescriptor(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if _, err := file.WriteString("ab"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	seen := make(chan string, 4)
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, "sh", []string{"-c", "dd bs=1 count=1 <&3 2>/dev/null; echo; exit 1"},
+			config.Restart{StableSeconds: 60}, func(line string) {
+				if line == "a" || line == "b" {
+					seen <- line
+				}
+			}, file)
+	}()
+	for _, want := range []string{"a", "b"} {
+		select {
+		case got := <-seen:
+			if got != want {
+				t.Fatalf("got %q want %q", got, want)
+			}
+		case <-ctx.Done():
+			t.Fatal("child did not inherit descriptor on restart")
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestRestartsWithBackoffAndStopsOnCancel(t *testing.T) {
 	var mu sync.Mutex
