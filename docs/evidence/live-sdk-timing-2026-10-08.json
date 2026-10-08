@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "durationTargetSeconds": 20,
+  "queueSampleIntervalMs": 100,
+  "clockWarning": "Neither the wire header timestamp nor encoded OSD is independently verified sensor capture time.",
+  "runs": [
+    {
+      "phase": "normal",
+      "startWallMs": 1791498321228,
+      "endWallMs": 1791498341056,
+      "snapshots": 198,
+      "traceSha256": "b6635b0eee1e552ceeff31aa7f6f46fb63c73b05187b13c263495a120a0376f5",
+      "maxSampledReadableBytes": 0,
+      "maxSampledHttpWritableBytes": 0,
+      "cameras": {
+        "Door": {
+          "logicalHeaders": 293,
+          "deliveredAccessUnits": 293,
+          "incomingHeaderTypes": [
+            14
+          ],
+          "wireHeaderApparentAgeMs": {
+            "count": 293,
+            "min": -79,
+            "median": -6,
+            "max": 1272
+          },
+          "firstDatagramToLogicalHeaderMs": {
+            "count": 292,
+            "min": 0.022789000067859888,
+            "median": 0.09385750000365078,
+            "max": 44.321709000039846
+          },
+          "logicalHeaderToAccessUnitMs": {
+            "count": 293,
+            "min": 0.010507999919354916,
+            "median": 0.0515300000552088,
+            "max": 1.8067890000529587
+          },
+          "deliveredUnitIntervalMs": {
+            "count": 292,
+            "min": 12,
+            "median": 44.5,
+            "max": 566
+          },
+          "maxSampledConsumerQueueItems": 0,
+          "anySampledConsumerPaused": false,
+          "maxSampledHeldDatagrams": 0
+        },
+        "Garage": {
+          "logicalHeaders": 298,
+          "deliveredAccessUnits": 298,
+          "incomingHeaderTypes": [
+            28
+          ],
+          "wireHeaderApparentAgeMs": {
+            "count": 298,
+            "min": 3459,
+            "median": 3592.0,
+            "max": 4927
+          },
+          "firstDatagramToLogicalHeaderMs": {
+            "count": 298,
+            "min": 0.02368599991314113,
+            "median": 0.18550000002142042,
+            "max": 11.159992000088096
+          },
+          "logicalHeaderToAccessUnitMs": {
+            "count": 298,
+            "min": 0.03284900006838143,
+            "median": 0.0920530001167208,
+            "max": 0.8344370000995696
+          },
+          "deliveredUnitIntervalMs": {
+            "count": 297,
+            "min": 4,
+            "median": 42,
+            "max": 958
+          },
+          "maxSampledConsumerQueueItems": 0,
+          "anySampledConsumerPaused": false,
+          "maxSampledHeldDatagrams": 0
+        }
+      }
+    },
+    {
+      "phase": "fixed10",
+      "startWallMs": 1791498348737,
+      "endWallMs": 1791498368590,
+      "snapshots": 198,
+      "traceSha256": "762645301d04ab40b4438d4e7500d7f302015cd74086e89109dd21f36be0d04b",
+      "maxSampledReadableBytes": 0,
+      "maxSampledHttpWritableBytes": 0,
+      "cameras": {
+        "Door": {
+          "logicalHeaders": 302,
+          "deliveredAccessUnits": 302,
+          "incomingHeaderTypes": [
+            10
+          ],
+          "wireHeaderApparentAgeMs": {
+            "count": 302,
+            "min": -77,
+            "median": 113.0,
+            "max": 946
+          },
+          "firstDatagramToLogicalHeaderMs": {
+            "count": 301,
+            "min": 0.023243000032380223,
+            "median": 0.08944300003349781,
+            "max": 47.89710099995136
+          },
+          "logicalHeaderToAccessUnitMs": {
+            "count": 302,
+            "min": 0.01911700004711747,
+            "median": 0.05611899995710701,
+            "max": 1.4057700000703335
+          },
+          "deliveredUnitIntervalMs": {
+            "count": 301,
+            "min": 14,
+            "median": 41,
+            "max": 443
+          },
+          "maxSampledConsumerQueueItems": 0,
+          "anySampledConsumerPaused": false,
+          "maxSampledHeldDatagrams": 0
+        },
+        "Garage": {
+          "logicalHeaders": 298,
+          "deliveredAccessUnits": 298,
+          "incomingHeaderTypes": [
+            28
+          ],
+          "wireHeaderApparentAgeMs": {
+            "count": 298,
+            "min": 3463,
+            "median": 3663.5,
+            "max": 4506
+          },
+          "firstDatagramToLogicalHeaderMs": {
+            "count": 297,
+            "min": 0.015402999939396977,
+            "median": 0.08608500007539988,
+            "max": 12.631650000112131
+          },
+          "logicalHeaderToAccessUnitMs": {
+            "count": 298,
+            "min": 0.03244699980132282,
+            "median": 0.10161749995313585,
+            "max": 1.2478189999237657
+          },
+          "deliveredUnitIntervalMs": {
+            "count": 297,
+            "min": 10,
+            "median": 41,
+            "max": 714
+          },
+          "maxSampledConsumerQueueItems": 0,
+          "anySampledConsumerPaused": false,
+          "maxSampledHeldDatagrams": 0
+        }
+      }
+    },
+    {
+      "phase": "restored",
+      "startWallMs": 1791498372297,
+      "endWallMs": 1791498392128,
+      "snapshots": 198,
+      "traceSha256": "5030475b44968a66b60bcfa422daecbe02ccc1a901b648097397d45a60afc838",
+      "maxSampledReadableBytes": 0,
+      "maxSampledHttpWritableBytes": 0,
+      "cameras": {
+        "Door": {
+          "logicalHeaders": 300,
+          "deliveredAccessUnits": 300,
+          "incomingHeaderTypes": [
+            18
+          ],
+          "wireHeaderApparentAgeMs": {
+            "count": 300,
+            "min": -80,
+            "median": 196.5,
+            "max": 1952
+          },
+          "firstDatagramToLogicalHeaderMs": {
+            "count": 297,
+            "min": 0.019687000196427107,
+            "median": 0.08111299993470311,
+            "max": 38.590349999954924
+          },
+          "logicalHeaderToAccessUnitMs": {
+            "count": 300,
+            "min": 0.018928000004962087,
+            "median": 0.047041499987244606,
+            "max": 1.301473000086844
+          },
+          "deliveredUnitIntervalMs": {
+            "count": 299,
+            "min": 14,
+            "median": 41,
+            "max": 649
+          },
+          "maxSampledConsumerQueueItems": 0,
+          "anySampledConsumerPaused": false,
+          "maxSampledHeldDatagrams": 0
+        },
+        "Garage": {
+          "logicalHeaders": 296,
+          "deliveredAccessUnits": 296,
+          "incomingHeaderTypes": [
+            28
+          ],
+          "wireHeaderApparentAgeMs": {
+            "count": 296,
+            "min": 3468,
+            "median": 3890.0,
+            "max": 5333
+          },
+          "firstDatagramToLogicalHeaderMs": {
+            "count": 293,
+            "min": 0.017915999982506037,
+            "median": 0.095564000075683,
+            "max": 15.632795999990776
+          },
+          "logicalHeaderToAccessUnitMs": {
+            "count": 296,
+            "min": 0.029972999822348356,
+            "median": 0.08940149995032698,
+            "max": 0.7965959999710321
+          },
+          "deliveredUnitIntervalMs": {
+            "count": 295,
+            "min": 6,
+            "median": 41,
+            "max": 945
+          },
+          "maxSampledConsumerQueueItems": 0,
+          "anySampledConsumerPaused": false,
+          "maxSampledHeldDatagrams": 0
+        }
+      }
+    }
+  ],
+  "directKeyframeSamples": [
+    {
+      "label": "door",
+      "file": "door-1791498454100.h264",
+      "wall": 1791498454100,
+      "stamp": 1791498454021,
+      "sequence": 194,
+      "frameType": 18,
+      "bytes": 212630,
+      "width": 1600,
+      "height": 2200,
+      "codec": "h264",
+      "encodedOsdEDT": "18:27:27",
+      "annexBSha256": "0a200e7875cb7d6c4843e67934efac308fc008d4888e0aa6d788913d971696d1",
+      "decodedCropSha256": "2c733ebafa13bfa647bc72d0095bee2f0004da30ed1e55a822da9e35b47dfa22"
+    },
+    {
+      "label": "garage",
+      "file": "garage-1791498457765.h264",
+      "wall": 1791498457765,
+      "stamp": 1791498454031,
+      "sequence": 49386,
+      "frameType": 28,
+      "bytes": 89984,
+      "width": 1280,
+      "height": 1440,
+      "codec": "h265",
+      "encodedOsdEDT": "18:27:33",
+      "annexBSha256": "c7cba3be9a73ac8321cea15f1a2a7d419f4b07590fe127dab4bed65fbf879d54",
+      "decodedCropSha256": "6454e04ae67f37b6c5d881e281d8ed875b378fbc01f317008c3280c5a94497e1"
+    },
+    {
+      "label": "door",
+      "file": "door-1791498460101.h264",
+      "wall": 1791498460101,
+      "stamp": 1791498460021,
+      "sequence": 284,
+      "frameType": 18,
+      "bytes": 198432,
+      "width": 1600,
+      "height": 2200,
+      "codec": "h264",
+      "encodedOsdEDT": "18:27:33",
+      "annexBSha256": "d1081fa39b1099846e18104fc83aba2afb076b0292435f1b17b796d37543853d",
+      "decodedCropSha256": "5d9ffea70d1598ad375e2ec3cd034e49a79ec54a15f0f90ddc13284fb8ab2787"
+    },
+    {
+      "label": "garage",
+      "file": "garage-1791498463971.h264",
+      "wall": 1791498463971,
+      "stamp": 1791498460031,
+      "sequence": 49476,
+      "frameType": 28,
+      "bytes": 90287,
+      "width": 1280,
+      "height": 1440,
+      "codec": "h265",
+      "encodedOsdEDT": "18:27:39",
+      "annexBSha256": "175e98477ce9275719000a75814f7695c8efa82653d948d704fc6e48e4231176",
+      "decodedCropSha256": "9d75a108916105805db83dad35ef35615e083994009656e233c2d5772a00941d"
+    },
+    {
+      "label": "door",
+      "file": "door-1791498466340.h264",
+      "wall": 1791498466340,
+      "stamp": 1791498466021,
+      "sequence": 374,
+      "frameType": 18,
+      "bytes": 214139,
+      "width": 1600,
+      "height": 2200,
+      "codec": "h264",
+      "encodedOsdEDT": "18:27:39",
+      "annexBSha256": "9f1e90941a1adbe0f8ce7325b3c00a749d3a4b66607e6e3a76d170e4dc6a19dd",
+      "decodedCropSha256": "8e8bef06518f6246a087465e5fa5a3641c06e6fd6974d89ad239d8d7e2ea7f02"
+    }
+  ]
+}

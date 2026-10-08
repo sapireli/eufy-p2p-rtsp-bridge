@@ -165,6 +165,110 @@ explanations for that incoming difference. No clock correction or SDK alteration
 the basis of this comparison. A physical movement or a common visible reference is required to
 measure actual latency independently of each camera's clock.
 
+### Follow-up: phone comparison report and live SDK instrumentation
+
+The user reported that the cross-camera gap appears **only in Eufy Wall**, not in the Eufy
+phone app. This is user observation, not a captured simultaneous phone/bridge comparison.
+It warrants investigating the incoming SDK path; it does not prove that either camera's OSD
+clock equals the physical scene's capture time.
+
+Live instrumentation on the installed SDK measured three consecutive 20-second windows.
+Both cameras used LAN peers on the same HomeBase, with distinct UDP media sessions. Exact
+listeners were added temporarily and removed at the end of each window:
+
+- UDP socket `message`, before SDK reordering: select video DATA, `XZYH`, command 1300 and the
+  target channel; retain the **first** datagram arrival for each full six-byte timestamp.
+- Session `data`, before the LiveStream listener: select command 1300 and the target channel.
+- LiveStream `video`, before shared-source fanout: record completed access-unit delivery.
+- Every 100 ms: sample SDK consumer queues/paused state, reorder-held datagrams, bridge Readable
+  bytes and HTTP writable bytes. Samples can miss a transient queue between ticks.
+
+The [machine-readable summary](live-sdk-timing-2026-10-08.json) includes original private-trace
+SHA-256 digests, counts, dwell times and delivery intervals. No keys, credentials or camera
+serials are included. Socket dwell covers only a unit whose header starts in the inspected
+datagram; it is not a bound on every packet in every access unit. Assembly dwell is measured
+from the latest matching logical header observed before that unit, not from sensor capture.
+
+| Request run | Camera | Delivered units | Largest first-datagram → logical-header dwell (ms) | Largest logical-header → unit dwell (ms) | Longest delivered-unit interval (ms) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Normal restart | Front Door | 293 | 44.322 | 1.807 | 566 |
+| Normal restart | Garage | 298 | 11.160 | 0.834 | 958 |
+| Fixed header type 10 | Front Door | 302 | 47.897 | 1.406 | 443 |
+| Fixed header type 10 | Garage | 298 | 12.632 | 1.248 | 714 |
+| Normal restored | Front Door | 300 | 38.590 | 1.301 | 649 |
+| Normal restored | Garage | 296 | 15.633 | 0.797 | 945 |
+
+All sampled consumer queue lengths, Readable bytes, HTTP writable bytes and held-datagram
+counts were zero; no sampled consumer was paused. This excludes a sustained multi-second
+SDK/bridge queue **in these windows**. Delivery intervals are not physical screen freeze
+measurements. These short, mostly loss-free windows do not validate the cost of loss/keyframe
+gating under packet loss or multi-camera loss on a single shared media session.
+
+### Controlled request experiments: no latency fix established
+
+The captured first-party attached-camera request uses header media type 10. The installed SDK
+derives this field from its level-2 encryption counter. A transient wrapper changed only byte
+18 of the outgoing command body for one Front Door start, leaving JSON, channel, encryption,
+nonce progression and stream selector 2 unchanged. No SDK file was edited. Stop/start commands
+were sent for each run; the fixed-10 generation was stopped with type 10 before restoring the
+original request. Normal restart → fixed-10 restart → normal restart controls for restart alone.
+Garage remained active throughout.
+
+| Front Door command | UTC | Original header type | Sent header type |
+| --- | --- | ---: | ---: |
+| Normal start | 22:25:07.877 | 14 | 14 |
+| Candidate start | 22:25:48.341 | 16 | 10 |
+| Restore start | 22:26:11.866 | 18 | 18 |
+
+Continuous raw HTTP decode, one thread and the same input analysis settings, produced these
+visually read strips. The capture remained running across the request changes.
+
+| Run | Input | JPEG receipt (UTC) | Encoded OSD time (EDT) |
+| --- | --- | --- | --- |
+| Normal | Front Door | 22:25:36.727 | 18:25:29 |
+| Normal | Garage | 22:25:36.595 | 18:25:32 |
+| Fixed 10 | Front Door | 22:25:59.643 | 18:25:53 |
+| Fixed 10 | Garage | 22:26:00.331 | 18:25:56 |
+| Restored | Front Door | 22:26:32.888 | 18:26:25 |
+| Restored | Garage | 22:26:32.471 | 18:26:28 |
+
+The incoming media header type followed the outgoing start (14, 10, 18). The OSD difference
+persisted in all three runs. **This experiment does not support changing the SDK header field.**
+
+A second temporary diagnostic used the full archived phone-shaped start: fixed header type 10,
+`ClientOS: "IOS"`, `msg_id: 1`, no inner `accountId`, and no outer `mChannel`/`mValue3`, with the
+same account, RSA key, channel and selector 2. Its start was sent at 22:28:40.239; normal behavior
+was restored at 22:29:10.187. This changed several fields together and could not attribute an
+improvement to one field, even if it had shown one. It did **not** remove the older Door OSD:
+a direct SDK keyframe received at 22:28:42.651 showed 18:28:35. No request experiment was retained
+in production, and the encryption counter was never reset.
+
+### Direct SDK keyframes exclude HTTP and streaming-decoder delay
+
+Complete keyframes were saved immediately in `LiveStream.video`, before consumer fanout or HTTP,
+with local receipt time and the matching wire header. Each finite file was then decoded offline
+with one input thread, one output frame and EOF. H.264 samples contained SPS/PPS and genuine IDR
+NAL type 5; HEVC samples contained VPS/SPS/PPS and IRAP type 19. The codec was selected from SDK
+metadata. This avoids using a protocol keyframe flag alone or a streaming decoder's probe buffer
+as evidence that the image is independently decodable.
+
+| Input | SDK keyframe receipt (UTC) | Encoded OSD time (EDT) | Receipt minus numeric wire timestamp |
+| --- | --- | --- | ---: |
+| Front Door | 22:27:34.100 | 18:27:27 | 79 ms |
+| Garage | 22:27:37.765 | 18:27:33 | 3734 ms |
+| Front Door | 22:27:40.101 | 18:27:33 | 80 ms |
+| Garage | 22:27:43.971 | 18:27:39 | 3940 ms |
+| Front Door | 22:27:46.340 | 18:27:39 | 319 ms |
+
+The OSD discrepancy is already encoded in the image emitted by the SDK. HTTP, transcoding,
+RTSP and client playback cannot have created this particular difference. However, the numeric
+wire timestamps have the **opposite** apparent camera-age ordering: Front Door's headers are
+near receipt time while Garage's are several seconds earlier. Neither clock is a verified
+sensor capture-time reference. Camera/OSD clock offset, station delivery and distinct camera
+stream paths remain candidates. A timestamp-visible phone screenshot at the same wall time,
+or a trusted visible clock/physical action in the scene, is needed to separate them. This
+remaining Front Door discrepancy is **unresolved**, and no speculative SDK correction was made.
+
 ## Linux reconnect fix
 
 The initial bridge restart exposed a separate client bug: an early WebSocket hello, before
@@ -175,6 +279,13 @@ The ARMv6 candidate deployed at 21:47:32 UTC has SHA-256
 `79d6f308089049c10de76f02188d205e332fdd8426915d38af586ecc5eada94f`.
 The subsequent bridge restart reconnected to the named Front Door/Garage paths without a manual
 Pi service restart.
+
+The final clean ARMv6 build from commit `871659ebc3d3589175127287c168840f8b91252a` was installed and
+its on-device SHA-256 verified as
+`5264b92c5d7c8945b2976607a79462c19e66ffbb17b6bfd1ac72c9facc1d2fc5`.
+The Pi build manifest and staged client source were updated to match; both V4L2-decoded DRM planes
+remained active. This is the final binary; the earlier candidate checksum above identifies the
+intermediate deployment used to expose and verify the reconnect behavior.
 
 ## Reproduce the clock measurement
 
