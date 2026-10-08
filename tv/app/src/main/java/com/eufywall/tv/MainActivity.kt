@@ -61,10 +61,13 @@ class MainActivity : Activity() {
     private val states = mutableMapOf<String, String>()
     private val players = mutableMapOf<String, ExoPlayer>()
     private val frameWatchdogs = mutableMapOf<String, Runnable>()
+    private val playbackControls = mutableMapOf<String, Runnable>()
     private val labels = mutableMapOf<String, TextView>()
     private val surfaces = mutableMapOf<String, PlayerView>()
     private var socket: WebSocket? = null
     private var wallVisible = false
+    private var activityStarted = false
+    private var resumeWallOnStart = false
     private var nsd: NsdManager? = null
     private var discovery: NsdManager.DiscoveryListener? = null
     private var multicast: WifiManager.MulticastLock? = null
@@ -101,6 +104,7 @@ class MainActivity : Activity() {
     }
 
     private fun showSetup(message: String = "Enter the bridge IP or use discovery") {
+        resumeWallOnStart = false
         wallVisible = false
         stopWall()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 24, 40, 24); setBackgroundColor(0xff101c27.toInt()) }
@@ -204,6 +208,7 @@ class MainActivity : Activity() {
     }
 
     private fun showWall() {
+        if (!activityStarted) { resumeWallOnStart = true; return }
         if (bridge.isBlank()) return
         stopDiscovery()
         wallVisible = true
@@ -298,6 +303,25 @@ class MainActivity : Activity() {
             })
             players[sn] = player
             surfaces[sn]?.player = player
+            val playbackControl = LiveRtspPlaybackControl()
+            var lastPlaybackLogAt = 0L
+            val control = object : Runnable {
+                override fun run() {
+                    if (!wallVisible || states[sn] != "live" || players[sn] !== player) return
+                    val bufferedMs = player.totalBufferedDuration
+                    val speed = playbackControl.speedFor(bufferedMs, player.isPlaying)
+                    val changed = player.playbackParameters.speed != speed
+                    if (changed) player.setPlaybackSpeed(speed)
+                    val now = SystemClock.elapsedRealtime()
+                    if (changed || now - lastPlaybackLogAt >= 5_000) {
+                        android.util.Log.i("EufyWallTV", "Live playback ${cam.sn}: bufferedMs=$bufferedMs speed=$speed positionMs=${player.currentPosition} playing=${player.isPlaying}")
+                        lastPlaybackLogAt = now
+                    }
+                    ui.postDelayed(this, 500)
+                }
+            }
+            playbackControls[sn] = control
+            ui.postDelayed(control, 500)
             val watchdog = object : Runnable {
                 override fun run() {
                     if (!wallVisible || states[sn] != "live" || players[sn] !== player) return
@@ -351,6 +375,7 @@ class MainActivity : Activity() {
     }
 
     private fun release(sn: String) {
+        playbackControls.remove(sn)?.let { ui.removeCallbacks(it) }
         frameWatchdogs.remove(sn)?.let { ui.removeCallbacks(it) }
         surfaces[sn]?.player = null
         players.remove(sn)?.release()
@@ -475,5 +500,20 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() { if (wallVisible) showSetup("Choose cameras or change bridge") else super.onBackPressed() }
+    override fun onStart() {
+        super.onStart()
+        activityStarted = true
+        if (resumeWallOnStart) { resumeWallOnStart = false; showWall() }
+    }
+    override fun onStop() {
+        activityStarted = false
+        if (wallVisible) {
+            resumeWallOnStart = true
+            wallVisible = false
+            stopWall()
+        }
+        stopDiscovery()
+        super.onStop()
+    }
     override fun onDestroy() { stopDiscovery(); wallVisible = false; stopWall(); work.shutdown(); super.onDestroy() }
 }

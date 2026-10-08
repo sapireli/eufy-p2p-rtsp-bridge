@@ -10,6 +10,11 @@ FFmpeg 7.1, go2rtc 1.9.14. Garage input was HEVC 1280×1440; Front Door input wa
 This change concerns the bridge's FFmpeg timestamps and startup analysis, TV playback thresholds,
 and a Linux reconnect regression encountered during deployment. It does not change the SDK.
 
+The later [same-camera TV backlog investigation](tv-rtsp-backlog-2026-10-08.md) located an
+additional several-second delay after SDK delivery and verifies a client catch-up correction.
+The unresolved cross-camera OSD interpretation below records the earlier checkpoint; it must
+not be treated as proof that the later TV delay came from the SDK.
+
 ## Clock fault measured before the change
 
 A raw RTSP-over-TCP receiver counted video RTP marker packets and compared their 90 kHz media

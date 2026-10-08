@@ -18,3 +18,15 @@ of Media3 1.11.1's 1000/2000 ms defaults. These are jitter allowances, not a har
 RTSP delay. `adb logcat -s EufyWallTV` reports playback state, actual buffered duration and
 time to the first rendered frame. See [live timing evidence](../docs/evidence/live-timing-2026-10-08.md)
 for the bridge clock correction and the limits of these measurements.
+
+RTSP also needs explicit recovery from accumulated playback delay: Media3's RTSP source keeps
+loading and does not use its automatic live-offset speed control. Each tile checks its buffered
+video every 500 ms. At 1500 ms it begins catching up, using 1.1×, 1.25× or 1.5× playback according
+to the remaining buffer, then returns to 1× at 700 ms or below. During catch-up motion can briefly
+look faster. It decodes the existing stream continuously; there is no live-edge seek or periodic
+player restart. Ordinary buffers below the catch-up threshold stay at normal speed. These values
+control player backlog, not a guarantee of camera-to-screen latency.
+
+The app has one activity instance and releases players, WebSocket connections and camera holds
+when it goes into the background. Returning to the app rebuilds the saved wall. See the
+[TV backlog investigation](../docs/evidence/tv-rtsp-backlog-2026-10-08.md) for live-device results.
