@@ -33,11 +33,12 @@ test("per-input hardware preference keeps timing and codec compatibility across 
 
 test("hardware decoding avoids frame-thread delay without limiting software fallback", () => {
   const [hardware, mixed, software] = transcodeAttempts(args);
-  const threads = hardware.args.indexOf("-threads:v");
+  const threads = hardware.args.indexOf("-thread_type:v");
   assert.ok(threads >= 0 && threads < hardware.args.indexOf("-i"));
-  assert.equal(hardware.args[threads + 1], "1");
-  for (const attempt of [mixed, software]) assert.ok(!attempt.args.includes("-threads:v"));
+  assert.equal(hardware.args[threads + 1], "slice");
+  for (const attempt of [mixed, software]) assert.ok(!attempt.args.includes("-thread_type:v"));
   for (const attempt of [hardware, mixed, software]) {
+    assert.ok(!attempt.args.includes("-threads:v"));
     assert.ok(!attempt.args.includes("-async_depth"));
     assert.ok(!attempt.args.includes("nobuffer"));
   }

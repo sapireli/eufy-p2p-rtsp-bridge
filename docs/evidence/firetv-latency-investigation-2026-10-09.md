@@ -271,7 +271,7 @@ The exact commands and wall-timestamped stage records are in
 cadence summaries are in `ffmpeg-stage-summary.json` and
 `ffmpeg-output-cadence.json` under the private evidence directory below.
 
-### Production verification after decoder change
+### Intermediate production verification with one decoder thread
 
 The deployed wrapper SHA-256 is
 `c5533e9ceff45ed7ed1f3f9c509b40d0757fa40e57925c1b0bd817c15f9d027b`.
@@ -300,6 +300,96 @@ No added playout buffer was deployed. The Android APK and player remain
 unchanged, and diagnostic timing logging was restored to INFO afterward.
 `postdeploy-rtp.jsonl`, `postdeploy-tv58.log`, `postdeploy-gpu.jsonl`, and
 `postdeploy-summary.json` retain the underlying measurements.
+
+### Narrower repair: keep slice parallelism
+
+The single-thread input test establishes the frame-hold mechanism, but the
+repair can target frame threading specifically. FFmpeg's
+[codec threading documentation](https://ffmpeg.org/ffmpeg-codecs.html#Codec-Options)
+states that frame threading adds a frame of decoding delay per thread and
+that slice threading processes parts of one frame concurrently. The narrower
+input option is `-thread_type:v slice` before `-i`, retaining the automatic
+thread count. Actual parallel work still depends on codec/stream support.
+
+A second live Door comparison emits 90 frames per variant with zero exit
+status and active i915 GPU counters. Slice-only input-to-decoded median/p95
+is 1.82/18.4 ms, compared with 2.50/24.8 ms for one decoder thread. Both can
+emit output without any later input packet. A live Garage **HEVC** slice-only
+check also emits 90 H.264 frames, exit zero: input-to-decoded median/p95 is
+2.52/20.9 ms, input-to-encoded 30.9/128 ms, and minimum/median later input
+packets before encoded output are both zero. This tests both current input
+codecs, rather than assuming the Door H.264 result applies to Garage.
+
+A same-recorded-input replay provides a separate comparison without changing
+live scenes. The captured Door input contains I/P pictures and no B pictures.
+All three variants deliver the requested 60 frames and exit zero. Pacing uses
+`-re`; wall-clock stamping is omitted **only for this file replay** to avoid
+feedback between reader pacing and arrival-generated timestamps. An earlier
+replay retaining that combination timed out and is excluded.
+
+| Same input, 60-frame replay | Input to decoded median | Input to encoded median | Process CPU seconds / elapsed seconds |
+|---|---:|---:|---:|
+| Automatic frame + slice threading | 333 ms | 353 ms | 2.54 / 5.21 |
+| One decoder thread | 67.5 ms | 87.6 ms | 2.99 / 5.65 |
+| Slice threading, automatic count | 67.9 ms | 87.2 ms | 2.51 / 5.04 |
+
+The file demuxer emits NOPTS, so this comparison matches packet/frame order
+for the known I/P-only fixture; decoder-generated PTS advance sequentially.
+The first 15 and last six output frames are excluded from timing. The one
+remaining frame in both reduced modes belongs to this parser/replay path;
+the baseline holds four additional later packets. These short runs establish
+removal of that extra hold and sustained output, not a general CPU benchmark
+or a promise to hide source outages. The full GPU attempt is the scope of the
+change; mixed/software fallback decoding keeps its prior parallelism.
+
+### Final slice-only production verification
+
+The final wrapper replaces the intermediate input `-threads:v 1` with
+`-thread_type:v slice`, retaining automatic thread count in the full GPU
+attempt. Wrapper SHA-256 is
+`3f227e6e0df162ee8073b19b64a6b85007f995fd463ea5edf2dd76199ad112f1`;
+the SDK bundle remains unchanged. No Android APK update, encoder async-depth
+change, playout buffer, or software fallback thread restriction is included.
+
+Startup was **not clean**: Garage's raw SDK feed delivered no bytes for 31
+seconds and then reported an awaiting-first-frame warm timeout; Balcony's raw
+feed also ended and reopened. Garage's RTSP producer timed out during this
+source outage. The first diagnostic DESCRIBE request timed out and is retained
+as a failed capture, not presented as a successful production check. These
+raw-source events occur before the transcoder and do not establish a slice
+threading regression.
+
+After raw feeds resumed, a subsequent 20-second capture receives 302 Door
+and 300 Garage RTP frames with no additional bridge log error in that window.
+Both current production processes use VA-API decode/scale/H.264 encoding
+and slice-only input; their i915 video-engine counters advance by 367 and
+394 ms over three seconds. This verifies output on both input codecs after
+warm-up. Garage remains bursty: in the subset after the first three seconds,
+287 frames span 16.61 seconds, while RTP media time spans 17.96 seconds.
+This is not proof of uniform pacing or elimination of all source jitter.
+The observed raw startup outage and remaining incoming pauses still require
+separate transport investigation; no concealment by additional waiting was
+introduced. Evidence is in `slice-warm-rtp.jsonl`, `slice-warm-gpu.jsonl`, and
+the initial failed `slice-postdeploy-rtp.jsonl` capture.
+
+### Historical first-party wire cadence
+
+The existing authenticated phone capture `eufy-hb3.pcap` is rechecked against
+SHA-256 `5290131e60869fa2950045854afd520cf6ac328a1941995648ee91448305c344`.
+Within the documented active start window, 2.168–12.921 seconds after the
+September 19 start, unique video-unit header starts have arrival gaps of
+41.6 ms median, 82.3 ms p95, and 540.5 ms maximum. Source timestamp steps are
+67 ms median and 76 ms maximum. The longest arrival gap is between unit
+identities 5352 and 5353 while source time advances only 67 ms.
+
+This shows that the archived first-party wire delivery is also irregular;
+it does not measure the phone renderer, prove a phone buffering policy, or
+identify the current 1–2 second pauses. This is historical header-only evidence,
+with a different scene/quality and possible additional packed/fragmented
+headers. Retransmitted headers are deduplicated by timestamp and unit identity;
+the subsequent stop/restart gap is excluded. It must not substitute for a
+current paired comparison. Results are retained in
+`first-party-header-cadence.json` and `first-party-header-starts.json`.
 
 ## Private reproducible evidence
 
