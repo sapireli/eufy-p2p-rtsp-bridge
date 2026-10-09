@@ -36,7 +36,8 @@ import java.util.concurrent.TimeUnit
 import java.util.UUID
 
 data class Camera(val sn: String, val name: String, val rtsp: String, val mode: String, val streaming: Boolean,
-                  val dual: Boolean, val dualView: String?, val width: Int, val height: Int)
+                  val dual: Boolean, val dualView: String?, val width: Int, val height: Int,
+                  val rtspTcpPacketSize: Int? = null)
 
 class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
@@ -56,6 +57,13 @@ class MainActivity : Activity() {
     private var wallVisible = false
     private var activityStarted = false
     private var resumeWallOnStart = false
+    private var cameraLoadGeneration = 0L
+    private var cameraLoadInFlight = false
+    private var savedWallBridge: String? = null
+    private var destroyed = false
+    private val savedWallRetry = Runnable {
+        if (activityStarted && !wallVisible) savedWallBridge?.let { loadCameras(it, true) }
+    }
     private var nsd: NsdManager? = null
     private var discovery: NsdManager.DiscoveryListener? = null
     private var multicast: WifiManager.MulticastLock? = null
@@ -92,6 +100,7 @@ class MainActivity : Activity() {
     }
 
     private fun showSetup(message: String = "Enter the bridge IP or use discovery") {
+        cancelCameraLoad()
         resumeWallOnStart = false
         wallVisible = false
         stopWall()
@@ -104,6 +113,7 @@ class MainActivity : Activity() {
         }.also { root.addView(it) }
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         actions.addView(button("Connect") {
+            cancelCameraLoad()
             val value = ipEntry?.text.toString().trim()
             if (value.isNotEmpty()) try { loadCameras(normalize(value), false) }
             catch (e: Exception) { status?.text = "Invalid bridge address: ${e.message}" }
@@ -123,6 +133,11 @@ class MainActivity : Activity() {
     }
 
     private fun loadCameras(url: String, autoOpen: Boolean) {
+        if (destroyed) return
+        cancelCameraLoad()
+        if (autoOpen && chosen.isNotEmpty()) savedWallBridge = url
+        val generation = cameraLoadGeneration
+        cameraLoadInFlight = true
         stopDiscovery()
         status?.text = "Connecting to $url…"
         work.execute {
@@ -135,17 +150,45 @@ class MainActivity : Activity() {
                 val parsed = JSONArray(body)
                 val list = (0 until parsed.length()).map { parsed.getJSONObject(it) }
                     .filter { it.optBoolean("enabled") }
-                    .map { Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming"), it.optBoolean("dual"), if (it.isNull("dualView")) null else it.optString("dualView").ifBlank { null }, it.optInt("width"), it.optInt("height")) }
+                    .map { Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming"), it.optBoolean("dual"), if (it.isNull("dualView")) null else it.optString("dualView").ifBlank { null }, it.optInt("width"), it.optInt("height"), it.optInt("rtspTcpPacketSize").takeIf { size -> size in 256..65535 }) }
                 ui.post {
+                    if (destroyed || generation != cameraLoadGeneration) return@post
+                    cameraLoadInFlight = false
+                    if (!activityStarted) return@post
+                    if (autoOpen && chosen.isNotEmpty() && list.isEmpty()) {
+                        scheduleSavedWallRetry("Bridge is starting • retrying saved wall")
+                        return@post
+                    }
                     bridge = url; cameras = list; prefs.edit().putString("bridge", url).apply()
                     states.clear(); list.forEach { states[it.sn] = if (it.streaming) "live" else "idle" }
                     if (autoOpen && chosen.any { sn -> list.any { it.sn == sn } }) showWall()
                     else showSetup("Connected to $url • ${list.size} camera(s)")
                 }
             } catch (e: Exception) {
-                ui.post { status?.text = "Bridge unavailable: ${e.message}"; if (wallVisible) ui.postDelayed(reconnect, 5_000) }
+                ui.post {
+                    if (destroyed || generation != cameraLoadGeneration) return@post
+                    cameraLoadInFlight = false
+                    if (!activityStarted) return@post
+                    status?.text = "Bridge unavailable: ${e.message}"
+                    if (autoOpen && chosen.isNotEmpty()) scheduleSavedWallRetry("Bridge unavailable • retrying saved wall")
+                }
             }
         }
+    }
+
+    private fun cancelCameraLoad(clearSavedWall: Boolean = true) {
+        cameraLoadGeneration++
+        cameraLoadInFlight = false
+        ui.removeCallbacks(savedWallRetry)
+        if (clearSavedWall) savedWallBridge = null
+    }
+
+    private fun scheduleSavedWallRetry(message: String) {
+        if (!activityStarted || wallVisible || savedWallBridge == null || destroyed) return
+        status?.text = message
+        android.util.Log.i("EufyWallTV", "Saved wall camera discovery retry in 5000ms")
+        ui.removeCallbacks(savedWallRetry)
+        ui.postDelayed(savedWallRetry, 5_000)
     }
 
     private fun showCameras(root: LinearLayout) {
@@ -197,6 +240,7 @@ class MainActivity : Activity() {
 
     private fun showWall() {
         if (!activityStarted) { resumeWallOnStart = true; return }
+        cancelCameraLoad()
         if (bridge.isBlank()) return
         stopDiscovery()
         wallVisible = true
@@ -401,6 +445,7 @@ class MainActivity : Activity() {
     }
 
     private fun startDiscovery() {
+        cancelCameraLoad()
         stopDiscovery()
         status?.text = "Searching for _eufy-wall._tcp…"
         val wifi = applicationContext.getSystemService(WIFI_SERVICE) as? WifiManager
@@ -453,14 +498,16 @@ class MainActivity : Activity() {
     }
 
     @Deprecated("Deprecated in Java")
-    override fun onBackPressed() { if (wallVisible) showSetup("Choose cameras or change bridge") else super.onBackPressed() }
+    override fun onBackPressed() { cancelCameraLoad(); if (wallVisible) showSetup("Choose cameras or change bridge") else super.onBackPressed() }
     override fun onStart() {
         super.onStart()
         activityStarted = true
         if (resumeWallOnStart) { resumeWallOnStart = false; showWall() }
+        else if (!cameraLoadInFlight && !wallVisible) savedWallBridge?.let { loadCameras(it, true) }
     }
     override fun onStop() {
         activityStarted = false
+        cancelCameraLoad(clearSavedWall = false)
         if (wallVisible) {
             resumeWallOnStart = true
             wallVisible = false
@@ -469,5 +516,5 @@ class MainActivity : Activity() {
         stopDiscovery()
         super.onStop()
     }
-    override fun onDestroy() { stopDiscovery(); wallVisible = false; stopWall(); work.shutdown(); super.onDestroy() }
+    override fun onDestroy() { destroyed = true; cancelCameraLoad(); stopDiscovery(); wallVisible = false; stopWall(); work.shutdown(); super.onDestroy() }
 }

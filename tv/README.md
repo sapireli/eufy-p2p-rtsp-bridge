@@ -71,3 +71,22 @@ when it goes into the background. Returning rebuilds the saved wall. See the
 for live-device measurements and verification limits. The previous
 [Media3 backlog investigation](../docs/evidence/tv-rtsp-backlog-2026-10-08.md) and
 [bridge clock investigation](../docs/evidence/live-timing-2026-10-08.md) remain historical evidence.
+
+### RTSP TCP packet capability
+
+When `/api/cameras` advertises `rtspTcpPacketSize` between 256 and 65535, the
+TV app requests that size using go2rtc's `pkt_size` URL option. Existing query
+parameters and an explicit `pkt_size` are preserved. Without this optional
+capability, the URL is unchanged. Larger interleaved TCP packets reduce RTP
+fragmentation and packet-processing work; they do not change the encoded
+picture, frame rate, decoder buffering, or render scheduling. This option is
+for TCP and is not a UDP MTU recommendation.
+
+### Saved wall during bridge startup
+
+Version 0.5 retries camera discovery every five seconds when a saved wall is
+opened while the bridge is unreachable or returns an empty startup camera list.
+Retries stop when the wall opens, when setup is changed manually, and while the
+activity is in the background. Returning resumes the saved-wall attempt. Old
+HTTP responses cannot overwrite a newer setup choice. This is setup recovery;
+it does not add playback buffering or periodically rebuild active players.

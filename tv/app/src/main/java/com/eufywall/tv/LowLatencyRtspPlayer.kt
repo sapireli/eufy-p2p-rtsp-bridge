@@ -125,9 +125,16 @@ internal class LowLatencyRtspPlayer(
             override fun surfaceCreated(holder: SurfaceHolder) {
                 if (!released && !started) {
                     started = true
-                    val uri = Uri.parse(camera.rtsp)
+                    val original = Uri.parse(camera.rtsp)
+                    // Only a bridge-advertised capability enables larger interleaved TCP
+                    // packets. Preserve explicit URL options and unrelated query values.
+                    val hint = camera.rtspTcpPacketSize?.takeIf { it in 256..65535 }
+                    val uri = if (hint != null && original.scheme == "rtsp" && original.getQueryParameter("pkt_size") == null)
+                        original.buildUpon().appendQueryParameter("pkt_size", hint.toString()).build()
+                    else original
+                    Log.i("EufyWallTV", "${camera.sn} RTSP TCP packet size=${uri.getQueryParameter("pkt_size") ?: "server default"}")
                     val credentials = uri.userInfo?.split(':', limit = 2)
-                    processor.init(uri, credentials?.getOrNull(0), credentials?.getOrNull(1), "EufyWallTV/0.3", 5_000)
+                    processor.init(uri, credentials?.getOrNull(0), credentials?.getOrNull(1), "EufyWallTV/0.5", 5_000)
                     processor.start(requestVideo = true, requestAudio = false, requestApplication = false)
                 }
             }
