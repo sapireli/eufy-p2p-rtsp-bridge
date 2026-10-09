@@ -207,12 +207,86 @@ these events. They require correlation with bridge/source activity and are not
 silently treated as normal continuous playback. Private capture:
 `post-garage-watchdog-cpu.txt`.
 
+## Corrected reference and cold-start verification
+
+The corrected reference uses slice-only input decoding and explicitly single-threaded
+PNG output (`-threads:v 1`), selecting original decoded frames with VFR timestamps.
+At 18:16:01.959874 UTC, the Garage reference displayed `02:16:00PM`; the Pi
+plane snapshot at 18:16:02.902051 displayed the same second. The next reference
+at 18:16:03.324174 displayed `02:16:01PM`. In this recovery-window sample,
+the Pi is between fresh reference samples at roughly one-second overlay precision,
+rather than retaining the previous 18-second backlog. Front Door lacked its camera
+clock in both feeds, so its timestamp cannot provide the same bound.
+
+The corrected Garage reference also stopped after its single image at
+18:11:58.432 UTC while Front Door continued through 18:12:24.936. This aligns
+with the Garage decoded-frame watchdog at 18:12:14 and demonstrates a shared
+Garage outage in that observation, rather than a pause isolated to the Pi.
+It does not yet identify the camera/SDK/transcoder cause.
+
+The snapshot change was deployed and the bridge restarted at **18:25:24 UTC**.
+A monitor connected at 18:25:26.444 and received an empty hello at 18:25:26.451.
+On the same connection, the new full hello arrived at 18:25:31.270 with all six
+camera identities, slug keys and `rtspTcpPacketSize:8192`, before starting/live
+events. Garage became live at 18:25:34.733 and Front Door at 18:25:41.561.
+The Pi automatically restarted its two players as PIDs 2151/2152 using the
+hinted URLs, without an explicit URL or packet override. Both Fire TVs also
+recovered with their hardware decoders and the same packet setting.
+Private protocol record: `coldboot-ws.jsonl`.
+
+The intermediate cold-start soak comparison at 18:29:01.056115 UTC showed Pi
+Garage `02:28:59PM`, matching the corrected reference frame at 18:29:01.425806
+and following reference `02:28:58PM` at 18:29:00.432861. The same two Pi player
+PIDs remained active with empty TCP receive queues. A clean ten-second CPU sample
+from 18:28:25 measured 31.6% idle (34.0% user, 21.3% system, 13.0% softirq).
+Private captures: `pi-coldboot-mid-garage.pgm`, `coldboot-mid-*-times.json`,
+and `coldboot-mid-soak-cpu.txt`.
+
+## Failed final soak and shared outage
+
+The final cold-start soak did **not** pass. At 18:35:25 UTC, Garage PID 2151
+and Front Door PID 2152 lost their RTSP connections with an interleaved parse
+error. Garage had played about 9 minutes 49 seconds. The independent corrected
+Garage reference stopped after frame 006 at 18:35:15.017235; its later frame
+arrived after the producer replacement with a large RTP timeline discontinuity.
+The bridge PID 30559 and service start time 18:25:24 remained unchanged. Both
+FFmpeg producers reported RTSP read timeouts at 18:35:29.593 and 18:35:29.627.
+The Pi recovered using its existing restart behavior, but restarted players
+2901/2918 are not evidence that the original players survived ten minutes.
+
+The planned final plane capture at 18:35:56.651013 showed Garage clock
+`02:35:43PM`, after the outage/reconnection. The reference had also stalled,
+so this capture cannot certify an uninterrupted near-live path. The independent wire/raw observer confirms both source feeds continued during
+this outage: maximum raw HTTP first-slice gaps in 18:35:10–18:36:05 were
+1.219 seconds for Door and 0.925 seconds for Garage. Kernel logs then recorded
+i915 video-engine hangs/resets at 18:35:29 and 18:35:44. The first hung context
+was Garage FFmpeg PID 30611; the decoded batch ends in a HEVC bitstream decode
+operation at 1280×1440. This final event is a shared hardware-transcoder failure
+downstream of SDK delivery, rather than a Pi-specific accumulating receive queue.
+The driver/workload trigger and repair remain under investigation.
+
+The same longer trace also proves distinct Garage source pauses before the GPU
+hang: 14.457 seconds of consecutive-sequence video silence at 18:34:38–18:34:53,
+with timely acknowledgement, continuing ping/pong and continuing Door video.
+The corresponding original HTTP NAL gap was 14.509 seconds. The GPU failure
+does not explain every source pause. Exact deployed SDK sequencing replay over
+599.6 seconds, including natural 16-bit wraps, produced zero held or abandoned
+Door/Garage gaps. These negative boundaries matter when proposing an SDK fix.
+
+ No SDK,
+camera setting or bridge restart was intentionally made during this window.
+A read-only OSD inspector was opened later at 18:36:21, then closed without
+queries or writes; that later window is excluded from performance evidence.
+Private records: `coldboot-final-soak-status.txt`, `coldboot-outage-bridge.txt`,
+`coldboot-ten-minute-*-times.json`, and `pi-coldboot-final-garage.pgm`.
+
 ## Remaining acceptance checks
 
 The measured CPU reduction and bit-exact repacketization are verified. Final
-low-latency, uninterrupted playback is **not fully verified**: the corrected
-single-threaded reference comparison, correlation of the Garage watchdog and
-Front Door source transitions, and the deployed fresh-ready-snapshot cold-start
-recovery followed by another continuous soak remain open. The current client
+low-latency, uninterrupted playback is **not fully verified**: the final continuous
+soak failed due to the shared outage above. The corrected same-camera comparison
+and deployed snapshot recovery passed the bounded checks above; the shared Garage
+outage and Front Door source transitions remain separate unresolved stability issues.
+The current client
 has no diagnostic wrappers or packet probes installed, and its source and binary
 are ready for those checks without further Linux changes.
