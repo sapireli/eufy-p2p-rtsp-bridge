@@ -115,10 +115,29 @@ UAPI byte layouts, full black fill including padding, failure cleanup, previous
 plane restoration, avoiding replacement of a newer owner, and waiting for video
 subprocesses before display cleanup.
 
-A reboot check was attempted after installation. DietPi reported that
-`dbus-org.freedesktop.login1.service` failed to load, and SSH stopped responding.
-Boot persistence and physical display confirmation remain pending recovery; the
-console-write isolation result above was obtained before that attempt.
+### Boot and physical display verification
+
+The Pi completed a subsequent boot (client start 10:58:14 EDT). The installed
+console suppression files were absent and printk remained `4 4 1 7`. The active
+primary image was again owned by `eufy-wall`; its GETFB2 capture was all zero.
+The hidden console framebuffer contained 109,534 nonzero bytes of boot output,
+confirming the client backdrop was independent of that image after startup.
+
+The user confirmed: black backdrop, no terminal text, both cameras moving.
+They also reported playback somewhat choppier than Android TV; that is a separate
+remaining playback investigation, not a claim of smoothness from this test.
+
+The final clean build from commit `110489740e5734eecc586f9a4698372e1c9384c1`
+was installed after boot verification. Local and installed SHA-256 matched:
+`59f3b1a9dc87404dacc1f242ceb92c979eea5d7fb8c295d3777993c6456c6369`.
+The service restarted successfully without the console helper. Six subsequent
+DRM snapshots kept the primary framebuffer fixed while Front Door changed
+framebuffers in all five comparisons and Garage in three of five; this confirms
+advancing overlays, not exact frame rate or smoothness. The boot test used
+the same client source in the earlier candidate; the final build carries clean
+commit metadata. DietPi emitted a login1 service error during the reboot request
+and SSH was unavailable temporarily; successful reconnection and the new boot
+were verified, rather than treating the command result alone as proof.
 
 ## Private capture provenance
 
@@ -137,3 +156,5 @@ Captures are in the Git-ignored `.evidence/garagepi-console-2026-10-09/`.
 | `owned-black-primary.raw` | `06b2c5a0c01e515d009c0bfbe0e61fafb105a54da5ec621104915cd5949849e8` |
 | `black-after-console-write.raw` | `06b2c5a0c01e515d009c0bfbe0e61fafb105a54da5ec621104915cd5949849e8` |
 | `hidden-console-after-write.raw` | `0028fb9968592567f3fbee5ba54894c2e26b100d3473479959829ad4896fce0f` |
+| `black-primary-after-boot.raw` | `06b2c5a0c01e515d009c0bfbe0e61fafb105a54da5ec621104915cd5949849e8` |
+| `hidden-console-after-boot.raw` | `26bf5b08e780ab77a9290b6b1dd4a2f4e19fbb732e856811050d90fdeae030ea` |
