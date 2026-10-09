@@ -1,5 +1,10 @@
 # Front Door TV backlog — 2026-10-08
 
+> TV playback follow-up: the ExoPlayer playback and catch-up controller described below
+> were replaced by direct RTSP/MediaCodec playback. See the
+> [migration and choppiness evidence](tv-low-latency-rtsp-2026-10-08.md). Earlier measurements
+> remain evidence for the versions tested at the time.
+
 ## Report and the comparison that located the delay
 
 After the bridge RTP clock correction, the user reported Front Door in the Eufy phone app

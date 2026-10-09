@@ -1,5 +1,10 @@
 # Live stream timing evidence — 2026-10-08
 
+> TV playback follow-up: the ExoPlayer playback and catch-up controller described below
+> were replaced by direct RTSP/MediaCodec playback. See the
+> [migration and choppiness evidence](tv-low-latency-rtsp-2026-10-08.md). Earlier measurements
+> remain evidence for the versions tested at the time.
+
 ## Report and scope
 
 The user reported Garage CLE sometimes approximately 15 seconds behind real motion, on the Pi

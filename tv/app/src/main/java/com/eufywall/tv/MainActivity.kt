@@ -21,15 +21,6 @@ import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.rtsp.RtspMediaSource
-import androidx.media3.exoplayer.video.VideoFrameMetadataListener
-import androidx.media3.ui.PlayerView
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -43,8 +34,6 @@ import java.net.URI
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 data class Camera(val sn: String, val name: String, val rtsp: String, val mode: String, val streaming: Boolean,
                   val dual: Boolean, val dualView: String?, val width: Int, val height: Int)
@@ -59,11 +48,10 @@ class MainActivity : Activity() {
     private var cameras = listOf<Camera>()
     private val chosen = linkedSetOf<String>()
     private val states = mutableMapOf<String, String>()
-    private val players = mutableMapOf<String, ExoPlayer>()
+    private val players = mutableMapOf<String, LowLatencyRtspPlayer>()
     private val frameWatchdogs = mutableMapOf<String, Runnable>()
-    private val playbackControls = mutableMapOf<String, Runnable>()
     private val labels = mutableMapOf<String, TextView>()
-    private val surfaces = mutableMapOf<String, PlayerView>()
+    private val surfaces = mutableMapOf<String, FrameLayout>()
     private var socket: WebSocket? = null
     private var wallVisible = false
     private var activityStarted = false
@@ -216,7 +204,7 @@ class MainActivity : Activity() {
         if (selected.isEmpty()) { showSetup("Selected cameras unavailable"); return }
         fun tileFor(cam: Camera): FrameLayout {
             val tile = FrameLayout(this).apply { setBackgroundColor(0xff000000.toInt()) }
-            val videoView = layoutInflater.inflate(R.layout.video_tile, tile, false) as PlayerView
+            val videoView = FrameLayout(this)
             videoView.keepScreenOn = true
             tile.addView(videoView)
             val label = text("${cam.name} • waiting", 18f).apply { setBackgroundColor(0x99000000.toInt()) }
@@ -287,51 +275,48 @@ class MainActivity : Activity() {
         if (state == "live") {
             if (players.containsKey(sn)) return
             label.text = "${cam.name} • connecting"
-            val renderers = DefaultRenderersFactory(this)
-                .setEnableDecoderFallback(true)
-            // These are live RTSP cameras: the default 1s start / 2s rebuffer waits
-            // add a persistent delay. Keep a small jitter allowance instead.
-            val loadControl = DefaultLoadControl.Builder()
-                .setBufferDurationsMs(500, 1500, 200, 500)
-                .build()
-            val player = ExoPlayer.Builder(this, renderers).setLoadControl(loadControl).build()
             val startedAt = SystemClock.elapsedRealtime()
-            val firstFrameRendered = AtomicBoolean(false)
-            val lastFrameAt = AtomicLong(startedAt)
-            player.setVideoFrameMetadataListener(VideoFrameMetadataListener { _, _, _, _ ->
-                if (firstFrameRendered.get()) lastFrameAt.set(SystemClock.elapsedRealtime())
-            })
-            players[sn] = player
-            surfaces[sn]?.player = player
-            val playbackControl = LiveRtspPlaybackControl()
-            var lastPlaybackLogAt = 0L
-            val control = object : Runnable {
-                override fun run() {
-                    if (!wallVisible || states[sn] != "live" || players[sn] !== player) return
-                    val bufferedMs = player.totalBufferedDuration
-                    val speed = playbackControl.speedFor(bufferedMs, player.isPlaying)
-                    val changed = player.playbackParameters.speed != speed
-                    if (changed) player.setPlaybackSpeed(speed)
-                    val now = SystemClock.elapsedRealtime()
-                    if (changed || now - lastPlaybackLogAt >= 5_000) {
-                        android.util.Log.i("EufyWallTV", "Live playback ${cam.sn}: bufferedMs=$bufferedMs speed=$speed positionMs=${player.currentPosition} playing=${player.isPlaying}")
-                        lastPlaybackLogAt = now
-                    }
-                    ui.postDelayed(this, 500)
+            lateinit var player: LowLatencyRtspPlayer
+            var retryScheduled = false
+            fun retry(message: String, decoder: Boolean) {
+                if (!wallVisible || players[sn] !== player || retryScheduled) return
+                retryScheduled = true
+                label.text = "${cam.name} • $message, reconnecting"
+                android.util.Log.w("EufyWallTV", "RTSP ${cam.sn}: $message; ${player.diagnostics()}")
+                if (decoder) {
+                    decoderFailures++
+                    if (decoderFailures >= 2) { recoverDecoder(); return }
                 }
+                ui.postDelayed({
+                    if (wallVisible && states[sn] == "live" && players[sn] === player) {
+                        release(sn); updateTile(sn)
+                    }
+                }, 1_000)
             }
-            playbackControls[sn] = control
-            ui.postDelayed(control, 500)
+            player = LowLatencyRtspPlayer(this, cam,
+                onFirstFrame = {
+                    if (players[sn] === player) {
+                        label.text = cam.name
+                        decoderFailures = 0
+                        android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn} after ${SystemClock.elapsedRealtime() - startedAt}ms; ${player.diagnostics()}")
+                    }
+                },
+                onFailure = { message, decoder -> retry(message, decoder) })
+            players[sn] = player
+            surfaces[sn]?.addView(player.view, FrameLayout.LayoutParams(-1, -1))
+            var lastLogAt = 0L
             val watchdog = object : Runnable {
                 override fun run() {
                     if (!wallVisible || states[sn] != "live" || players[sn] !== player) return
-                    val rendered = firstFrameRendered.get()
-                    val silentForMs = SystemClock.elapsedRealtime() - (if (rendered) lastFrameAt.get() else startedAt)
+                    val now = SystemClock.elapsedRealtime()
+                    val rendered = player.renderedFrames.get() > 0
+                    val silentForMs = now - (if (rendered) player.lastFrameAt.get() else startedAt)
+                    if (now - lastLogAt >= 5_000) {
+                        android.util.Log.i("EufyWallTV", "Live RTSP ${cam.sn}: ${player.diagnostics()}")
+                        lastLogAt = now
+                    }
                     if (silentForMs >= (if (rendered) liveFrameTimeoutMs else firstFrameTimeoutMs)) {
-                        label.text = "${cam.name} • video stalled, reconnecting"
-                        android.util.Log.w("EufyWallTV", "No video frames for ${silentForMs}ms: ${cam.sn}; restarting RTSP player")
-                        release(sn)
-                        updateTile(sn)
+                        retry("No rendered frames for ${silentForMs}ms", false)
                     } else {
                         ui.postDelayed(this, 1_000)
                     }
@@ -339,35 +324,6 @@ class MainActivity : Activity() {
             }
             frameWatchdogs[sn] = watchdog
             ui.postDelayed(watchdog, 1_000)
-            player.addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (players[sn] !== player) return
-                    if (playbackState == Player.STATE_READY) label.text = cam.name
-                    android.util.Log.i("EufyWallTV", "Playback ${cam.sn}: state=$playbackState bufferedMs=${player.totalBufferedDuration} elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
-                }
-                override fun onRenderedFirstFrame() {
-                    if (players[sn] !== player) return
-                    lastFrameAt.set(SystemClock.elapsedRealtime())
-                    firstFrameRendered.set(true)
-                    decoderFailures = 0
-                    android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn} after ${SystemClock.elapsedRealtime() - startedAt}ms; bufferedMs=${player.totalBufferedDuration}")
-                }
-                override fun onPlayerError(error: PlaybackException) {
-                    if (players[sn] !== player) return
-                    label.text = "${cam.name} • ${error.errorCodeName}"
-                    android.util.Log.e("EufyWallTV", "RTSP ${cam.sn}: ${error.errorCodeName}", error)
-                    if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) {
-                        decoderFailures++
-                        if (decoderFailures >= 2) {
-                            recoverDecoder()
-                            return
-                        }
-                    }
-                    ui.postDelayed({ if (wallVisible && states[sn] == "live" && players[sn] === player) { release(sn); updateTile(sn) } }, 5_000)
-                }
-            })
-            player.setMediaSource(RtspMediaSource.Factory().setForceUseRtpTcp(true).createMediaSource(MediaItem.fromUri(cam.rtsp)))
-            player.prepare(); player.playWhenReady = true
         } else {
             release(sn)
             label.text = "${cam.name} • ${if (state == "starting") "starting" else "idle"}"
@@ -375,9 +331,7 @@ class MainActivity : Activity() {
     }
 
     private fun release(sn: String) {
-        playbackControls.remove(sn)?.let { ui.removeCallbacks(it) }
         frameWatchdogs.remove(sn)?.let { ui.removeCallbacks(it) }
-        surfaces[sn]?.player = null
         players.remove(sn)?.release()
     }
 
