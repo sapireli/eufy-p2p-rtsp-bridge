@@ -16,14 +16,15 @@ import (
 
 // Camera is what we know about one camera.
 type Camera struct {
-	SN         string
-	Name       string
-	Mode       string // always | on_motion | on_demand
-	Live       bool   // the server says there is video to show right now
-	Starting   bool   // waking: a stream is being established but no frames yet
-	HasStill   bool   // the bridge holds a thumbnail for this camera at /snapshot/<sn>
-	StreamKey  string // the bridge's go2rtc stream key (its name, slugged) — what the RTSP URL uses
-	LastMotion time.Time
+	SN                string
+	Name              string
+	Mode              string // always | on_motion | on_demand
+	Live              bool   // the server says there is video to show right now
+	Starting          bool   // waking: a stream is being established but no frames yet
+	HasStill          bool   // the bridge holds a thumbnail for this camera at /snapshot/<sn>
+	StreamKey         string // the bridge's go2rtc stream key (its name, slugged) — what the RTSP URL uses
+	RTSPTCPPacketSize int    // optional bridge hint; zero means no automatic tuning
+	LastMotion        time.Time
 }
 
 // Store is the client's view of the wall. Event updates and renderer reads may run concurrently.
@@ -49,12 +50,13 @@ func (s *Store) get(sn string) *Camera {
 
 // HelloCamera is one camera in the server's hello snapshot.
 type HelloCamera struct {
-	SN        string `json:"sn"`
-	Name      string `json:"name"`
-	Mode      string `json:"mode"`
-	State     string `json:"state"`
-	Still     bool   `json:"still"`
-	StreamKey string `json:"streamKey"`
+	SN                string `json:"sn"`
+	Name              string `json:"name"`
+	Mode              string `json:"mode"`
+	State             string `json:"state"`
+	Still             bool   `json:"still"`
+	StreamKey         string `json:"streamKey"`
+	RTSPTCPPacketSize int    `json:"rtspTcpPacketSize"`
 }
 
 // Message is one /ws frame. Only the fields the wall acts on are decoded.
@@ -78,7 +80,7 @@ func (s *Store) Apply(m Message) bool {
 		// happening rather than waiting for the next event.
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
-			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey}
+			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, RTSPTCPPacketSize: c.RTSPTCPPacketSize}
 		}
 		return true
 	case "motion":

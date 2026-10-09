@@ -70,6 +70,15 @@ from actual portrait-stream support, so successful playback must verify the
 decoded dimensions and frame delivery. This option does not change the camera's
 source quality setting.
 
+The camera API and WebSocket `hello` advertise `rtspTcpPacketSize: 8192`.
+TCP clients can request `?pkt_size=8192` on the reported go2rtc stream URL.
+This repacketizes the existing compressed video for that consumer; it does not
+resize, re-encode, change frame rate or add a playback buffer. The ordinary
+`rtsp` URL stays unchanged for clients using UDP, where larger packets can exceed
+the network MTU. Updated Linux clients discover this hint automatically and
+preserve explicit URLs unless the operator opts into packet-size tuning.
+See [the measured Pi CPU bottleneck and same-camera delay](evidence/pi-garage-delay-2026-10-09.md).
+
 The full VA-API decode path uses input `-thread_type:v slice`, retaining automatic
 thread count and parallel work within a frame where supported. On the tested Atom, FFmpeg
 frame threading held at least four future frames before delivering decoded

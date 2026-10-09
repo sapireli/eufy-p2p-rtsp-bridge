@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -54,7 +55,11 @@ type Restart struct {
 
 type Config struct {
 	RTSPBase string `yaml:"rtsp_base"`
-	Layout   string `yaml:"layout"`
+	// Nil uses the bridge's per-camera TCP packet size hint for generated URLs. Zero
+	// disables automatic tuning; a positive value explicitly opts all RTSP tiles in.
+	RTSPPacketSize  *int `yaml:"rtsp_packet_size"`
+	packetSizeHints map[string]int
+	Layout          string `yaml:"layout"`
 	// Output names the display this instance drives, as a DRM connector: "HDMI-A-1", "HDMI-A-2", "DP-1".
 	// Empty means the first connected output, which is the single-screen case. Naming it is what lets one
 	// instance per monitor each show its own cameras: each drives its own CRTC, so each keeps the cheap
@@ -107,6 +112,9 @@ func Parse(data []byte) (*Config, error) {
 	}
 	if c.Layout == "" {
 		c.Layout = "1"
+	}
+	if c.RTSPPacketSize != nil && *c.RTSPPacketSize != 0 && !validPacketSize(*c.RTSPPacketSize) {
+		return nil, fmt.Errorf("config: rtsp_packet_size must be 0 or 256-65535")
 	}
 	if c.PrimaryPosition == "" {
 		c.PrimaryPosition = "left"
@@ -184,10 +192,58 @@ func Parse(data []byte) (*Config, error) {
 
 // TileURL is the RTSP url for a tile: explicit url, else rtsp_base/camera.
 func (c *Config) TileURL(t Tile) string {
-	if t.URL != "" {
-		return t.URL
+	return c.TileURLForStream(t, t.Camera)
+}
+
+// TileURLForStream keeps the camera identity separate from the bridge's stream
+// key, so event-driven reconnects and motion tiles retain per-camera hints.
+func (c *Config) TileURLForStream(t Tile, streamKey string) string {
+	raw := t.URL
+	if raw == "" {
+		raw = strings.TrimRight(c.RTSPBase, "/") + "/" + streamKey
 	}
-	return strings.TrimRight(c.RTSPBase, "/") + "/" + t.Camera
+	size := 0
+	if c.RTSPPacketSize != nil {
+		size = *c.RTSPPacketSize
+	} else if t.URL == "" {
+		size = c.packetSizeHints[t.Camera]
+	}
+	if !validPacketSize(size) {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "rtsp" && u.Scheme != "rtsps") {
+		return raw
+	}
+	query := u.Query()
+	// An existing URL option wins over an automatic hint. An explicit config
+	// override wins when the operator deliberately requests a different size.
+	if c.RTSPPacketSize == nil && query.Has("pkt_size") {
+		return raw
+	}
+	query.Set("pkt_size", strconv.Itoa(size))
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+func validPacketSize(size int) bool { return size >= 256 && size <= 65535 }
+
+// WithRTSPPacketSizeHints returns an independent config snapshot. Event updates
+// never mutate the config read by running renderers. Invalid/absent hints remove
+// previous values, which also handles reconnecting to an older bridge.
+func (c *Config) WithRTSPPacketSizeHints(hints map[string]int) *Config {
+	next := *c
+	next.packetSizeHints = make(map[string]int, len(c.packetSizeHints)+len(hints))
+	for camera, size := range c.packetSizeHints {
+		next.packetSizeHints[camera] = size
+	}
+	for camera, size := range hints {
+		delete(next.packetSizeHints, camera)
+		if camera != "" && validPacketSize(size) {
+			next.packetSizeHints[camera] = size
+		}
+	}
+	return &next
 }
 
 // GridDims is the cell grid behind a layout.

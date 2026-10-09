@@ -37,6 +37,27 @@ For a fixed camera with no `aspect` setting, the client reads `/api/cameras` at 
 portrait stream `tall` automatically. An explicit `aspect: tall` or `aspect: wide` overrides detection.
 If the bridge is unavailable during startup, the client keeps the configured/default layout.
 
+## RTSP packet processing
+
+The bridge advertises `rtspTcpPacketSize` per camera in `/api/cameras` and the WebSocket
+`hello` snapshot. For generated camera URLs, the Linux client uses this hint to request
+larger TCP RTP packets from go2rtc. This reduces packet processing on slower CPUs while
+preserving the encoded frames, resolution, frame rate, timestamps, and configured
+`latency_ms`. A reconnect can obtain the hint even if the startup HTTP request failed.
+If the client connects before bridge login completes, the bridge sends a fresh
+camera snapshot once its registry is ready; the client can learn the stream keys
+and packet-size hints on the existing connection.
+
+Explicit tile `url:` values remain unchanged by automatic discovery. When using a known
+go2rtc server with explicit URLs, opt in with `rtsp_packet_size: 8192`. The valid override
+range is 256–65535; `rtsp_packet_size: 0` disables automatic tuning. An omitted option
+means automatic discovery, and an older/unavailable bridge leaves the original URL
+unchanged. A positive override replaces only the URL's `pkt_size` query option and
+preserves other options. Other RTSP servers may not support this go2rtc query option.
+
+The change does not add a playback queue or periodically discard compressed frames.
+See [the Pi processing and delay measurements](evidence/linux-rtp-packet-size-2026-10-09.md).
+
 ## Dual-lens Split / PiP
 The bridge controls each camera's composed view. On the Linux client, switch one by name or serial:
 
@@ -73,6 +94,13 @@ This pulls in the plugin sets. Configure with:
 KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the only valid sink.
 
 ## Troubleshooting
+- Pi falls behind while the same camera stays current on the TVs → check CPU idle time,
+  go2rtc consumer drops, and TCP send/receive queues. In the measured Pi Model B case,
+  RTP packet processing saturated the CPU and go2rtc queued older video for this client.
+  Updating the bridge/client enables the advertised TCP packet-size optimization.
+  For explicit go2rtc tile URLs, set `rtsp_packet_size: 8192`; first verify the option
+  in the printed `-dry-run` pipeline. Do not treat `latency_ms: 200` as a bound on every
+  queue in the server/network/decoder path.
 - Delayed motion on both the Pi and TVs → check the bridge's outgoing RTP clock before changing
   decoder settings. `latency_ms` sets the Linux RTSP jitter allowance (200 ms by default), not total
   camera-to-screen latency. See [the live clock and startup measurements](evidence/live-timing-2026-10-08.md).

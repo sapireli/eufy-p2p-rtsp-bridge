@@ -9,7 +9,46 @@ import (
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/layout"
 	"eufy-wall/internal/pipeline"
+	"eufy-wall/internal/wallstate"
 )
+
+func TestAPIPacketHintWorksWithConfiguredAspectAndExplicitURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"sn":"FRONT","width":1600,"height":2200,"rtspTcpPacketSize":8192}]`))
+	}))
+	defer server.Close()
+	c := &config.Config{RTSPBase: "rtsp://bridge:8554", Tiles: []config.Tile{{Camera: "FRONT", Aspect: "tall"}, {Camera: "FRONT", URL: "rtsp://manual/custom"}}}
+	if err := detectAspectsAt(c, server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.TileURL(c.Tiles[0]); got != "rtsp://bridge:8554/FRONT?pkt_size=8192" {
+		t.Fatalf("configured aspect prevented packet hint: %q", got)
+	}
+	if got := c.TileURL(c.Tiles[1]); got != "rtsp://manual/custom" {
+		t.Fatalf("API hint changed explicit URL: %q", got)
+	}
+}
+
+func TestHelloPacketHintTunesMotionAndReconnectStreamAlias(t *testing.T) {
+	store := wallstate.New()
+	store.Apply(wallstate.Message{Type: "hello", Cameras: []wallstate.HelloCamera{{SN: "FRONT", StreamKey: "front_door", RTSPTCPPacketSize: 8192}}})
+	c := &config.Config{RTSPBase: "rtsp://bridge:8554", Latency: 200, Planes: []int{98}, Tiles: []config.Tile{{Motion: "latest"}}}
+	tiles := []layout.Placed{{Index: 0, W: 960, H: 1080}}
+	check := func(want string) {
+		t.Helper()
+		cam, _ := store.Camera("FRONT")
+		snapshot := c.WithRTSPPacketSizeHints(map[string]int{cam.SN: cam.RTSPTCPPacketSize})
+		plans := plansFor(snapshot, pipeline.Caps{Decoder: "v4l2", Sink: "planes"}, tiles,
+			map[int]string{0: "FRONT"}, map[int]string{0: "live"}, func(string) string { return cam.StreamKey })
+		if len(plans) != 1 || !strings.Contains(pipeline.String(plans[0].Args), "location="+want+" latency=") {
+			t.Fatalf("hello hint/stream alias: %+v", plans)
+		}
+	}
+	check("rtsp://bridge:8554/front_door?pkt_size=8192")
+	// Reconnecting to a bridge without this capability removes the automatic hint.
+	store.Apply(wallstate.Message{Type: "hello", Cameras: []wallstate.HelloCamera{{SN: "FRONT", StreamKey: "front_door"}}})
+	check("rtsp://bridge:8554/front_door")
+}
 
 func TestEventReconnectPreservesExplicitCameraURL(t *testing.T) {
 	c := &config.Config{RTSPBase: "rtsp://bridge:8554", Latency: 200, Planes: []int{98},

@@ -69,6 +69,7 @@ test("apiShape merges stream status and rtsp url", async () => {
     mode: "always", holdSeconds: 60, held: false, streamKey: "garage",
     dual: false, dualView: null, quality: "Full HD (1080P)", codec: "h264", width: 1920, height: 1080,
     streaming: true, stalls: 2, blocked: "wan-path 203.0.113.9", rtsp: "rtsp://192.168.1.10:8554/garage",
+    rtspTcpPacketSize: 8192,
     stream: "/stream/T8410A",
   });
 });

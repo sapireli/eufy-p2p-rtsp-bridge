@@ -3,7 +3,7 @@
 Eufy cameras → RTSP (server) → grid on a Raspberry Pi's HDMI (client). No Docker.
 
 - `server/` — Node 24 bridge on [`@mega-yfue/eufy-sdk`](https://github.com/mega-yfue/eufy-sdk) with go2rtc for RTSP. Runbook: `docs/runbook-server.md`.
-- `client/` — Go `eufy-wall`: layout → one GStreamer pipeline → KMS. Runbook: `docs/runbook-client.md`.
+- `client/` — Go `eufy-wall`: independent hardware-decoded tiles on KMS overlays, or a shared compositor. It discovers bridge TCP packet-size hints to reduce RTSP processing overhead without changing video resolution. Runbook: `docs/runbook-client.md`.
 - Design: `docs/superpowers/specs/2026-09-18-eufy-wall-design.md`.
 
 ## Upstream

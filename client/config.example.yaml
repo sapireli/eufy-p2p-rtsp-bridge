@@ -23,6 +23,10 @@ decoder: auto                          # auto | v4l2 (Pi) | va (x86 VAAPI) | sof
 sink: auto                             # auto | planes (Pi, one kmssink per tile) | compositor | window (dev)
 # planes: [31, 32, 33, 34, 35, 36]     # DRM overlay plane ids for sink=planes → `modetest -M vc4 -p`
 latency_ms: 200
+# Omit to use the bridge's per-camera RTSP/TCP packet-size hint for generated URLs.
+# Explicit tile URLs stay unchanged unless this override is set. This changes
+# packetization, not video quality, frame rate, or buffering. Requires server support.
+# rtsp_packet_size: 8192              # 256..65535; 0 disables automatic tuning
 # MOTION TILES. A tile with `motion: latest` follows whichever watched camera moved most recently,
 # instead of being pinned to one camera. Two behaviours fall out of it:
 #   follow          — a tile inside a normal layout that swaps to whatever just moved

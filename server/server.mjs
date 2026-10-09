@@ -94,6 +94,9 @@ ctx.completeBoot = async function completeBoot() {
     ctx.startGo2rtc();
     flags.ready = true;
     flags.lastActivity = Date.now();
+    // HTTP/WS listen before login completes. Refresh early clients with stream
+    // keys and transport capabilities before warming emits any live-state events.
+    await ctx.ws.broadcastSnapshot();
     for (const c of enabled) if ((c.mode ?? "always") === "always") void ctx.ensureWarm(c.sn);
     ctx.holds.start();
     const onMotion = enabled.filter((c) => c.mode === "on_motion").map((c) => c.sn);

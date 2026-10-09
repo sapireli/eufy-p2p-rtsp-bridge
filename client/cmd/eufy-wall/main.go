@@ -188,17 +188,21 @@ func detectAspectsAt(c *config.Config, base string) error {
 		return fmt.Errorf("camera list: HTTP %d", response.StatusCode)
 	}
 	var cameras []struct {
-		SN     string `json:"sn"`
-		Width  int    `json:"width"`
-		Height int    `json:"height"`
+		SN                string `json:"sn"`
+		Width             int    `json:"width"`
+		Height            int    `json:"height"`
+		RTSPTCPPacketSize int    `json:"rtspTcpPacketSize"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&cameras); err != nil {
 		return err
 	}
 	bySN := make(map[string]struct{ Width, Height int }, len(cameras))
+	packetHints := make(map[string]int, len(cameras))
 	for _, cam := range cameras {
 		bySN[cam.SN] = struct{ Width, Height int }{cam.Width, cam.Height}
+		packetHints[cam.SN] = cam.RTSPTCPPacketSize
 	}
+	*c = *c.WithRTSPPacketSizeHints(packetHints)
 	for i := range c.Tiles {
 		tile := &c.Tiles[i]
 		if tile.Aspect != "" || tile.Camera == "" || tile.URL != "" {
@@ -339,7 +343,8 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		// Until the server has told us what exists, render the wall exactly as configured. Resolving
 		// against an empty store would blank every tile, so a display whose bridge is briefly
 		// unreachable would go dark rather than keep showing the always-on cameras it can still pull.
-		if len(store.Known()) == 0 {
+		known := store.Known()
+		if len(known) == 0 {
 			mu.Unlock()
 			mgr.Update(ctx, static)
 			return
@@ -385,6 +390,11 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		// Snapshot the stream keys too: the plans are built after the lock is dropped, and the store is
 		// mutated by the event goroutine.
 		keys := make(map[string]string, len(snapshot))
+		packetHints := make(map[string]int, len(known))
+		for _, cam := range known {
+			packetHints[cam.SN] = cam.RTSPTCPPacketSize
+		}
+		playbackConfig := c.WithRTSPPacketSizeHints(packetHints)
 		for _, cam := range snapshot {
 			if cam != "" {
 				keys[cam] = store.StreamKeyFor(cam)
@@ -402,7 +412,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			lastShown = line
 			log.Printf("[wall] showing %s", line)
 		}
-		mgr.Update(ctx, plansFor(c, caps, tiles, snapshot, kinds, func(sn string) string {
+		mgr.Update(ctx, plansFor(playbackConfig, caps, tiles, snapshot, kinds, func(sn string) string {
 			if k, ok := keys[sn]; ok && k != "" {
 				return k
 			}
@@ -477,11 +487,11 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 		if streamKey != nil {
 			key = streamKey(cam)
 		}
-		t.URL = c.TileURL(config.Tile{Camera: key})
+		t.URL = c.TileURLForStream(config.Tile{Camera: cam}, key)
 		if tc := c.TileFor(cam); tc != nil {
 			// Keep an explicit camera URL through event-driven reconnects, including a hello
 			// received before the bridge has populated its camera registry and stream keys.
-			t.URL = c.TileURL(config.Tile{Camera: key, URL: tc.URL})
+			t.URL = c.TileURLForStream(config.Tile{Camera: cam, URL: tc.URL}, key)
 			t.Codec = tc.Codec
 		}
 		if content[t.Index] == wallstate.ContentSnapshot {

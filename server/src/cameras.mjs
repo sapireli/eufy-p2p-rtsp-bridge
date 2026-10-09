@@ -110,6 +110,10 @@ export function createCameras(ctx) {
       // here so a client uses the bridge's key rather than deriving its own and getting it subtly wrong.
       streamKey: streamKeyFor(cam.sn),
       rtsp: `rtsp://${host}:${ctx.cfg.rtspPort ?? 8554}/${streamKeyFor(cam.sn)}`,
+      // go2rtc can repacketize this TCP consumer without changing encoded video.
+      // Larger RTP payloads avoid per-packet CPU saturation on small Linux clients.
+      // Keep the regular URL unchanged: this is not suitable for UDP/MTU-sized RTP.
+      rtspTcpPacketSize: 8192,
       stream: `/stream/${cam.sn}`,
     };
   }

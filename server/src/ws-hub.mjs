@@ -26,22 +26,29 @@ export function createWsHub(ctx) {
 
   /** The state a joining client would otherwise have to wait for an event to learn. */
   async function snapshot() {
-    const cameras = await Promise.all(
+    const available = await Promise.all(
       (ctx.listCameras?.() ?? [])
         .filter((c) => c.enabled)
         .map(async (c) => ({
-          sn: c.sn,
-          name: c.name,
-          mode: c.mode ?? "always",
-          // The go2rtc stream key (the camera's name, slugged). The wall builds its RTSP URL from this
-          // rather than from the serial, so renaming a camera moves its stream without a client change.
-          streamKey: ctx.streamKeyFor?.(c.sn) ?? c.sn,
-          state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
-          // Whether GET /snapshot/<sn> has a thumbnail. A wall that renders a still for a camera with
-          // none would be pointing a pipeline at a 404 and restarting it forever.
+          camera: c,
           still: Boolean(await ctx.sdk?.snapshotStored?.(c.sn).catch(() => undefined)),
         })),
     );
+    // Read live state after asynchronous thumbnail lookups. Otherwise a live
+    // event during those lookups could be overwritten by an older idle hello.
+    const cameras = available.map(({ camera: c, still }) => ({
+      sn: c.sn,
+      name: c.name,
+      mode: c.mode ?? "always",
+      // The go2rtc stream key (the camera's name, slugged). The wall builds its RTSP URL from this
+      // rather than from the serial, so renaming a camera moves its stream without a client change.
+      streamKey: ctx.streamKeyFor?.(c.sn) ?? c.sn,
+      rtspTcpPacketSize: 8192,
+      state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
+      // Whether GET /snapshot/<sn> has a thumbnail. A wall that renders a still for a camera with
+      // none would be pointing a pipeline at a 404 and restarting it forever.
+      still,
+    }));
     return { type: "hello", at: Date.now(), cameras, holds: ctx.holds?.status?.() ?? {} };
   }
 
@@ -59,6 +66,11 @@ export function createWsHub(ctx) {
     const msg = { at: Date.now(), ...event };
     for (const ws of clients) send(ws, msg);
     return msg;
+  }
+
+  /** Refresh clients that joined while login was still populating the registry. */
+  async function broadcastSnapshot() {
+    return broadcast(await snapshot());
   }
 
   function attach(server) {
@@ -113,5 +125,5 @@ export function createWsHub(ctx) {
     wss = undefined;
   }
 
-  return { attach, broadcast, snapshot, close, clientCount: () => clients.size };
+  return { attach, broadcast, broadcastSnapshot, snapshot, close, clientCount: () => clients.size };
 }

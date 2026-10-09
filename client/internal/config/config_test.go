@@ -1,9 +1,65 @@
 package config
 
 import (
+	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 )
+
+func TestRTSPPacketSizeConfigBounds(t *testing.T) {
+	for _, value := range []int{0, 256, 8192, 65535, -1, 1, 255, 65536} {
+		c, err := Parse([]byte(fmt.Sprintf("rtsp_base: rtsp://bridge:8554\nrtsp_packet_size: %d\ntiles: [{camera: FRONT}]\n", value)))
+		valid := value == 0 || value >= 256 && value <= 65535
+		if (err == nil) != valid {
+			t.Fatalf("value %d: config=%v error=%v", value, c, err)
+		}
+		if valid && (c.RTSPPacketSize == nil || *c.RTSPPacketSize != value) {
+			t.Fatalf("value %d was not retained", value)
+		}
+	}
+}
+
+func TestRTSPPacketSizeHintsPreserveExplicitURLsAndIdentity(t *testing.T) {
+	base := &Config{RTSPBase: "rtsp://bridge:8554"}
+	tuned := base.WithRTSPPacketSizeHints(map[string]int{"FRONT": 8192, "BAD": 65536})
+	if got := tuned.TileURLForStream(Tile{Camera: "FRONT"}, "front_door"); got != "rtsp://bridge:8554/front_door?pkt_size=8192" {
+		t.Fatalf("camera hint lost with stream alias: %q", got)
+	}
+	for _, tile := range []Tile{{Camera: "FRONT", URL: "rtsp://manual:8554/custom?video=1"}, {Camera: "BAD"}, {Camera: "UNKNOWN"}} {
+		if got, want := tuned.TileURL(tile), base.TileURL(tile); got != want {
+			t.Fatalf("unexpected URL tuning: got %q want %q", got, want)
+		}
+	}
+	if got := base.TileURL(Tile{Camera: "FRONT"}); got != "rtsp://bridge:8554/FRONT" {
+		t.Fatalf("snapshot mutated original config: %q", got)
+	}
+	older := tuned.WithRTSPPacketSizeHints(map[string]int{"FRONT": 0})
+	if got := older.TileURL(Tile{Camera: "FRONT"}); got != "rtsp://bridge:8554/FRONT" {
+		t.Fatalf("older bridge retained stale hint: %q", got)
+	}
+	if got := tuned.TileURL(Tile{Camera: "FRONT"}); !strings.Contains(got, "pkt_size=8192") {
+		t.Fatalf("snapshot mutated previous hint: %q", got)
+	}
+}
+
+func TestRTSPPacketSizeOverrideAndDisable(t *testing.T) {
+	c := (&Config{RTSPBase: "rtsp://bridge:8554"}).WithRTSPPacketSizeHints(map[string]int{"FRONT": 8192})
+	zero := 0
+	c.RTSPPacketSize = &zero
+	if got := c.TileURL(Tile{Camera: "FRONT"}); strings.Contains(got, "pkt_size") {
+		t.Fatalf("explicit zero did not disable automatic hint: %q", got)
+	}
+	override := 4096
+	c.RTSPPacketSize = &override
+	u, err := url.Parse(c.TileURL(Tile{Camera: "FRONT", URL: "rtsps://manual:8554/custom?video=1&pkt_size=512#camera"}))
+	if err != nil || u.Query().Get("pkt_size") != "4096" || u.Query().Get("video") != "1" || u.Fragment != "camera" {
+		t.Fatalf("override lost URL options: url=%v err=%v", u, err)
+	}
+	if got := c.TileURL(Tile{URL: "http://bridge/snapshot/FRONT"}); got != "http://bridge/snapshot/FRONT" {
+		t.Fatalf("non-RTSP URL changed: %q", got)
+	}
+}
 
 const good = `
 rtsp_base: rtsp://192.168.1.10:8554

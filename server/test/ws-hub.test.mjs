@@ -61,8 +61,47 @@ test("a joining client is told the current state, not just future events", async
   ctx.state.streaming.add("BATT");
   const [hello] = await collect(url, 1);
   assert.equal(hello.type, "hello");
-  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", streamKey: "BATT", state: "live", still: false }]);
+  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", streamKey: "BATT", rtspTcpPacketSize: 8192, state: "live", still: false }]);
   assert.ok(hello.at > 0, "every message is timestamped so a replay is distinguishable from a live event");
+});
+
+test("an early client learns populated registry and TCP capability before live events", { timeout: 2500 }, async (t) => {
+  const cameras = [];
+  const { hub, url } = await withHub(t, cameras);
+  const ws = new WebSocket(url);
+  t.after(() => ws.close());
+  const messages = [];
+  let populated;
+  const complete = new Promise((resolve) => { populated = resolve; });
+  ws.on("message", async (raw) => {
+    const msg = JSON.parse(raw.toString());
+    messages.push(msg);
+    if (messages.length === 1) {
+      cameras.push(battery);
+      await hub.broadcastSnapshot();
+      hub.broadcast({ type: "streamState", sn: "BATT", state: "live" });
+    }
+    if (messages.length === 3) populated();
+  });
+  await complete;
+  assert.deepEqual(messages.map((m) => m.type), ["hello", "hello", "streamState"]);
+  assert.deepEqual(messages[0].cameras, []);
+  assert.equal(messages[1].cameras[0].streamKey, "BATT");
+  assert.equal(messages[1].cameras[0].rtspTcpPacketSize, 8192);
+  assert.equal(messages[1].cameras[0].state, "idle");
+  assert.equal(messages[2].state, "live");
+});
+
+test("snapshot keeps a live transition during thumbnail lookup", async (t) => {
+  const { ctx, hub } = await withHub(t, [battery]);
+  let release;
+  const lookup = new Promise((resolve) => { release = resolve; });
+  ctx.sdk = { snapshotStored: () => lookup };
+  const pending = hub.snapshot();
+  ctx.state.streaming.add("BATT");
+  release(undefined);
+  const hello = await pending;
+  assert.equal(hello.cameras[0].state, "live");
 });
 
 test("motion, hold and streamState all reach a connected client", async (t) => {
