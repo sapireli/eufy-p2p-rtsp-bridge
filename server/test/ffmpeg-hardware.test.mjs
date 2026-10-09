@@ -31,6 +31,18 @@ test("per-input hardware preference keeps timing and codec compatibility across 
   assert.ok(!attempts[2].args.includes("-vaapi_device"));
 });
 
+test("hardware decoding avoids frame-thread delay without limiting software fallback", () => {
+  const [hardware, mixed, software] = transcodeAttempts(args);
+  const threads = hardware.args.indexOf("-threads:v");
+  assert.ok(threads >= 0 && threads < hardware.args.indexOf("-i"));
+  assert.equal(hardware.args[threads + 1], "1");
+  for (const attempt of [mixed, software]) assert.ok(!attempt.args.includes("-threads:v"));
+  for (const attempt of [hardware, mixed, software]) {
+    assert.ok(!attempt.args.includes("-async_depth"));
+    assert.ok(!attempt.args.includes("nobuffer"));
+  }
+});
+
 test("no-resize and explicit decoder override still retain encoder fallback", () => {
   const a = [...args]; a[a.indexOf("--eufy-vaapi") + 2] = "0";
   assert.ok(transcodeAttempts(a)[0].args.includes("scale_vaapi=format=nv12"));

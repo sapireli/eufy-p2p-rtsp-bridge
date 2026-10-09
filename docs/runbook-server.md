@@ -62,6 +62,12 @@ VA-API and will fall back to CPU decoding while retaining hardware encoding.
 See [the Atom tests and migration evidence](evidence/atom-bridge-migration-2026-10-08.md).
 
 ## Live timing
+The full VA-API decode path uses input `-threads:v 1`. On the tested Atom, automatic
+FFmpeg decoder threading held at least four future frames before delivering decoded
+output; one decoder thread removed that hold while retaining hardware acceleration.
+Software decoder fallback retains its normal threading. Encoder processing depth
+and client buffering are unchanged. See [the stage measurements and limits](evidence/firetv-latency-investigation-2026-10-09.md).
+
 The resized Linux VA-API preset timestamps raw HTTP input by arrival time and preserves those
 timestamps through H.264 encoding. Raw Annex-B has no container PTS; synthesizing time from its
 nominal frame rate caused the outgoing media clock to run ahead of delivery on the tested Garage

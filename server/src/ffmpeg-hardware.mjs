@@ -32,8 +32,10 @@ export function transcodeAttempts(argv, { devices = renderNodes() } = {}) {
   };
   const resize = height ? `scale=-2:${height}:eval=frame,` : "";
   const nodes = device === "auto" ? devices : [device];
+  // Frame threading holds future frames even with VAAPI decoding. One decoder
+  // thread lets each hardware-decoded frame reach the encoder immediately.
   const hardware = nodes.map((node) => ({ ...build("hardware-decode-encode", ["-init_hw_device", `vaapi=ewb_vaapi:${node}`,
-    "-filter_hw_device", "ewb_vaapi", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-hwaccel_device", "ewb_vaapi"],
+    "-filter_hw_device", "ewb_vaapi", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-hwaccel_device", "ewb_vaapi", "-threads:v", "1"],
     `scale_vaapi=${height ? `w=-2:h=${height}:` : ""}format=nv12`, "h264_vaapi"), device: node }));
   const mixed = nodes.map((node) => ({ ...build("software-decode-hardware-encode", ["-vaapi_device", node],
     `${resize}format=nv12,hwupload`, "h264_vaapi"), device: node }));
