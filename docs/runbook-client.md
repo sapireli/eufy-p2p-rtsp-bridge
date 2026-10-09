@@ -25,6 +25,11 @@ The install script expects the repo layout (`deploy/` next to `client/`), so cop
     eufy-wall -config /etc/eufy-wall.yaml -dry-run   # shows the tile table + the gst-launch line
     sudo systemctl start eufy-wall && journalctl -fu eufy-wall
 
+For a dedicated HDMI appliance, also run
+`sudo bash /tmp/eufy-wall/deploy/configure-client-console.sh` to keep the console
+behind the camera overlays black. This optional step disables the local login and
+kernel console printing; logs remain accessible over SSH. See troubleshooting below.
+
 ## Layouts
 `1`, `2x2`, `3x3`, `1+5` (primary 2×2 at `left` or `right` of a 3×3 grid; `center` is not possible with 3
 columns). A tile with `aspect: tall` (an E340 in split-view) takes 1 column × 2 rows — in `1+5` that is the
@@ -76,12 +81,17 @@ KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the 
   wait-for-next-input bug; see [the Linux playback audit](evidence/linux-playback-audit-2026-10-08.md).
 - Explicit tile URL becomes a serial-number path after a bridge restart → update the client.
   Configured per-camera URLs now survive early WebSocket hello events and stream-key changes.
-- Login text visible in uncovered margins → on a dedicated display appliance, mask the HDMI getty
-  with `sudo systemctl mask --now getty@tty1.service`, then clear the console with
-  `sudo sh -c 'TERM=linux setterm --clear all --cursor off --blank 0 --powerdown 0 </dev/tty1 >/dev/tty1'`.
-  Run that console clear from a root `ExecStartPre` in the display service to keep a black background
-  after reboot. Restore the HDMI login with `sudo systemctl unmask getty@tty1.service` and
-  `sudo systemctl start getty@tty1.service` when needed.
+- Terminal text visible behind the video → `sink: planes` overlays the Linux console;
+  clearing it once does not stop later kernel warnings from repainting uncovered areas.
+  On a dedicated display appliance, run `sudo bash deploy/configure-client-console.sh`.
+  It masks the HDMI login, clears the black backdrop, disables kernel console printing through
+  a persistent sysctl, and installs a root `ExecStartPre` to repeat the clear when the wall starts.
+  Kernel diagnostics remain available through `journalctl -k` and `dmesg`; SSH is unaffected.
+  This is opt-in because it disables local console diagnostics. To restore the local console,
+  remove `/etc/sysctl.d/99-eufy-wall-console.conf` and the service's `console.conf` drop-in,
+  run `sudo sysctl -w 'kernel.printk=4 4 1 7'` and `sudo systemctl daemon-reload`, then
+  `sudo systemctl unmask getty@tty1.service` and `sudo systemctl start getty@tty1.service`.
+  See [the GaragePi diagnosis and live verification](evidence/garagepi-console-2026-10-09.md).
 - Black screen, logs say `Could not open DRM`/`Permission denied` → user `wall` must be in `video`+`render`
   and nothing else (X/Wayland/getty splash) may own the display; `systemctl stop getty@tty1` if needed.
 - `v4l2h264dec` missing → `apt install gstreamer1.0-plugins-good`; `/dev/video10` missing → kernel/firmware
