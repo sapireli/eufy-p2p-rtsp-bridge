@@ -34,7 +34,7 @@ The deployed SDK bundle is SHA-256 `5ae12418fb1a7048bdff04c55d44d647009dcd572748
 
 The deployed bridge's only general `setProperty` call is `streamingQuality`; its dual-view setter sends command **6243** with `{restore:1, video_type:12}` for Split. Front Door view pins occurred at boot **17:57:53**, and earlier re-login **17:56:18**. Production still applies these view pins at boot/re-login; it is incorrect to describe the current service as sending them only for explicit user view changes.
 
-The bridge explicitly requests managed `streamType:2`. The deployed SDK's own-session start JSON contains `restore:0`, `streamtype:2`, `video_type:12`. These three fields are distinct. No OSD setter was found in the bridge call path. Source audit alone is not an outgoing command trace and does not prove that every camera-side setting stayed unchanged.
+The bridge explicitly requests managed `streamType:2`. For this **HomeBase-attached** camera, the deployed SDK uses the attached `1350`/inner `1003` start path with `streamtype:2`; its attached start payload contains **neither `restore` nor `video_type`**. The other own-session branch's `startLiveJson` contains `restore:0`, `streamtype:2`, `video_type:12`, but that branch is not the attached Front Door start. No OSD setter was found in the bridge call path. Source audit alone is not an outgoing command trace and does not prove that every camera-side setting stayed unchanged.
 
 ## Cached setting and firmware observation
 
@@ -98,6 +98,24 @@ Private evidence: `controlled-on.json`, `source-on.h264`, `source-on-after.png`.
 | `source-on-after.png` | `3d7d39a24665cc6926013bfe305206b95aba14f2ce6d4e3329412781e6d1dda7` |
 
 Possible explanations for this trial's nonacceptance include model-specific command encoding, account permission, or a setting that is applied only on a later camera/live-session transition. The trial does not distinguish them. The bridge account's previously reported inability to change camera streaming quality is not proof of its watermark permission, and source/reference code alone does not resolve that permission.
+
+### Later observation: persistent setting accepted, overlays still absent
+
+An independently required GPU-path maintenance test stopped/restarted the bridge, then restored it at **18:48:16.796 UTC**. After that restore, a read-only inspector snapshot at **18:49:10.059–18:49:11.697** found raw camera watermark param **1214=`"2"`**, with observation timestamp **18:41:44 UTC**—two seconds after the On trial's actual sends. This later camera cloud record supports **persistent acceptance of the On request**. It supersedes a conclusion of overall write nonacceptance; the earlier twelve-second cache/response gate failed because it supplied no immediate success observation or visible On baseline.
+
+The diagnostic command was routed directly through the existing SDK sink; it did not add an optimistic local parameter update or cloud write. No further watermark or view commands were sent by this investigation. The On setting was left in place as authorized.
+
+Yet a simultaneous fresh whole-source HTTP capture after the restore produced **74 independently decoded frames at 1600×2200**, and the whole frame still had **no date/time and no Eufy logo**. Therefore an accepted `1214=2` setting did not restore either overlay in this sample, even after a fresh bridge/live-session opening. Neither a simple disabled-watermark explanation nor a blanket write-permission/encoding failure explains all observations. This does not identify the camera compositor's underlying trigger.
+
+Permission diagnostics retained only `member_type=1` for camera and parent, and the boolean fact that their admin identities differ from the logged-in identity. No identities were output. The raw member type is not assigned an undocumented permission meaning. The successful later parameter observation is stronger evidence of this particular write's acceptance than the earlier speculation about account restrictions.
+
+Excluded inspector window: **18:49:02–18:49:17 UTC**. No cloud login, cloud refresh or camera write occurred. Inspector closure, port refusal and SSH tunnel termination were verified.
+
+| Later artifact | SHA-256 |
+| --- | --- |
+| `cached-osd-state-after-gpu-tests.json` | `f138d415af1b3b4caa2591e0bb030e75d19cf6d5eb465e711b6738311b03af90` |
+| `source-after-gpu-tests.h264` | `59d89cb7c6369a9714f75d5036774ceea04e255358fc353a26dbd7eccd18d603` |
+| `source-after-gpu-tests.png` | `7f4d1a44e37a0e5700f54920659046e65244e7e73985b0ea81b336084b481895` |
 
 ## Remaining evidence required
 
