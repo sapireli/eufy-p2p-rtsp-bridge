@@ -120,3 +120,11 @@ Excluded inspector window: **18:49:02–18:49:17 UTC**. No cloud login, cloud re
 ## Remaining evidence required
 
 Correlate subsequent actual source-overlay transitions with property notifications and outgoing settings commands. Confirm the T8214-specific watermark value interpretation with actual app wire evidence before changing SDK semantics. If the reported watermark remains enabled while source pixels omit it, that supports a camera compositor/firmware defect; if the property changes to disabled, identify the command or camera state transition that changed it. Do not add a client-generated clock, continually reset view/OSD settings, or claim a firmware update fixes this camera without verification.
+
+### Attached-start and view-profile audit
+
+The actual deployed SDK selects the attached start path from runtime topology (`raw.parent_sn`), not the camera model's marketing name. That path passes the bridge's explicit `streamType:2` into `sendMediaPayloadLevel2(1003, …)`. Its start payload has `ClientOS`, account identity, `camera_type`, `entrytype`, RSA media key and `streamtype`; **it does not set `video_type`, `restore` or watermark**. The own-session `startLiveJson` method's `video_type:12` therefore cannot be cited as a field in this doorbell's attached start.
+
+The authenticated historical phone attached-start evidence already retained in [the streamtype handoff](../sdk-streamtype-pr-handoff.md) likewise uses inner command 1003, selector 2 and no `video_type`. That capture is historical, not a simultaneous comparison of the present missing-overlay incident. It does not prove every SDK/app request detail has the same effect on this firmware.
+
+The primary eufy-security-client T8214 table identifies dual view as command/parameter **6243**, with Split value **12**. This camera's cached cloud record does not supply 6243, so absent cached readback is not evidence of either Split or PiP; actual source geometry is the observation. No model-specific OSD-profile selector was verified, and no random live-start or view variations were tested.
