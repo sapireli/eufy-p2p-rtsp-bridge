@@ -264,3 +264,12 @@ passed during this session; no Linux playback implementation was changed.
 | `software-fallback.log` | `ee3f911379f5b30f4230cf5bace23896597408c374b27a840516df41fbe868e8` |
 | `go2rtc-fallback-probe.json` | `61891072811b61c1ca1653569a3ee2b4db23db7a3f9a9fcbd620da191fcbf2df` |
 | `automatic-gpu.log` | `eff8a94b536e42cbb43a85b74ec8a66ccd2377a85d259d8058cd4a70b4a7e5b5` |
+
+### Recovery after DietPi completed its maintenance
+
+DietPi restarted the registered service again at `03:14:39Z` while completing the
+separate Homebridge install. At `03:15:33Z`, health reported authenticated status,
+all three active raw feeds, go2rtc running, zero stalls and `NRestarts=0`. Both encoded
+streams again had the two Fire TVs and Pi as RTSP consumers, and the TVs' hardware
+rendered-frame counters advanced after this restart. This later maintenance event
+does not change the earlier measured GPU/CPU windows.
