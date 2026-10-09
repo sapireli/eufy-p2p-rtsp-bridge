@@ -72,6 +72,8 @@ KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the 
 - Delayed motion on both the Pi and TVs → check the bridge's outgoing RTP clock before changing
   decoder settings. `latency_ms` sets the Linux RTSP jitter allowance (200 ms by default), not total
   camera-to-screen latency. See [the live clock and startup measurements](evidence/live-timing-2026-10-08.md).
+  The Linux V4L2 decoder drains output in a separate task and does not share the TV player's corrected
+  wait-for-next-input bug; see [the Linux playback audit](evidence/linux-playback-audit-2026-10-08.md).
 - Explicit tile URL becomes a serial-number path after a bridge restart → update the client.
   Configured per-camera URLs now survive early WebSocket hello events and stream-key changes.
 - Login text visible in uncovered margins → on a dedicated display appliance, mask the HDMI getty
@@ -91,8 +93,9 @@ KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the 
   preserves the video's display ratio within its render rectangle and has no such property.
 - Decoder hangs after a while on kernel 6.6.x (`h264_v4l2m2m` regression) → `journalctl` shows no frames;
   the supervisor restarts the pipeline; upgrade the kernel (`sudo apt full-upgrade`).
-- One camera down restarts the whole wall (single pipeline) — expected in Phase 1; the bridge keeps the
-  others warm so they return in ~2 s.
+- One camera down restarts the whole wall → `sink: compositor` and `sink: window` use one pipeline,
+  so an error restarts all tiles. `sink: planes` uses an independent process per tile and restarts
+  only the failed tile. The supervisor retries failed processes with the configured backoff.
 - Too slow (dropped frames, CPU > 80 %) → lower the secondaries' streaming quality to 720p in the eufy
   app (camera → Settings → Video → Streaming quality; the bridge cannot set it — see the server runbook)
   or use a smaller layout.
