@@ -130,3 +130,24 @@ func TestUpdateAfterCancelIsIgnored(t *testing.T) {
 		t.Errorf("a cancelled wall should start nothing, got %d", n)
 	}
 }
+
+func TestStopWaitsForChildExitBeforeReturning(t *testing.T) {
+	m := NewManager("true", fastRestart(), func(string, string) {})
+	cancelled := make(chan struct{})
+	exited := make(chan struct{})
+	m.running["camera"] = &proc{cancel: func() { close(cancelled) }, exited: exited}
+	stopped := make(chan struct{})
+	go func() { m.Stop(); close(stopped) }()
+	<-cancelled
+	select {
+	case <-stopped:
+		t.Fatal("Stop returned before the child released its resources")
+	default:
+	}
+	close(exited)
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not finish after child exit")
+	}
+}

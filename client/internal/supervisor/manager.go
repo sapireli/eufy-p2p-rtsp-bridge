@@ -97,6 +97,10 @@ func (m *Manager) Names() []string {
 	return out
 }
 
+// Stop waits for every child to release its shared DRM descriptor before display resources are freed.
+// The caller cancels the parent context first so Update cannot start replacement children.
+func (m *Manager) Stop() { m.stopAll() }
+
 func (m *Manager) stopAll() {
 	m.mu.Lock()
 	procs := make([]*proc, 0, len(m.running))

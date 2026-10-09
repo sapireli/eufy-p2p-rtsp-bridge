@@ -22,6 +22,7 @@ import (
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/detect"
+	"eufy-wall/internal/drmbackground"
 	"eufy-wall/internal/layout"
 	"eufy-wall/internal/pipeline"
 	"eufy-wall/internal/supervisor"
@@ -138,7 +139,28 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if caps.Sink == "planes" {
+		background, err := drmbackground.Open(sharedFiles[0], caps.ConnectorID)
+		if err != nil {
+			log.Fatalf("[wall] black background: %v", err)
+		}
+		defer func() {
+			if err := background.Close(); err != nil {
+				log.Printf("[wall] release black background: %v", err)
+			}
+		}()
+		info := background.Info()
+		caps.ConnectorID = int(info.ConnectorID)
+		// Pin the video sinks to the same connector chosen for the background, even for output=auto.
+		plans, err = pipeline.Plans(c, tiles, caps)
+		if err != nil {
+			log.Printf("[wall] %v", err)
+			return
+		}
+		log.Printf("[wall] black image %dx%d %dbpp on primary plane %d framebuffer %d connector %d CRTC %d", info.Width, info.Height, info.BitsPerPixel, info.PlaneID, info.FramebufferID, info.ConnectorID, info.CRTCID)
+	}
 	mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) { log.Printf("[gst %s] %s", name, line) }, sharedFiles...)
+	defer mgr.Stop() // Registered last: children stop before background.Close and shared file.Close.
 	log.Printf("[wall] %d pipeline(s): %s", len(plans), planNames(plans))
 
 	runDynamic(ctx, c, caps, tiles, mgr, plans)
