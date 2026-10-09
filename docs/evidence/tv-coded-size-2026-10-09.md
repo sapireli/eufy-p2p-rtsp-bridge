@@ -21,8 +21,8 @@ H.264 transcoded output, which does not verify the HEVC parser.
 Both Fire TVs advertise an Amlogic AVC hardware decoder with dimensions
 64×64 through 1920×1088 and two concurrent instances. Runtime VideoCapabilities
 reports portrait Garage and Door sizes unsupported. Nevertheless, configuring
-the actual Garage dimensions produces visible output 1280×1440, stride1280,
-slice-height1440, and crop0..1279/0..1439 in the hardware output format.
+the actual Garage dimensions produces visible output 1280×1440, stride 1280,
+slice-height 1440, and crop 0..1279/0..1439 in the hardware output format.
 Declared dimensions alone therefore cannot establish the physical ceiling.
 
 With two camera tiles on Fire TV .85, the Door boundary tests are:
@@ -30,9 +30,9 @@ With two camera tiles on Fire TV .85, the Door boundary tests are:
 | Door coded dimensions | Result |
 |---|---|
 | 1600×2200 native | Hardware error; zero rendered frames |
-| 1396×1920 | Inputs arrive; zero rendered frames over15 seconds |
-| 1232×1694 | 211 input units; zero rendered frames over15 seconds |
-| 1224×1682 | 222 input units; zero rendered frames over15 seconds |
+| 1396×1920 | Inputs arrive; zero rendered frames over 15 seconds |
+| 1232×1694 | 211 input units; zero rendered frames over 15 seconds |
+| 1224×1682 | 222 input units; zero rendered frames over 15 seconds |
 | 1222×1680 | Hardware decoded format and sustained rendered frames |
 
 Thus 1680 is the highest tested working even height for this fixed aspect ratio
@@ -44,7 +44,7 @@ bridge clamps height to the source size, avoiding upscaling Garage.
 
 ## Final installed artifact and live verification
 
-Version0.3/code3 is installed on both Fire TVs .58/.85, with matching APK SHA-256
+Version 0.3/code 3 is installed on both Fire TVs .58/.85, with matching APK SHA-256
 `6cf021a011f60f22c747bb0309bfe037b055e505ea75c8ddf7b272a33dc36c55`.
 A paired30-second capture verifies actual Amlogic hardware output1222×1680
 for Door and1280×1440 for Garage on both devices. No fatal decoder error or
