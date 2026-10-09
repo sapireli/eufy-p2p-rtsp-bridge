@@ -88,6 +88,26 @@ failures during cutover; they belong to the old supervisor, before the .158 serv
 This verifies both hardware planes advancing from the migrated bridge. As in the first sample,
 framebuffer changes do not establish exact FPS, physical delay, or visually smooth playback.
 
+## Recovery after the final bridge launcher restart
+
+After the bridge service restarted at **03:07:48 UTC**, the Pi's existing supervisor PID
+**24414** remained active. Its replacement Front Door/Garage child PIDs **25192/25193** started
+at **03:08:13 UTC** and both pipelines reached PLAYING at **03:08:16 UTC**, still consuming
+the .158 RTSP endpoints through `v4l2h264dec`. This check did not restart the Pi service.
+
+A final read-only capture ran **03:10:18–03:10:25 UTC**. Twenty DRM snapshots spanned
+**03:10:19.621123801–03:10:25.242012801 UTC**, about **5.62 seconds**. Front Door plane 98
+changed framebuffer ID **18 times in 19 adjacent comparisons**; Garage plane 109 changed
+**14 times**. Both retained the same imported YU12 buffers, 524×720 / 640×720 dimensions,
+and render rectangles recorded above. These observations demonstrate advancing hardware
+planes after reconnection, without establishing exact FPS or physical latency.
+
+At **03:11:02 UTC**, the supervisor and both child PIDs were unchanged. The journal query
+covering **03:10:18–03:11:02 UTC** returned no entries. Startup warnings were again present
+in the preceding log: decreasing timestamps and **23** initial Front Door frames / **eight**
+initial Garage frames not dequeued at **03:08:23 UTC**, along with the same V4L2 capability
+query warnings. The final check does not establish that those startup anomalies are fixed.
+
 ## Decoder scheduling: the Android defect does not apply
 
 The affected TV dependency read compressed input before draining decoded output; an empty input
@@ -157,4 +177,7 @@ timestamp, plane ID, framebuffer ID, dimensions, format, and render position. Ar
 331d2096092b9e645fbd6406411f318d0575bc2af11657d07bef087c21d9f518  pi-migrated.txt
 b2bd9d124caadee68ae3080dbf832c140511df8abd49e422b13a39df8e1c3774  pi-migrated-post.txt
 02b24027a3c308cd8ae10f50374514326b14cf01b9c095db82bf0131158b67de  pi-migrated-analysis.json
+87df876e14c47cb362c8f4a922040298a2830c0b0ee2c6944929f95259b6f73e  pi-final-bridge-restart.txt
+b91e3eebeb2c1580674d82ad474208a6d4e8fb0c156d14f7f10fdfe7d012eae9  pi-final-bridge-restart-post.txt
+bad7a9756821448f8bc917ee6f0a6a557f0b4302fa1ee05b9ec92892d6aad916  pi-final-bridge-restart-analysis.json
 ```

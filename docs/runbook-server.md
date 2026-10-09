@@ -36,6 +36,31 @@ encoder presets are unchanged. Use `ffprobe` on the advertised RTSP URL to inspe
 `/api/cameras` describes the incoming camera stream, which can still be HEVC or a larger resolution.
 See [the live Pi deployment evidence](evidence/pi-hdmi-2026-10-08.md).
 
+### Hardware first, software fallback on Linux
+
+When transcoding is enabled, each Linux producer first tries VA-API decoding,
+scaling and H.264 encoding against its actual camera stream. If that path reports
+a hardware failure, it retries with CPU decoding/scaling and VA-API encoding;
+if hardware encoding is unavailable, it retries with CPU decoding and libx264.
+Network errors, malformed input and consumer disconnects use normal reconnect
+handling rather than causing a software downgrade. Software encoding can use
+substantially more CPU; fallback availability does not guarantee real-time speed.
+
+Unset `go2rtc.vaapi_device` discovers `/dev/dri/renderD*`; set it to select a particular
+render node. Hardware decoding is the default. `go2rtc.vaapi_decode: false` (or
+`BRIDGE_GO2RTC_VAAPI_DECODE=false`) explicitly skips GPU decoding for troubleshooting,
+while still trying hardware encoding before software. The service's render/video
+supplementary groups permit device access. Logs beginning `[bridge-ffmpeg]` identify
+the attempted path and any downgrade.
+
+On the tested Atom x5-Z8350 with Debian 13, `i965-va-driver` advertised codec support
+but GPU scaling failed. Installing `i965-va-driver-shaders` from Debian's `non-free`
+component enabled VideoProc and passed concurrent live H.264/HEVC tests. Check
+`vainfo --display drm --device /dev/dri/renderD128` and test the actual streams before
+relying on the hardware path. Older Ivy Bridge hosts cannot decode HEVC through
+VA-API and will fall back to CPU decoding while retaining hardware encoding.
+See [the Atom tests and migration evidence](evidence/atom-bridge-migration-2026-10-08.md).
+
 ## Live timing
 The resized Linux VA-API preset timestamps raw HTTP input by arrival time and preserves those
 timestamps through H.264 encoding. Raw Annex-B has no container PTS; synthesizing time from its
@@ -109,6 +134,11 @@ Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session 
   and `deploy/`, reruns the idempotent installer, restarts an already-running service, and checks
   `/healthz`. Server credentials, camera config, and session live outside the code directory and
   are preserved. Use an SSH key in `~/.ssh/eufy-wall-debian` or set `EUFY_WALL_SSH_KEY`.
+  The current default target is `root@192.168.23.158`; pass a different SSH host as the first
+  argument to update another installation.
+- On DietPi, the installer adds `+ eufy-wall-bridge` to
+  `/boot/dietpi/.dietpi-services_include_exclude`. Verify with `dietpi-services status`;
+  the bridge then appears in the service menu alongside native DietPi services.
 - SDK: update the `eufy-wall` Git dependency in `server/package-lock.json`, run `npm ci && npm test`
   (the contract test checks the installed SDK surface), then rerun the install script.
 - Vendored ha-eufy-sdk-bridge modules: `server/scripts/sync-upstream.sh` shows diffs; `--apply` copies;

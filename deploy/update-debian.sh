@@ -3,7 +3,7 @@
 # Config, credentials, and the Eufy session remain under /etc and /var/lib on the server.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-HOST=${1:-root@192.168.23.199}
+HOST=${1:-root@192.168.23.158}
 KEY=${EUFY_WALL_SSH_KEY:-$HOME/.ssh/eufy-wall-debian}
 SSH=(ssh -o StrictHostKeyChecking=accept-new)
 if [[ -f $KEY ]]; then SSH+=(-i "$KEY"); fi

@@ -100,3 +100,14 @@ test("per-camera transcode mode overrides the global mode", () => {
     assert.equal(loadConfig({ env: {}, configPath: config(value) }).cfg.cameras.T8423X.transcode, value);
   assert.throws(() => loadConfig({ env: {}, configPath: config("sometimes") }), /transcode must be one of/);
 });
+
+
+test("VA-API decoding defaults to hardware first and explicit false disables it", () => {
+  const configPath = tmpYaml("eufy: { email: a@b.c, password: p }\ngo2rtc: { vaapi_device: /dev/dri/renderD128, vaapi_decode: true }\n");
+  assert.equal(loadConfig({ env: {}, configPath }).cfg.go2rtcVaapiDecode, true);
+  for (const value of ["false", "0"])
+    assert.equal(loadConfig({ env: { BRIDGE_GO2RTC_VAAPI_DECODE: value }, configPath }).cfg.go2rtcVaapiDecode, false);
+  const unset = tmpYaml("eufy: { email: a@b.c, password: p }\n");
+  assert.equal(loadConfig({ env: {}, configPath: unset }).cfg.go2rtcVaapiDecode, true);
+  assert.equal(loadConfig({ env: { BRIDGE_GO2RTC_VAAPI_DECODE: "true" }, configPath: unset }).cfg.go2rtcVaapiDecode, true);
+});

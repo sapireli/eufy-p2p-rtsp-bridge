@@ -44,7 +44,7 @@ cameras:                         # keyed by camera serial; unlisted wired camera
 # decodes H.265 in hardware, so re-encoding on the bridge gains nothing and even hardware encoders could
 # not hold real time for the 2160p HEVC cameras (VideoToolbox measured 0.9x; go2rtc kills a producer that
 # falls behind, taking the stream down mid-view). "auto" transcodes H.265 to H.264 for players with no
-# HEVC decoder; "always" transcodes everything. Encoding uses hardware. On macOS, resizing uses
+# HEVC decoder; "always" transcodes everything. Linux tries hardware decode/encode first and falls back per stream to software when unsupported. On macOS, resizing uses
 # software decode and scaling before VideoToolbox encoding because go2rtc's VideoToolbox decode
 # surface cannot feed its scale filter.
 #
@@ -53,6 +53,8 @@ cameras:                         # keyed by camera serial; unlisted wired camera
 go2rtc:
   transcode: never                     # never (default) | auto | always
   # max_height: 720                     # scale transcoded video for older TV decoders
+  # vaapi_device: /dev/dri/renderD128   # optional Linux GPU device override
+  # vaapi_decode: true                 # default; false explicitly skips hardware decoding
 
 # When each camera streams. The SDK's automatic policy budgets a battery device even while charging:
 # mains-only → always, battery → on_motion. A continuous battery stream requires an explicit local

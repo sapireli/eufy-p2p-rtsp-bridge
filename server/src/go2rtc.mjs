@@ -2,25 +2,21 @@
 // as a child, restarting it with a short delay if it dies. Not fatal when the binary is missing (dev).
 import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 import { writeGo2rtcConfig } from "./vendor/ha-bridge/go2rtc-config.mjs";
 
-/**
- * go2rtc source suffix for a camera: transcode H.265 to H.264 when asked, ALWAYS hardware-accelerated
- * (`#hardware` — go2rtc selects videotoolbox / vaapi / v4l2m2m for the host). Never emit a CPU transcode:
- * libx264 cannot hold real time for these sources (measured ~1.0-1.2x, degrading), ffmpeg falls behind and
- * go2rtc kills the producer on its exec timeout, which takes the RTSP stream down mid-view. Where hardware
- * accel is unavailable, pass the bitstream through with copy instead.
+/** Choose passthrough or transcoding without changing the camera source codec.
+ * Linux transcodes use the hardware-first launcher with software fallback. Other
+ * platforms retain go2rtc hardware presets (and the resized macOS encoder preset).
  */
 export function egressFor(codec, mode, maxHeight = 0, platform = process.platform, vaapiDevice = "") {
   if (mode === "never") return "#video=copy";
   const transcode = mode === "always" || codec === "h265";
   if (!transcode) return "#video=copy";
-  // go2rtc's VideoToolbox preset yields hardware pixel buffers that its scale filter cannot read.
-  // Decode to ordinary frames and use VideoToolbox only for the encoder when resizing on macOS.
-  if (platform === "linux" && vaapiDevice && maxHeight > 0) return "#input=ewb_dynamic_http#video=tvh264";
+  if (platform === "linux") return "#input=ewb_dynamic_http#video=tvh264";
   const video = platform === "darwin" && maxHeight > 0 ? "tvh264" : "h264#hardware";
-  return `#video=${video}${maxHeight > 0 ? `#height=${maxHeight}` : ""}`; // "auto"
+  return `#video=${video}${maxHeight > 0 ? `#height=${maxHeight}` : ""}`;
 }
 
 /**
@@ -119,20 +115,26 @@ export function createGo2rtc(ctx) {
       doc.setIn(["ffmpeg", "tvh264"], "-codec:v h264_videotoolbox -g:v 30 -bf:v 0");
       text = doc.toString();
     }
-    if (platform === "linux" && cfg.go2rtcVaapiDevice && cfg.go2rtcMaxHeight > 0 && Object.values(plan).some((x) => x.includes("tvh264"))) {
+    if (platform === "linux" && Object.values(plan).some((x) => x.includes("tvh264"))) {
       const doc = parseDocument(text);
-      // The source is decoded to ordinary frames first; Ivy Bridge VA-API cannot decode HEVC.
-      // Upload the scaled NV12 frames only for the hardware H.264 encoder.
-      // A camera can change resolution mid-stream. Keep the filter graph and H.264 encoder output
-      // stable when the aspect ratio stays the same; otherwise FFmpeg reinitialization fails at hwupload.
-      // Annex-B HTTP has no packet timestamps. Synthesizing time from a nominal SPS frame rate
-      // can run ahead of live delivery and cause playback delay.
-      // SPS/PPS arrive with the live keyframe. Bound startup analysis without discarding
-      // the probed packets, which the decoder still needs as reference frames.
-      doc.setIn(["ffmpeg", "ewb_dynamic_http"], "-reinit_filter 0 -use_wallclock_as_timestamps 1 -analyzeduration 100000 -probesize 262144 -i {input}");
-      // Main is accepted by the Pi's V4L2 decoder. VA-API's automatic profile emits
-      // constrained-high, which GStreamer can reject against the driver's advertised profiles.
-      doc.setIn(["ffmpeg", "tvh264"], `-vaapi_device ${cfg.go2rtcVaapiDevice} -vf scale=-2:${cfg.go2rtcMaxHeight}:eval=frame,format=nv12,hwupload -codec:v h264_vaapi -profile:v main -g:v 30 -bf:v 0 -fps_mode:v passthrough -enc_time_base:v 1:90000`);
+      const wrapper = fileURLToPath(new URL("./ffmpeg-hardware.mjs", import.meta.url));
+      doc.setIn(["ffmpeg", "bin"], wrapper);
+      // Each producer tests its actual input: GPU decode/scale/encode first,
+      // CPU decode/scale + GPU encode second, software encode last. An explicit
+      // decode override can skip the first stage for operator troubleshooting.
+      const device = cfg.go2rtcVaapiDevice || "auto";
+      const preference = cfg.go2rtcVaapiDecode === false ? "encode" : "auto";
+      const height = cfg.go2rtcMaxHeight || 0;
+      // Annex-B HTTP has no packet timestamps. Preserve live wall-clock timing
+      // and the probed keyframe/reference packets in every hardware/fallback path.
+      doc.setIn(["ffmpeg", "ewb_dynamic_http"], `--eufy-vaapi ${device} ${height} ${preference} -reinit_filter 0 -use_wallclock_as_timestamps 1 -analyzeduration 100000 -probesize 262144 -i {input}`);
+      // The launcher substitutes these private tokens. Main profile is accepted
+      // by the Pi V4L2 decoder; passthrough timestamps avoid nominal-FPS backlog.
+      doc.setIn(["ffmpeg", "tvh264"], "-vf ewb_scale -codec:v ewb_encoder -profile:v main -g:v 30 -bf:v 0 -fps_mode:v passthrough -enc_time_base:v 1:90000");
+      // go2rtc normally SIGKILLs only its immediate child. Allow the launcher to
+      // terminate FFmpeg and suppress fallback when a consumer disconnects or
+      // the 30-second producer startup timeout expires.
+      doc.setIn(["ffmpeg", "output"], "-user_agent ffmpeg/go2rtc -rtsp_transport tcp -f rtsp {output}#killsignal=15#killtimeout=2");
       text = doc.toString();
     }
     for (const [sn, suffix] of Object.entries(plan)) {

@@ -7,7 +7,7 @@ import { parse } from "yaml";
 import { createGo2rtc, egressFor, hardenGo2rtcYaml, withNamedStreams, streamKeys, streamSlug } from "../src/go2rtc.mjs";
 
 test("optional hardware transcode height fits a TV decoder", () => {
-  assert.equal(egressFor("h264", "always", 720, "linux"), "#video=h264#hardware#height=720");
+  assert.equal(egressFor("h264", "always", 720, "linux"), "#input=ewb_dynamic_http#video=tvh264");
   assert.equal(egressFor("h265", "always", 720, "linux", "/dev/dri/renderD128"), "#input=ewb_dynamic_http#video=tvh264");
   assert.equal(egressFor("h264", "always", 720, "darwin"), "#video=tvh264#height=720");
   assert.equal(egressFor("h264", "never", 720), "#video=copy");
@@ -45,10 +45,10 @@ test("hardware transcoding retains the ffmpeg source while copy streams stay dir
   const state = createState();
   state.slots.set("T8410A", { codec: "h264" });
   state.slots.set("T8423B", { codec: "h265" });
-  await createGo2rtc({ cfg, state, listCameras: () => cams }).writeGo2rtc();
+  await createGo2rtc({ cfg, state, platform: "linux", listCameras: () => cams }).writeGo2rtc();
   const streams = parse(readFileSync(cfg.go2rtcConfig, "utf8")).streams;
   assert.equal(streams.T8410A, "http://127.0.0.1:3000/stream/T8410A");
-  assert.equal(streams.T8423B, "ffmpeg:http://127.0.0.1:3000/stream/T8423B#video=h264#hardware");
+  assert.equal(streams.T8423B, "ffmpeg:http://127.0.0.1:3000/stream/T8423B#input=ewb_dynamic_http#video=tvh264");
 });
 
 test("one camera can bypass global VA-API transcode while other cameras use the dynamic input filter", async () => {
@@ -63,10 +63,12 @@ test("one camera can bypass global VA-API transcode while other cameras use the 
   const y = parse(readFileSync(cfg.go2rtcConfig, "utf8"));
   assert.equal(y.streams.BALCONY, "http://127.0.0.1:3000/stream/BALCONY");
   assert.equal(y.streams.FRONT, "ffmpeg:http://127.0.0.1:3000/stream/FRONT#input=ewb_dynamic_http#video=tvh264");
-  assert.equal(y.ffmpeg.ewb_dynamic_http, "-reinit_filter 0 -use_wallclock_as_timestamps 1 -analyzeduration 100000 -probesize 262144 -i {input}");
-  assert.match(y.ffmpeg.tvh264, /scale=-2:720:eval=frame/);
-  assert.match(y.ffmpeg.tvh264, /-codec:v h264_vaapi -profile:v main/);
+  assert.match(y.ffmpeg.ewb_dynamic_http, /^--eufy-vaapi \/dev\/dri\/renderD128 720 auto /);
+  assert.match(y.ffmpeg.ewb_dynamic_http, /-reinit_filter 0 -use_wallclock_as_timestamps 1.*-i \{input\}/);
+  assert.match(y.ffmpeg.bin, /ffmpeg-hardware\.mjs$/);
+  assert.match(y.ffmpeg.tvh264, /-vf ewb_scale -codec:v ewb_encoder -profile:v main/);
   assert.match(y.ffmpeg.tvh264, /-fps_mode:v passthrough -enc_time_base:v 1:90000/);
+  assert.match(y.ffmpeg.output, /\{output\}#killsignal=15#killtimeout=2$/);
 });
 
 test("copy source uses the configured bridge address", async () => {
@@ -121,4 +123,15 @@ test("streamSlug makes URL-safe keys", () => {
   assert.equal(streamSlug("Solar Wall Light Cam"), "solar_wall_light_cam");
   assert.equal(streamSlug("  Garage – Interior/Door  "), "garage_interior_door");
   assert.equal(streamSlug(""), "");
+});
+
+
+test("explicit CPU-decode override still uses hardware encoding with fallback", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ewb-go2rtc-encode-"));
+  const cfg = { go2rtcConfig: join(dir, "go2rtc.yaml"), selfHost: "127.0.0.1", port: 3000,
+    go2rtcBin: "go2rtc", go2rtcTranscode: "always", go2rtcMaxHeight: 720,
+    go2rtcVaapiDevice: "/dev/dri/renderD128", go2rtcVaapiDecode: false };
+  await createGo2rtc({ cfg, state: createState(), platform: "linux", listCameras: () => [{ sn: "GARAGE", enabled: true }] }).writeGo2rtc();
+  const y = parse(readFileSync(cfg.go2rtcConfig, "utf8"));
+  assert.match(y.ffmpeg.ewb_dynamic_http, /^--eufy-vaapi \/dev\/dri\/renderD128 720 encode /);
 });
