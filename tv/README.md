@@ -11,7 +11,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Open **Eufy Wall** from the TV launcher. The app discovers `_eufy-wall._tcp` (HTTP port 3000, TXT `rtsp=<RTSP port>`) or accepts a bridge IP address. It ignores a service that resolves to `127.0.0.1` or another loopback address. Select one to four cameras and choose **Start live wall**. Press Back to return to setup. The selection and bridge are saved locally. Each dual-lens camera has its own **View: Split/PiP** button in setup. Changing it sends a command to the camera through the bridge, restarts that camera's stream, and persists on the bridge. PiP uses the lower-right inset.
 
-The bridge installer publishes the Avahi record. On a Linux client, `rtsp_base: auto` resolves the same record at startup; explicit RTSP URLs continue to work. The TV uses `/api/cameras`, `/ws`, and bounded `/hold/<serial>` requests. Video uses the bridge's advertised RTSP URL over TCP. It tries hardware decoding first and can fall back to software when hardware decoder instances are exhausted. For high-resolution cameras that exceed a TV's decoder limit, configure the bridge with `go2rtc.transcode: always` and `go2rtc.max_height: 720` (or set `BRIDGE_GO2RTC_TRANSCODE=always` and `BRIDGE_GO2RTC_MAX_HEIGHT=720`). This requires an FFmpeg build with a suitable hardware encoder. H.265 passthrough requires device decoder support.
+The bridge installer publishes the Avahi record. On a Linux client, `rtsp_base: auto` resolves the same record at startup; explicit RTSP URLs continue to work. The TV uses `/api/cameras`, `/ws`, and bounded `/hold/<serial>` requests. Video uses the bridge's advertised RTSP URL over TCP. It tries hardware decoding first and can fall back to software when hardware decoder instances are exhausted. H.265 passthrough requires device decoder support.
+
+Source dimensions are preserved by default. If a camera exceeds a display's
+working decoder limit, enable bridge transcoding and set `go2rtc.max_height`
+to the highest shared ceiling verified with all displays and concurrent tiles.
+The cap preserves aspect ratio and does not enlarge smaller native streams.
+This requires FFmpeg with a suitable encoder; hardware is tried before software.
 
 ## Live playback
 
@@ -21,6 +27,16 @@ utility dependency, but ExoPlayer no longer plays or buffers the video. Each til
 connection and decoder. Hardware is tried first; software remains available if hardware cannot
 start, including when decoder instances are exhausted. Decoder failures reopen RTSP so the new
 decoder receives SDP initialization data again.
+
+For H.264, the decoder reads the SDP SPS before configuration and allocates for the coded
+picture size. The tile viewport only controls display fitting; it does not set
+the decoder's picture allocation or resize the stream. This avoids incorrect
+crop rectangles when a portrait dual-camera stream is larger than its tile.
+Declared codec size limits and actual decoded geometry are logged. Some Fire TV
+drivers successfully decode dimensions beyond their advertised range, so a
+capability declaration alone does not prove playback at a chosen resolution.
+Direct HEVC retains its existing initialization path; this H.264 repair does not
+claim a newly verified HEVC allocation change.
 
 `DrainingVideoDecoder` polls input for at most 5 ms and drains all available output before waiting
 for more input. This avoids the pinned library's one-second input wait stranding already decoded

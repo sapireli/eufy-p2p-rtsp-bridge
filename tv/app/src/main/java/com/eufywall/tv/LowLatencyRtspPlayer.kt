@@ -60,8 +60,8 @@ internal class LowLatencyRtspPlayer(
             override fun onVideoDecoderFirstFrameRendered() = listener.onVideoDecoderFirstFrameRendered()
         }
         // Bridge geometry describes the original camera, which may be transcoded for the TV.
-        // Start with the viewport as the upstream SurfaceView does; SPS/output format supplies
-        // the actual coded dimensions. Do not reserve a 4K decoder for a resized 720p stream.
+        // For H.264 the adapter replaces this viewport hint with the SDP SPS coded size
+        // before allocating the decoder. Bridge metadata can describe a different rendition.
         val initialWidth = surface.width.takeIf { it > 0 } ?: 1920
         val initialHeight = surface.height.takeIf { it > 0 } ?: 1080
         object : DrainingVideoDecoder(mime, initialWidth, initialHeight, rotation, frames, monitoredListener, type) {
@@ -127,7 +127,7 @@ internal class LowLatencyRtspPlayer(
                     started = true
                     val uri = Uri.parse(camera.rtsp)
                     val credentials = uri.userInfo?.split(':', limit = 2)
-                    processor.init(uri, credentials?.getOrNull(0), credentials?.getOrNull(1), "EufyWallTV/0.2", 5_000)
+                    processor.init(uri, credentials?.getOrNull(0), credentials?.getOrNull(1), "EufyWallTV/0.3", 5_000)
                     processor.start(requestVideo = true, requestAudio = false, requestApplication = false)
                 }
             }

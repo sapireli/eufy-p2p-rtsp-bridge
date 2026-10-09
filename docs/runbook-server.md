@@ -62,6 +62,14 @@ VA-API and will fall back to CPU decoding while retaining hardware encoding.
 See [the Atom tests and migration evidence](evidence/atom-bridge-migration-2026-10-08.md).
 
 ## Live timing
+`go2rtc.max_height` defaults to zero, preserving source dimensions. A nonzero
+value caps transcoded height while preserving aspect ratio; streams shorter than
+the cap stay at their native size. Select a ceiling verified with all displays
+and all concurrently playing tiles. Codec capability declarations can differ
+from actual portrait-stream support, so successful playback must verify the
+decoded dimensions and frame delivery. This option does not change the camera's
+source quality setting.
+
 The full VA-API decode path uses input `-thread_type:v slice`, retaining automatic
 thread count and parallel work within a frame where supported. On the tested Atom, FFmpeg
 frame threading held at least four future frames before delivering decoded

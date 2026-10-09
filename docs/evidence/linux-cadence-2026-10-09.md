@@ -82,3 +82,55 @@ Fifty read-only DRM observations covered **14.323 seconds**, from **15:46:39.209
 The framebuffer observations establish advancing display planes and successful recovery. Reused framebuffer pools and approximately 0.2-second polling mean they cannot establish exact frame rate, improved smoothness, end-to-end latency or elimination of camera ingress pauses. Startup immediately before this window still logged decreasing timestamps and **17 initial frames not dequeued for each camera**; the bridge change does not establish a fix for those startup warnings.
 
 Private evidence: `.evidence/linux-cadence-2026-10-09/post-gpu-threads1.txt`, `post-gpu-threads1-summary.json`, and `post-gpu-threads1-startup.txt`.
+
+## Follow-up: native resolution and exact Pi limits
+
+At approximately **16:34 UTC**, the bridge's `max_height` was changed to zero to preserve native source resolution. This was followed by read-only Pi checks; no client scaling, decoder substitution, buffering or restart configuration was changed.
+
+Front Door's H.264 **1600×2200**, High profile, level 5 stream repeatedly failed caps negotiation at `v4l2h264dec0:sink`, then exited with `streaming stopped, reason not-negotiated (-4)`. The existing supervisor retried it. At **16:34:50 UTC**, both overlay framebuffers were zero during reconnection; the black primary remained active. A rejected decoder sink cap alone does not isolate the failing hardware component because decoder caps also intersect downstream display constraints.
+
+A small temporary CGO-free ARMv6 diagnostic queried **only** `DRM_IOCTL_MODE_GETRESOURCES`, `VIDIOC_QUERYCAP`, `VIDIOC_ENUM_FRAMESIZES` and `VIDIOC_ENUM_FRAMEINTERVALS`. It did not set formats, allocate stream buffers, start decoding or change DRM state, and was removed after use. On the actual Pi, kernel `6.18.50+rpt-rpi-v6`:
+
+| Interface | Actual reported bounds |
+|---|---|
+| DRM framebuffer resources | Width 0–2048; height 0–2048 |
+| `/dev/video10`, `bcm2835-codec-decode`, H.264 frame sizes | Stepwise (type 3): width 32–1920; height 32–1920; step 2 on both axes |
+| Decoder's GStreamer profiles | Baseline, constrained baseline, Main, High |
+| Decoder's GStreamer levels | 1 through 5.1, including 1b |
+| V4L2 frame interval query at 1280×1440 and 1396×1920 | Unsupported ioctl (`ENOTTY`); no frame-rate bound obtained |
+
+The [Linux V4L2 UAPI](https://github.com/torvalds/linux/blob/master/include/uapi/linux/videodev2.h) identifies frame-size type 3 as stepwise and defines the returned minimum, maximum and step fields. The native Front Door height exceeds **both** the driver's enumerated 1920-pixel height and the DRM resource limit of 2048. These are current device measurements, not a generic claim that all Raspberry Pis cannot decode portrait video. The driver frame-size enumeration is not a throughput guarantee.
+
+Garage recovered after the bridge stabilized: child **7792** entered PLAYING at **16:35:09 UTC**, negotiated native **1280×1440**, and remained running through the subsequent check. Twenty-five DRM samples from **16:37:25.248 to 16:37:32.581 UTC** covered **7.333 seconds**; Garage overlay 109, using imported hardware-decoded YU12 buffers, changed framebuffer ID on **12/24** adjacent observations. Front Door overlay 98 remained framebuffer zero; the black primary remained unchanged. Garage child CPU usage was approximately **61%** at the check, while a Front Door retry process temporarily used approximately **54%**. These observations establish native Garage playback, not sustained smoothness with two supported native-sized streams.
+
+For Front Door's 1600:2200 aspect, **1396×1920** is a candidate within the enumerated size bounds, preserving aspect to the nearest even width. It has **10,560 H.264 macroblocks per frame**; Garage 1280×1440 has **7,200**. At 15 fps each, that totals **266,400 macroblocks per second**. These are calculated workloads, not measured hardware throughput limits, and this candidate has **not** been live-verified as the highest working resolution. The user subsequently authorized using the highest supported resolution if native fails; a separate client rendition can preserve native resolution for more capable clients while respecting this Pi's measured bounds.
+
+Private evidence: `.evidence/linux-cadence-2026-10-09/native-resolution.txt`, `native-resolution-followup.txt`, `native-resolution-limits.txt`, `native-resolution-summary.json`, and `native-resolution-intervals.txt`.
+
+## Follow-up: 1920-height candidate on the Pi
+
+The bridge next limited height to `min(input_height, 1920)`, producing Front Door **1396×1920** while retaining Garage's native **1280×1440**. At **16:42:46 UTC**, both Pi overlays contained imported YU12 buffers from `v4l2h264dec0`, with precisely those dimensions. Front Door child **8521** and Garage child **8553** were playing. This verifies that this particular Pi can negotiate and decode the 1920-height candidate; it does not establish that other clients support it or that two streams are consistently smooth.
+
+A temporary read-only `DRM_IOCTL_MODE_GETPLANE` sampler observed overlay framebuffer IDs between **16:44:08.092 and 16:44:43.099 UTC**. It requested a 5-ms sampling interval but actual intervals were **6.23 ms median, 24.81 ms p95 and 62.05 ms maximum**. It observed **404** Front Door framebuffer changes and **325** Garage changes over 35.006 seconds, with no observed zero framebuffer. The longest observed intervals between changes were **1.147 seconds** and **2.235 seconds**, respectively. These are sampled plane-state changes, **not exact decoded FPS or physical scanout measurements**: reused framebuffer pools, sampling gaps and burst delivery can hide updates.
+
+The sampler itself consumed approximately **18.85% of one CPU**, so it materially perturbed this single-core ARMv6 device. Child CPU usage during the sampler was approximately **35.51% / 34.34%**. After removing the sampler, a separate **10.120-second** `/proc` CPU sample measured **45.06% Front Door / 39.23% Garage**; both PIDs were unchanged and the service journal contained no new entries from 16:44 UTC through this check. CPU uses the device's reported `CLK_TCK=100`. This verifies continued operation but leaves limited CPU headroom and does not prove uninstrumented visual smoothness. The sampler was removed, no GStreamer debug logging or client restart was added, and immediate playback remained unchanged.
+
+Private evidence: `.evidence/linux-cadence-2026-10-09/height1920-initial.txt`, `height1920-cadence.json`, `height1920-cadence-summary.json`, `height1920-post-probe.txt`, and the reproducible sampler `eufy-plane-cadence.go`.
+
+## Follow-up: verified 1680-height common candidate
+
+The bridge was next deployed with a **1680-pixel** height limit for clients that could not decode the 1920-height Front Door rendition. On the Pi, the actual decoded DMA buffers were **1222×1680 Front Door** and unchanged native **1280×1440 Garage**. Both remained hardware-decoded YU12 on the independent overlays. The black primary and immediate playback policy were unchanged.
+
+A low-overhead check from **16:47:31 to 16:48:09 UTC** found supervisor **1669**, Front Door child **8893**, and Garage child **8894** active with unchanged PIDs and input/display dimensions. A **10.666-second** `/proc` CPU sample measured **34.50% Front Door / 47.25% Garage**, using `CLK_TCK=100`. There was no high-rate polling helper, extra decoder, increased GStreamer logging or client restart in this check.
+
+Four additional one-second-spaced DRM observations at **16:48:48–16:48:51 UTC** showed Front Door framebuffer IDs **679 → 680 → 683 → 681**, and Garage **675 → 675 → 675 → 674**. The black primary remained framebuffer **670**. Reused framebuffer pools mean an unchanged sampled ID is not evidence that the camera stalled. The service journal had **no entries from 16:47:31 UTC through 16:48:51 UTC**. This passes the Pi's hardware negotiation, recovery and short stability checks at the common candidate resolution. It does not establish exact FPS, physical scanout cadence, absence of upstream delivery gaps, or user-perceived smoothness; those remain separate acceptance checks. The 1680 limit is a verified candidate, not proof of a mathematically maximal resolution.
+
+Private evidence: `.evidence/linux-cadence-2026-10-09/height1680-final.txt` and `height1680-advancement.txt`.
+
+### Final check after restoring the common 1680 limit
+
+After the higher-resolution client boundary tests, the bridge was restored to the common **1680** height limit. A fresh Pi check from **16:54:47 to 16:55:14 UTC** found supervisor **1669**, Garage child **9495**, and Front Door child **9510** stable. Both decoded overlay dimensions remained **1222×1680 Front Door / 1280×1440 Garage**, imported hardware YU12. Front Door framebuffer changed **683 → 681**, Garage **674 → 676**, and the app-owned black primary stayed **670**. No journal entries occurred during this check.
+
+Following 15 seconds of additional warm-up, a **10.596-second** CPU sample measured **33.88% Front Door / 39.82% Garage** (73.70% combined). The immediate pipeline arguments and original `GST_DEBUG=2` environment were unchanged. The temporary diagnostic drop-in and both diagnostic helpers were confirmed absent. This final check establishes hardware playback and stable recovery at the restored common limit; earlier approximately one-second source delivery holds remain a separate finding, and physical smoothness still requires user confirmation.
+
+Private evidence: `.evidence/linux-cadence-2026-10-09/height1680-restored-final.txt` and `height1680-restored-summary.json`.

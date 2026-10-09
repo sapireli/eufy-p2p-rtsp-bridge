@@ -23,9 +23,9 @@ test("per-input hardware preference keeps timing and codec compatibility across 
     }
     assert.ok(!a.includes("--eufy-vaapi") && !a.includes("ewb_encoder") && !a.includes("ewb_scale"));
   }
-  assert.ok(attempts[0].args.includes("scale_vaapi=w=-2:h=720:format=nv12"));
+  assert.ok(attempts[0].args.includes("scale_vaapi=w=-2:h='min(ih,720)':format=nv12"));
   assert.ok(!attempts[0].args.includes("hwupload"));
-  assert.ok(attempts[1].args.includes("scale=-2:720:eval=frame,format=nv12,hwupload"));
+  assert.ok(attempts[1].args.includes("scale=-2:'min(ih,720)':eval=frame,format=nv12,hwupload"));
   assert.ok(!attempts[1].args.includes("-hwaccel"));
   assert.ok(attempts[2].args.includes("libx264"));
   assert.ok(!attempts[2].args.includes("-vaapi_device"));

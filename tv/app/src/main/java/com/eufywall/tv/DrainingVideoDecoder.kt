@@ -9,6 +9,7 @@ import com.alexvas.rtsp.codec.FrameQueue
 import com.alexvas.rtsp.codec.VideoDecodeThread
 import com.alexvas.rtsp.codec.VideoFrameQueue
 import com.alexvas.utils.MediaCodecUtils
+import com.alexvas.utils.VideoCodecUtils
 import com.limelight.binding.video.MediaCodecHelper
 
 /**
@@ -21,6 +22,9 @@ internal abstract class DrainingVideoDecoder(
     mime: String, width: Int, height: Int, rotation: Int,
     frames: VideoFrameQueue, listener: VideoDecoderListener, type: DecoderType,
 ) : VideoDecodeThread(mime, width, height, rotation, frames, listener, type) {
+    private var codedWidth = width
+    private var codedHeight = height
+    private var hasCodedSize = false
     private fun createDecoder(type: DecoderType): MediaCodec {
         val candidates = if (type == DecoderType.HARDWARE) MediaCodecUtils.getHardwareDecoders(mimeType)
             else MediaCodecUtils.getSoftwareDecoders(mimeType)
@@ -28,12 +32,14 @@ internal abstract class DrainingVideoDecoder(
         val decoder = candidate?.let { MediaCodec.createByCodecName(it.name) } ?: MediaCodec.createDecoderByType(mimeType)
         try {
             val caps = decoder.codecInfo.getCapabilitiesForType(mimeType).videoCapabilities
-            val alignedWidth = caps?.let { ((width + it.widthAlignment - 1) / it.widthAlignment) * it.widthAlignment } ?: width
-            val alignedHeight = caps?.let { ((height + it.heightAlignment - 1) / it.heightAlignment) * it.heightAlignment } ?: height
-            // The surface viewport may exceed the coded stream and the decoder's size limit.
+            val alignedWidth = caps?.let { ((codedWidth + it.widthAlignment - 1) / it.widthAlignment) * it.widthAlignment } ?: codedWidth
+            val alignedHeight = caps?.let { ((codedHeight + it.heightAlignment - 1) / it.heightAlignment) * it.heightAlignment } ?: codedHeight
+            // Retain parsed H.264 SPS dimensions even outside the declared limits:
+            // some drivers can decode them. Without SPS, keep the legacy safe allocation.
             val supported = caps == null || caps.isSizeSupported(alignedWidth, alignedHeight)
-            val w = if (supported) alignedWidth else caps!!.supportedWidths.upper
-            val h = if (supported) alignedHeight else caps!!.supportedHeights.upper
+            Log.i("EufyWallTV", "Decoder capabilities ${decoder.name}: coded=${codedWidth}x$codedHeight aligned=${alignedWidth}x$alignedHeight supported=$supported widths=${caps?.supportedWidths} heights=${caps?.supportedHeights} rate15=${caps?.areSizeAndRateSupported(alignedWidth, alignedHeight, 15.0)}")
+            val w = if (hasCodedSize || supported) alignedWidth else caps!!.supportedWidths.upper
+            val h = if (hasCodedSize || supported) alignedHeight else caps!!.supportedHeights.upper
             val format = MediaFormat.createVideoFormat(mimeType, w, h).apply {
                 setInteger(MediaFormat.KEY_ROTATION, rotation)
             }
@@ -60,12 +66,21 @@ internal abstract class DrainingVideoDecoder(
         videoDecoderListener.onVideoDecoderStarted()
         var decoder: MediaCodec? = null
         try {
+            // RtspProcessor queues SDP SPS/PPS before starting the decoder. For H.264,
+            // allocate for the coded picture; some decoders cannot grow the viewport allocation.
+            var pending: FrameQueue.VideoFrame? = videoFrameQueue.pop(0)
+            if (mimeType == MediaFormat.MIMETYPE_VIDEO_AVC) pending?.let { frame ->
+                VideoCodecUtils.getWidthHeightFromArray(frame.data, frame.offset, frame.length, false)?.let { size ->
+                    codedWidth = size.first
+                    codedHeight = size.second
+                    hasCodedSize = true
+                }
+            }
             decoder = try { createDecoder(videoDecoderType) } catch (error: Exception) {
                 if (exitFlag.get() || videoDecoderType == DecoderType.SOFTWARE) throw error
                 Log.w("EufyWallTV", "Hardware decoder unavailable; trying software", error)
                 createDecoder(DecoderType.SOFTWARE)
             }
-            var pending: FrameQueue.VideoFrame? = null
             val output = MediaCodec.BufferInfo()
             while (!exitFlag.get()) {
                 try {
@@ -82,6 +97,7 @@ internal abstract class DrainingVideoDecoder(
                                 else format.getInteger(MediaFormat.KEY_WIDTH)
                             val h = if (cropped) format.getInteger("crop-bottom") - format.getInteger("crop-top") + 1
                                 else format.getInteger(MediaFormat.KEY_HEIGHT)
+                            Log.i("EufyWallTV", "Decoded format ${codec.name}: visible=${w}x$h format=$format")
                             uiHandler.post {
                                 if (rotation == 90 || rotation == 270) videoDecoderListener.onVideoDecoderFormatChanged(h, w)
                                 else videoDecoderListener.onVideoDecoderFormatChanged(w, h)

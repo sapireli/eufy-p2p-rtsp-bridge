@@ -52,7 +52,8 @@ cameras:                         # keyed by camera serial; unlisted wired camera
 # (client tile `codec: h265`). VLC plays these with --rtsp-tcp.
 go2rtc:
   transcode: never                     # never (default) | auto | always
-  # max_height: 720                     # scale transcoded video for older TV decoders
+  # max_height: 0                      # 0 preserves source size; otherwise a tested shared decoder ceiling
+  # Smaller streams are never enlarged.
   # vaapi_device: /dev/dri/renderD128   # optional Linux GPU device override
   # vaapi_decode: true                 # default; false explicitly skips hardware decoding
 
