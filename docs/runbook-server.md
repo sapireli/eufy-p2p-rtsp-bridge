@@ -131,11 +131,25 @@ the display to check a constant delay. See [the measurements and limits](evidenc
   `powerOverride`, `powered`, and `mode` so the decision is visible.
 
 ## Force-LAN
+Set the bridge YAML to your local subnet, then restart the service:
+
+```yaml
+lan:
+  cidr: 192.168.1.0/24
+  force: true
+```
+
+This is a bridge-wide policy covering station control and per-camera media sessions.
+It persists in `/etc/eufy-wall-bridge.yaml`; installer updates preserve that file.
+If a local connection fails, the bridge retries without accepting a WAN/relay peer.
+
 `lan.force: true` asks the SDK to reject peers outside `lan.cidr` before connecting a control or media
 session. Cloud broker lookup remains available. The bridge also closes any connected session whose
 peer is outside that CIDR and marks the camera
 `blocked: wan-path <ip>` in /healthz and /api/cameras (HTTP 423 on /stream). The stream manager retries
-with backoff. Verify with: `sudo tcpdump -ni <iface> udp and not net <lan.cidr>` — no sustained traffic.
+with backoff. Cloud authentication and lookup may still generate internet traffic; an outside-subnet
+UDP capture alone does not identify camera media. Verify connected peer addresses and distinguish
+P2P data traffic from cloud lookup replies when checking a packet capture.
 If a station cannot establish a local connection, add its LAN IP under `lan.station_addresses`.
 
 ## Security (LAN-trust model)
