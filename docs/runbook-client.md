@@ -25,6 +25,12 @@ The install script expects the repo layout (`deploy/` next to `client/`), so cop
     eufy-wall -config /etc/eufy-wall.yaml -dry-run   # shows the tile table + the gst-launch line
     sudo systemctl start eufy-wall && journalctl -fu eufy-wall
 
+For a stable bridge hostname, set `rtsp_base: rtsp://homebridge.lan:8554`.
+The client uses that hostname for RTSP, the HTTP API and WebSocket events; it does
+not replace it with a saved numeric address. Verify `getent hosts homebridge.lan`
+on the client first. This name is normally provided by LAN DNS; mDNS hostnames
+normally end in `.local`. `rtsp_base: auto` remains available for service discovery.
+
 With `sink: planes`, the client owns a black primary display layer behind the camera
 overlays. It allocates one static image at startup; no background video player or
 continuous image processing is required.
