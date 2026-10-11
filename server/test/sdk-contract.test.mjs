@@ -18,8 +18,10 @@ const version = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")).
 // bridge needs so a future move from the fork to upstream main cannot silently drop a P2P fix.
 test("pinned sdk includes the P2P fixes the bridge needs", () => {
   const dist = readFileSync(entryPath, "utf8");
-  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "acceptP2PPeer", "sourceTimestampMs"])
+  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "acceptP2PPeer"])
     assert.ok(dist.includes(marker), `missing ${marker} from the pinned SDK`);
+  assert.match(dist, /sourceTimestamp: unit\.sourceTimestamp\b/, "live video forwards the raw sourceTimestamp field");
+  assert.doesNotMatch(dist, /sourceTimestampMs/, "obsolete timestamp field must not pass the SDK contract");
   assert.ok(version, "sdk package.json has a version");
 });
 

@@ -377,3 +377,18 @@ then `match-final-transport.py`. The probe uses two HTTP consumers and two RTSP
 consumers of the already-active camera feeds; it sends no camera mode or stream
 start commands. The matcher checks that the observed RTP span does not cross its
 uint32 wrap before applying its common-span comparison.
+
+## SDK contract synchronization
+
+PR [368](https://github.com/mega-yfue/eufy-sdk/pull/368) exposes the raw
+unsigned 32-bit clock as `sourceTimestamp`, with its unit and origin unspecified.
+The bridge consumes this field from fork revision
+`9b1cc3d969b4569b3389bc3f908c2d7982a08543`. It interprets the measured P2P
+clock as milliseconds and maps differences to 90 kHz PTS, retaining the wrap and
+discontinuity handling measured above. This is a host interpretation supported by
+the tested streams, not an SDK guarantee that every protocol source uses that unit.
+
+The SDK contract check requires the exact new live-video field and rejects the
+obsolete `sourceTimestampMs` spelling. The object-mode and MPEG-TS tests now use
+the new field. No clock conversion, buffering, stream quality or transport policy
+changes accompany the rename.

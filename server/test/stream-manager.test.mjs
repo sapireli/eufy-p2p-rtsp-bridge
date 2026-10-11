@@ -103,17 +103,17 @@ test("object-mode feeds preserve the source clock for TS while raw consumers rec
     const raw = fakeRes(), ts = fakeRes();
     sm.attachConsumer("A", raw);
     sm.attachConsumer("A", ts, { format: "mpegts" });
-    feed.write({ data: DELTA, sourceTimestampMs: 900, keyframe: false });
+    feed.write({ data: DELTA, sourceTimestamp: 900, keyframe: false });
     assert.equal(ts.chunks.length, 0);
-    feed.write({ data: KEY, sourceTimestampMs: 1000, keyframe: true });
+    feed.write({ data: KEY, sourceTimestamp: 1000, keyframe: true });
     // An arrival burst must not turn these regular source timestamps into equal PTS.
-    feed.write({ data: DELTA, sourceTimestampMs: 1067, keyframe: false });
-    feed.write({ data: DELTA, sourceTimestampMs: 1134, keyframe: false });
+    feed.write({ data: DELTA, sourceTimestamp: 1067, keyframe: false });
+    feed.write({ data: DELTA, sourceTimestamp: 1134, keyframe: false });
     assert.deepEqual(raw.chunks, [KEY, DELTA, DELTA]);
     assert.equal(ts.chunks.length, 3);
     assert.equal(tsPts(ts.chunks[1]) - tsPts(ts.chunks[0]), 67 * 90);
     assert.equal(tsPts(ts.chunks[2]) - tsPts(ts.chunks[1]), 67 * 90);
-    feed.write({ data: DELTA, sourceTimestampMs: 10, keyframe: false });
+    feed.write({ data: DELTA, sourceTimestamp: 10, keyframe: false });
     assert.equal(ts.destroyed, true, "a backwards source clock closes only its timestamped consumer");
     assert.equal(raw.destroyed, false);
     assert.equal(raw.chunks.length, 4);

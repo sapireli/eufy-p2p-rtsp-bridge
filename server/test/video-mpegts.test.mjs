@@ -47,7 +47,7 @@ function crcValid(bytes) {
   }
   return remainder === 0;
 }
-const unit = (ts, data = Buffer.from([0, 0, 0, 1, 0x65, 0xaa])) => ({ sourceTimestampMs: ts, data, keyframe: true });
+const unit = (ts, data = Buffer.from([0, 0, 0, 1, 0x65, 0xaa])) => ({ sourceTimestamp: ts, data, keyframe: true });
 
 test("MPEG-TS preserves source timing, complete payload, PCR and valid program tables", () => {
   for (const codec of ["h264", "h265"]) {
@@ -155,7 +155,7 @@ test("FFmpeg decodes unchanged pictures while ffprobe observes explicit irregula
         let accessUnit = data.subarray(starts[i], starts[i + 1] ?? data.length);
         // Valid filler data forces oversized PES without changing coded pixels.
         if (i === 15) accessUnit = Buffer.concat([accessUnit, Buffer.from([0, 0, 0, 1, 12]), Buffer.alloc(100000, 0xff), Buffer.from([0x80])]);
-        const bytes = mux.push({ sourceTimestampMs: 100000 + timestamp, data: accessUnit, keyframe: i % 15 === 0 });
+        const bytes = mux.push({ sourceTimestamp: 100000 + timestamp, data: accessUnit, keyframe: i % 15 === 0 });
         if (maxPesPayloadBytes) assert.ok(pesUnits(bytes).every(p => p.readUInt16BE(4) > 0));
         chunks.push(bytes);
       }
@@ -200,7 +200,7 @@ test("FFmpeg recognizes and decodes timestamped HEVC access units", { skip: !has
         let accessUnit = data.subarray(start, starts[i + 1] ?? data.length);
         // HEVC filler_data_rbsp (NAL type 38), valid temporal_id_plus1=1.
         if (i === 0) accessUnit = Buffer.concat([accessUnit, Buffer.from([0, 0, 0, 1, 38 << 1, 1]), Buffer.alloc(100000, 0xff), Buffer.from([0x80])]);
-        const bytes = mux.push({ sourceTimestampMs: 100000 + expected[i], data: accessUnit, keyframe: i === 0 });
+        const bytes = mux.push({ sourceTimestamp: 100000 + expected[i], data: accessUnit, keyframe: i === 0 });
         if (maxPesPayloadBytes) assert.ok(pesUnits(bytes).every(p => p.readUInt16BE(4) > 0));
         return bytes;
       });

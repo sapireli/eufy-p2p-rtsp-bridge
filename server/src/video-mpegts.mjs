@@ -89,17 +89,19 @@ export function newVideoMpegTsMuxer({ codec, maxTimestampStepMs, maxPesPayloadBy
 
   function push(frame, options = {}) {
     if (!Buffer.isBuffer(frame?.data) || frame.data.length === 0) throw new TypeError("video access unit must contain bytes");
-    if (!Number.isInteger(frame.sourceTimestampMs) || frame.sourceTimestampMs < 0 || frame.sourceTimestampMs > 0xffffffff) {
-      throw new TypeError("sourceTimestampMs must be a uint32 millisecond timestamp");
+    if (!Number.isInteger(frame.sourceTimestamp) || frame.sourceTimestamp < 0 || frame.sourceTimestamp > 0xffffffff) {
+      throw new TypeError("sourceTimestamp must be a uint32 source timestamp");
     }
     if (frame.codec !== undefined && frame.codec !== codec) throw new TypeError("video codec changed; create a new MPEG-TS consumer");
     // Validate before updating any clock/counter state. A rejected unit is not emitted.
     const step = previousSource === undefined || options.discontinuity ? 0 :
-      ((frame.sourceTimestampMs - previousSource + 2 ** 31) % 2 ** 32 + 2 ** 32) % 2 ** 32 - 2 ** 31;
+      ((frame.sourceTimestamp - previousSource + 2 ** 31) % 2 ** 32 + 2 ** 32) % 2 ** 32 - 2 ** 31;
     if (step < 0 || (maxTimestampStepMs !== undefined && step > maxTimestampStepMs)) throw new TimestampDiscontinuityError(step);
     if (options.discontinuity) reset();
+    // This host interprets the validated P2P source clock as milliseconds.
+    // The SDK preserves the raw word without promising a universal time unit.
     pts90k += step * 90;
-    previousSource = frame.sourceTimestampMs;
+    previousSource = frame.sourceTimestamp;
     const out = [];
     if (first || frame.keyframe) {
       out.push(table(0, section([0x00, 0xb0, 0x0d, 0, 1, 0xc1, 0, 0, 0, 1, 0xf0, 0])));
