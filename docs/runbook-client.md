@@ -93,6 +93,49 @@ This pulls in the plugin sets. Configure with:
 
 KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the only valid sink.
 
+## Bounded playback timing
+
+The installer builds the `eufypacing` GStreamer element for the destination CPU and installed
+GStreamer ABI (`gcc`, `pkg-config`, `libgstreamer1.0-dev`). The client discovers it through
+`/usr/local/lib/eufy-wall/gstreamer-1.0`. Updates include the plugin source and rebuild it.
+A missing plugin logs an explicit warning and retains immediate display without stabilization.
+
+Live tiles decode every compressed frame before a one-frame downstream-leaky raw-video queue.
+The pacing element maps decoded RTP presentation timestamps to local pipeline time using the
+minimum arrival offset from the last two seconds, with one 67 ms allowance. It clamps the
+scheduled timestamp to at most 67 ms ahead of the local clock. A newest decoded picture arriving
+late is scheduled immediately; discarding it against an older clock offset would extend a source
+pause into an artificial freeze. Repeated/out-of-order timestamps are rejected, and explicit
+timestamp discontinuities reset the mapping. It neither sleeps
+the decoder nor maps/copies video pixels. KMS follows that clock (`sync=true`) with bounded
+lateness. The element's latency query reports zero: its allowance is already in the new PTS,
+so GStreamer must not add source/decoder latency a second time. Physical display/decoder
+latency and upstream camera/network queues remain separate; 67 ms is the scheduling bound,
+not a measured camera-to-screen guarantee.
+
+The shared-plane `skip-vsync=true` remains necessary: independent processes share one DRM event
+queue; timing comes from GStreamer rather than competing DRM page-flip waits. Window sinks use
+the same raw-video pacing, but `autovideosink` lacks a portable child-sink lateness property.
+
+The default `latency_ms` is zero for ordered RTSP/TCP, so the raw-video allowance provides the
+single intentional client timing margin. Existing explicit values remain unchanged. A config
+still specifying 200 adds that upstream jitter allowance; use `latency_ms: 0` with this plugin
+to avoid double buffering. Source interruptions longer than the margin remain visible.
+
+With the native pacing element, `rtspsrc buffer-mode=none` preserves media RTP timestamps.
+The native mapper owns clock drift compensation. Per-packet `tcp-timestamp=true` is intentionally
+not enabled: the [official source documentation](https://gstreamer.freedesktop.org/documentation/rtsp/rtspsrc.html#rtspsrc:tcp-timestamp)
+warns that receive timestamps can cause problems when a server sends bursts. Measuring the native
+path confirmed that applying receive-time compensation before decoded pacing distorted cadence.
+The [buffer-mode enum](https://gstreamer.freedesktop.org/documentation/rtsp/rtspsrc.html#Rtspsrc-buffer-mode)
+documents `none` as using RTP timestamps only. Missing native-plugin support retains the original
+immediate display path and logs a warning.
+It intentionally does not enable RTP `drop-on-latency`: dropping encoded reference packets can
+corrupt subsequent pictures. Only decoded frames are discarded.
+
+See [GstBaseSink timing](https://gstreamer.freedesktop.org/documentation/base/gstbasesink.html)
+and [queue limits](https://gstreamer.freedesktop.org/documentation/coreelements/queue.html).
+
 ## Troubleshooting
 - Pi falls behind while the same camera stays current on the TVs → check CPU idle time,
   go2rtc consumer drops, and TCP send/receive queues. In the measured Pi Model B case,
@@ -102,7 +145,7 @@ KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the 
   in the printed `-dry-run` pipeline. Do not treat `latency_ms: 200` as a bound on every
   queue in the server/network/decoder path.
 - Delayed motion on both the Pi and TVs → check the bridge's outgoing RTP clock before changing
-  decoder settings. `latency_ms` sets the Linux RTSP jitter allowance (200 ms by default), not total
+  decoder settings. `latency_ms` sets the Linux RTSP jitter allowance (0 ms by default with a separate 67 ms decoded-frame pacing margin), not total
   camera-to-screen latency. See [the live clock and startup measurements](evidence/live-timing-2026-10-08.md).
   The Linux V4L2 decoder drains output in a separate task and does not share the TV player's corrected
   wait-for-next-input bug; see [the Linux playback audit](evidence/linux-playback-audit-2026-10-08.md).

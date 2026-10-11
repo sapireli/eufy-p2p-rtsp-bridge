@@ -2,9 +2,13 @@ BIN=bin/eufy-wall
 PKG=./cmd/eufy-wall
 LDFLAGS=-s -w
 
-.PHONY: test host pi1 pi3 pi64 amd64 darwin all clean
-test:
+.PHONY: test pacing-test host pi1 pi3 pi64 amd64 darwin all clean
+test: pacing-test
 	go test ./...
+pacing-test:
+	mkdir -p bin
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -o bin/pacing-test gst/pacing_test.c
+	bin/pacing-test
 host:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
 pi1:

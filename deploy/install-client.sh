@@ -13,6 +13,10 @@ apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plu
 # x86 VAAPI / software fallback (harmless on the Pi if unavailable)
 apt-get install -y gstreamer1.0-vaapi gstreamer1.0-libav 2>/dev/null || true
 
+# Build the tiny raw-video pacing element on the destination, matching its CPU/GStreamer ABI.
+# Only GStreamer core/base development files are required; no codec or display SDK headers.
+apt-get install -y --no-install-recommends gcc pkg-config libgstreamer1.0-dev
+"$REPO/client/gst/build.sh" /usr/local/lib/eufy-wall/gstreamer-1.0
 install -m 755 "$BIN" /usr/local/bin/eufy-wall
 id -u wall >/dev/null 2>&1 || useradd --system --shell /usr/sbin/nologin --groups video,render wall
 if [[ ! -f /etc/eufy-wall.yaml ]]; then

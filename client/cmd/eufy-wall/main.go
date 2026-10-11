@@ -84,6 +84,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
+	// Installer builds this native plugin for the target architecture.
+	pluginPath := "/usr/local/lib/eufy-wall/gstreamer-1.0"
+	if existing := os.Getenv("GST_PLUGIN_PATH"); existing != "" {
+		pluginPath += string(os.PathListSeparator) + existing
+	}
+	os.Setenv("GST_PLUGIN_PATH", pluginPath)
+	caps.DecodedPacing = detect.HasElement("eufypacing")
+	if !caps.DecodedPacing {
+		log.Printf("[wall] eufypacing plugin unavailable; using immediate display without stabilization")
+	}
 	if id, ok := detect.ConnectorID("/", c.Output); ok {
 		caps.ConnectorID = id
 		log.Printf("[wall] rendering on output %s (connector %d)", c.Output, id)

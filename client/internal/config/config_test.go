@@ -82,7 +82,7 @@ func TestParseDefaults(t *testing.T) {
 	if c.Layout != "1+5" || c.PrimaryPosition != "left" {
 		t.Fatalf("layout %q pos %q", c.Layout, c.PrimaryPosition)
 	}
-	if c.Sink != "auto" || c.Decoder != "auto" || c.Latency != 200 {
+	if c.Sink != "auto" || c.Decoder != "auto" || c.Latency != 0 {
 		t.Fatalf("defaults: sink=%q decoder=%q latency=%d", c.Sink, c.Decoder, c.Latency)
 	}
 	if c.Restart != (Restart{MinSeconds: 1, MaxSeconds: 30, StableSeconds: 60}) {

@@ -19,8 +19,9 @@ type Caps struct {
 	// ConnectorID is the DRM connector this instance renders on (0 = let kmssink pick the first connected
 	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
 	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.
-	ConnectorID int
-	DRMFD       int // inherited shared DRM descriptor (0 = let kmssink open the device)
+	ConnectorID   int
+	DRMFD         int  // inherited shared DRM descriptor (0 = let kmssink open the device)
+	DecodedPacing bool // installed eufypacing raw-video clock mapper
 }
 
 // kmssinkArgs is the sink plus the output it renders on, shared by every sink strategy.
@@ -140,18 +141,32 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		}
 		codec := codecOf(t)
 		dp := depayParse[codec]
-		return []string{
-			"rtspsrc", "location=" + t.URL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp", fmt.Sprintf("name=src%d", i),
-			"!", dp[0], "!", dp[1], "!", family[codec], "!", "watchdog", "timeout=15000",
+		args := []string{"rtspsrc", "location=" + t.URL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp", fmt.Sprintf("name=src%d", i)}
+		if caps.DecodedPacing {
+			// Preserve media RTP cadence. The raw-video mapper owns drift compensation;
+			// receive-time timestamping would turn delivery bursts into presentation jitter.
+			args = append(args, "buffer-mode=none")
 		}
+		args = append(args, "!", dp[0], "!", dp[1], "!", family[codec], "!", "watchdog", "timeout=15000")
+		if caps.DecodedPacing {
+			// Drop only decoded frames: every compressed reference still reaches the decoder.
+			args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream")
+			if caps.Sink == "planes" {
+				args = append(args, "!", "eufypacing", "!", "watchdog", "timeout=15000")
+			}
+		}
+		return args
+	}
+	clockArgs := []string{"sync=false"}
+	if caps.DecodedPacing {
+		clockArgs = []string{"sync=true", "max-lateness=67000000", "processing-deadline=0"}
 	}
 	switch caps.Sink {
 	case "planes":
 		for i, t := range tiles {
 			args = append(args, src(i, t)...)
 			args = append(args, "!")
-			args = append(args, caps.kmssinkArgs(fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]),
-				fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H), "sync=false")...)
+			args = append(args, caps.kmssinkArgs(append([]string{fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]), fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H)}, clockArgs...)...)...)
 		}
 	case "compositor", "window":
 		for i, t := range tiles {
@@ -166,11 +181,15 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 				fmt.Sprintf("sink_%d::sizing-policy=keep-aspect-ratio", i))
 		}
 		args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d", caps.Screen.Width, caps.Screen.Height))
+		if caps.DecodedPacing {
+			// Rebase the final composite clock, not each input plus the final sink.
+			args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream", "!", "eufypacing", "!", "watchdog", "timeout=15000")
+		}
 		if caps.Sink == "window" {
-			args = append(args, "!", "autovideosink", "sync=false")
+			args = append(args, "!", "autovideosink", clockArgs[0])
 		} else {
 			args = append(args, "!")
-			args = append(args, caps.kmssinkArgs("sync=false")...)
+			args = append(args, caps.kmssinkArgs(clockArgs...)...)
 		}
 	default:
 		return nil, fmt.Errorf("pipeline: unknown sink %q", caps.Sink)

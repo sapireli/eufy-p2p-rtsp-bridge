@@ -106,9 +106,12 @@ func Load(path string) (*Config, error) {
 }
 
 func Parse(data []byte) (*Config, error) {
-	c := &Config{Decoder: "auto", Sink: "auto", Latency: 200, Restart: Restart{1, 30, 60}}
+	c := &Config{Decoder: "auto", Sink: "auto", Latency: 0, Restart: Restart{1, 30, 60}}
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
+	}
+	if c.Latency < 0 {
+		return nil, fmt.Errorf("config: latency_ms must be >= 0")
 	}
 	if c.Layout == "" {
 		c.Layout = "1"

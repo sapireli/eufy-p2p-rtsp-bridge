@@ -243,3 +243,40 @@ func TestStillTileNeedsNoDecoderSupport(t *testing.T) {
 		t.Fatalf("a JPEG needs no video decoder: %v", err)
 	}
 }
+
+// The drop point must remain after decoding: RTP reference loss corrupts later frames.
+func TestPacingDropsOnlyDecodedFramesAndPreservesRTPClock(t *testing.T) {
+	c, tiles := two()
+	for _, codec := range []string{"h264", "h265"} {
+		tiles[0].Codec = codec
+		args, err := Build(c, tiles[:1], Caps{Decoder: "v4l2", Sink: "planes", DecodedPacing: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := String(args)
+		if strings.Contains(got, "tcp-timestamp=true") || !strings.Contains(got, "buffer-mode=none") {
+			t.Fatalf("RTP media clock must survive receive jitter: %s", got)
+		}
+		if strings.Contains(got, "drop-on-latency=true") || !strings.Contains(got, "v4l2"+codec+"dec ! watchdog timeout=15000 ! queue max-size-buffers=1") {
+			t.Fatalf("compressed frames must not be dropped: %s", got)
+		}
+		if !strings.Contains(got, "eufypacing ! watchdog timeout=15000 ! kmssink") {
+			t.Fatalf("output stalls must remain watched after the leaky queue: %s", got)
+		}
+		if !strings.Contains(got, "sync=true max-lateness=67000000 processing-deadline=0") {
+			t.Fatalf("clocked bounded lateness missing: %s", got)
+		}
+	}
+}
+
+func TestCompositorPacesOutputExactlyOnce(t *testing.T) {
+	c, tiles := two()
+	args, err := Build(c, tiles, Caps{Decoder: "va", Sink: "compositor", DecodedPacing: true, Screen: config.Screen{Width: 1920, Height: 1080}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	if strings.Count(got, "eufypacing") != 1 || strings.Index(got, "eufypacing") < strings.Index(got, "compositor name=mix") {
+		t.Fatalf("output clock must be rebased once: %s", got)
+	}
+}
