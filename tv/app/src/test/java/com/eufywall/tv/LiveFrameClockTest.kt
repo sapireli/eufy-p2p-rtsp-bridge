@@ -16,13 +16,32 @@ class LiveFrameClockTest {
         assertEquals(0L, clock.dropped)
     }
 
-    @Test fun discardsLateDecodedPicturesAndRecoversWithoutAQueue() {
+    @Test fun showsEveryNewestPictureAfterAContinuousDeliveryDelayWithoutManufacturingAFreeze() {
         val clock = LiveFrameClock()
         val start = 10_000_000_000L
         clock.presentationTimeNs(0, start)
-        assertNull(clock.presentationTimeNs(66_667, start + 300_000_000))
-        assertNotNull(clock.presentationTimeNs(333_335, start + 333_335_000))
+        // A half-second arrival delay is less than the timestamp-reset threshold. The
+        // earlier minimum remains in the two-second window throughout this sequence.
+        repeat(20) { i ->
+            val pts = (i + 1) * 66_667L
+            val now = start + pts * 1_000 + 500_000_000L
+            assertEquals(now, clock.presentationTimeNs(pts, now))
+        }
+        assertEquals(0L, clock.dropped)
+        assertEquals(0L, clock.resets)
+    }
+
+    @Test fun rejectsDuplicateAndOutOfOrderPicturesWhileRetainingNewLatePictures() {
+        val clock = LiveFrameClock()
+        val start = 10_000_000_000L
+        clock.presentationTimeNs(0, start)
+        val late = start + 500_000_000L
+        assertEquals(late, clock.presentationTimeNs(66_667, late))
+        assertNull(clock.presentationTimeNs(66_667, late + 1_000_000L))
         assertEquals(1L, clock.dropped)
+        assertNull(clock.presentationTimeNs(65_667, late + 2_000_000L))
+        assertEquals(2L, clock.dropped)
+        assertNotNull(clock.presentationTimeNs(133_334, late + 66_667_000L))
     }
 
     @Test fun staysBoundedOverAnHourWithClockDriftAndBursts() {
@@ -31,11 +50,12 @@ class LiveFrameClockTest {
         repeat(54_000) { i ->
             val pts = i * 66_667L
             val now = start + pts * 1_000 + i * 10_000L + (i % 7) * 3_000_000L
-            clock.presentationTimeNs(pts, now)?.let {
-                assertTrue(it >= now)
-                assertTrue(it - now <= 67_000_000)
-            }
+            val target = clock.presentationTimeNs(pts, now)
+            assertNotNull(target)
+            assertTrue(target!! >= now)
+            assertTrue(target - now <= 67_000_000)
         }
+        assertEquals(0L, clock.dropped)
     }
 
     @Test fun recoversFromTimestampResetAndLongSourcePause() {

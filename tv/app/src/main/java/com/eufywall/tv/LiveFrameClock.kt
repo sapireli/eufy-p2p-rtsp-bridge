@@ -4,7 +4,7 @@ import java.util.ArrayDeque
 
 /** Maps media time to monotonic display time without sleeping in the decoder thread.
  * The fastest decoded arrival in a rolling window establishes the clock offset.
- * Waiting and lateness are bounded; this is not a growing playback queue.
+ * Future waiting is bounded; an overdue newest picture is shown immediately.
  */
 internal class LiveFrameClock(private val budgetNs: Long = 67_000_000L) {
     private data class Sample(val atNs: Long, val offsetNs: Long)
@@ -19,7 +19,7 @@ internal class LiveFrameClock(private val budgetNs: Long = 67_000_000L) {
     @Volatile var maxWaitNs = 0L
         private set
 
-    /** Null means discard this already decoded picture, preserving decoder reference state. */
+    /** Null rejects a duplicate or out-of-order picture, preserving decoder reference state. */
     fun presentationTimeNs(ptsUs: Long, nowNs: Long): Long? {
         val previous = previousPtsUs
         if (previous != null && (ptsUs < previous - 1_000_000L ||
@@ -36,11 +36,14 @@ internal class LiveFrameClock(private val budgetNs: Long = 67_000_000L) {
         while (samples.isNotEmpty() && samples.last.offsetNs >= offset) samples.removeLast()
         samples.addLast(Sample(nowNs, offset))
         val target = ptsUs * 1_000L + samples.first.offsetNs + budgetNs
-        if (lastPresentedPtsUs?.let { ptsUs <= it } == true || nowNs - target > budgetNs) {
+        if (lastPresentedPtsUs?.let { ptsUs <= it } == true) {
             dropped++
             return null
         }
         lastPresentedPtsUs = ptsUs
+        // Being late against the earlier arrival offset does not make this picture stale:
+        // it may be the newest one available after an upstream delivery stall. Discarding
+        // that continuous run would manufacture a freeze while the old offset expires.
         val bounded = target.coerceIn(nowNs, nowNs + budgetNs)
         maxWaitNs = maxOf(maxWaitNs, bounded - nowNs)
         return bounded

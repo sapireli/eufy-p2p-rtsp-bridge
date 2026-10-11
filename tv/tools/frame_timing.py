@@ -49,6 +49,7 @@ for camera, kinds in events.items():
         continue
     received = dict(kinds["received"])
     decoded = dict(kinds["decoded"])
+    received_window = [(pts, at) for pts, at in kinds["received"] if at >= start]
     intervals = [(b[1] - a[1]) / 1e6 for a, b in zip(rendered, rendered[1:])]
     duration = (rendered[-1][1] - rendered[0][1]) / 1e9
     result[camera] = {
@@ -59,6 +60,15 @@ for camera, kinds in events.items():
         "received_to_render_ms": summary([(at - received[pts]) / 1e6 for pts, at in rendered if pts in received]),
         "requested_pacing_wait_ms": summary(waits[camera]),
         "received_to_render_30s_windows": []}
+    if len(received_window) >= 2:
+        pairs = list(zip(received_window, received_window[1:]))
+        arrival_span = received_window[-1][1] - received_window[0][1]
+        media_span = (received_window[-1][0] - received_window[0][0]) * 1000
+        result[camera].update({
+            "received_units": len(received_window),
+            "received_pts_step_ms": summary([(b[0] - a[0]) / 1000 for a, b in pairs]),
+            "received_arrival_interval_ms": summary([(b[1] - a[1]) / 1e6 for a, b in pairs]),
+            "received_media_to_arrival_ratio": round(media_span / arrival_span, 6) if arrival_span > 0 else None})
     for window in range(int(duration // 30) + 1):
         values = [(at - received[pts]) / 1e6 for pts, at in rendered
                   if pts in received and start + window * 30e9 <= at < start + (window + 1) * 30e9]
