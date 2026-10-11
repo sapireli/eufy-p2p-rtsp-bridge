@@ -2,6 +2,7 @@
 // chunks out to HTTP consumers (go2rtc), and is watched for stalls. Watchdog thresholds are ported from
 // eufy-frigate-bridge (12 s stall / 45 s gap / 300 s exit), which were calibrated over a 19 h run.
 import { newSlot } from "./state.mjs";
+import { newVideoMpegTsMuxer } from "./video-mpegts.mjs";
 
 // The Linux VA-API egress fixes output height and evaluates its scale per frame. When the source
 // changes size at the same aspect ratio, its H.264 output keeps the same dimensions and RTSP SDP.
@@ -19,7 +20,9 @@ export function createStreamManager(ctx) {
   const slotFor = (sn) => state.slots.get(sn) ?? state.slots.set(sn, newSlot(sn)).get(sn);
   const stationChains = new Map(); // parentStationSn -> Promise: serialises P2P opens per HomeBase
 
-  function onChunk(slot, chunk) {
+  function onChunk(slot, frame) {
+    // Preserve VideoEvent metadata internally; the legacy raw endpoint still receives only data.
+    const chunk = Buffer.isBuffer(frame) ? frame : frame.data;
     const now = Date.now();
     slot.lastBytesAt = now;
     slot.firstFailureAt = 0;
@@ -79,7 +82,21 @@ export function createStreamManager(ctx) {
       if (c.writableNeedDrain) { c._ewbDropping = true; continue; } // backpressure: drop until next keyframe
       if (c._ewbDropping && !sets) continue;
       c._ewbDropping = false;
-      c.write(chunk);
+      if (c._ewbFormat !== "mpegts") { c.write(chunk); continue; }
+      try {
+        if (c._ewbMuxer && c._ewbMuxerCodec !== slot.codec) throw new Error("video codec changed");
+        if (!c._ewbMuxer) {
+          c._ewbMuxer = newVideoMpegTsMuxer({ codec: slot.codec, maxPesPayloadBytes: c._ewbFragmentPes ? 63000 : 0 });
+          c._ewbMuxerCodec = slot.codec;
+        }
+        c.write(c._ewbMuxer.push(frame));
+      } catch (e) {
+        // A new consumer starts from a fresh keyframe/clock. Never substitute arrival timestamps
+        // or send a backwards epoch through a decoder that still has the old reference state.
+        console.warn(`[bridge] ${slot.sn}: timestamped consumer closed: ${e.message}`);
+        slot.consumers.delete(c);
+        c.end();
+      }
     }
   }
 
@@ -202,12 +219,14 @@ export function createStreamManager(ctx) {
   }
 
   /** Pipe the live feed into an HTTP response. Returns a detach function. */
-  function attachConsumer(sn, res) {
+  function attachConsumer(sn, res, { format = "annexb", pes = "access-unit" } = {}) {
     const slot = slotFor(sn);
     // The last keyframe is stale by the time a consumer attaches. Sending it followed by live
     // inter-frames leaves missing references and produces gray blocks until the next IDR.
     // Start this consumer on a keyframe from the live feed instead.
     res._ewbDropping = true;
+    res._ewbFormat = format;
+    res._ewbFragmentPes = pes === "fragmented";
     slot.consumers.add(res);
     void ensureWarm(sn);
     return () => slot.consumers.delete(res);

@@ -15,3 +15,4 @@ run.log
 server/run.log
 server/.no-sweep
 .evidence/
+__pycache__/

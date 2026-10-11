@@ -185,8 +185,13 @@ export function createHttpHandler(ctx) {
       const cam = ctx.getCamera(arg);
       if (!cam || !cam.enabled) return json(res, 404, { error: "unknown or disabled camera" });
       if (ctx.isBlocked(arg)) return json(res, 423, { error: `blocked: ${state.blocked.get(arg)}` });
-      res.writeHead(200, { "content-type": "video/H264", "cache-control": "no-cache", connection: "close" });
-      const detach = ctx.attachConsumer(arg, res);
+      const format = url.searchParams.get("format") ?? "annexb";
+      if (!["annexb", "mpegts"].includes(format)) return json(res, 400, { error: "unsupported stream format" });
+      const pes = url.searchParams.get("pes") ?? "access-unit";
+      if (!["access-unit", "fragmented"].includes(pes) || (pes === "fragmented" && format !== "mpegts"))
+        return json(res, 400, { error: "unsupported PES mode" });
+      res.writeHead(200, { "content-type": format === "mpegts" ? "video/mp2t" : "video/H264", "cache-control": "no-cache", connection: "close" });
+      const detach = ctx.attachConsumer(arg, res, { format, pes });
       req.on("close", detach);
       res.on("close", detach);
       return;

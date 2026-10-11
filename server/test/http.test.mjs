@@ -79,6 +79,30 @@ test("stream: 200 for enabled, 404 disabled/unknown, 423 blocked, 503 not ready"
   });
 });
 
+test("timestamped stream selects MPEG-TS without changing the legacy raw endpoint", async () => {
+  const formats = [];
+  const ctx = ctxWith({ attachConsumer: (_sn, res, opts) => {
+    formats.push([opts.format, opts.pes]);
+    res.end(Buffer.from([0x47]));
+    return () => {};
+  } });
+  await withServer(ctx, async (base) => {
+    const ts = await fetch(`${base}/stream/A?format=mpegts`);
+    assert.equal(ts.headers.get("content-type"), "video/mp2t");
+    await ts.arrayBuffer();
+    const raw = await fetch(`${base}/stream/A`);
+    assert.equal(raw.headers.get("content-type"), "video/H264");
+    await raw.arrayBuffer();
+    const fragmented = await fetch(`${base}/stream/A?format=mpegts&pes=fragmented`);
+    assert.equal(fragmented.headers.get("content-type"), "video/mp2t");
+    await fragmented.arrayBuffer();
+    assert.deepEqual(formats, [["mpegts", "access-unit"], ["annexb", "access-unit"], ["mpegts", "fragmented"]]);
+    assert.equal((await fetch(`${base}/stream/A?format=mpegts&pes=bad`)).status, 400);
+    assert.equal((await fetch(`${base}/stream/A?pes=fragmented`)).status, 400);
+    assert.equal((await fetch(`${base}/stream/A?format=bad`)).status, 400);
+  });
+});
+
 test("auth endpoints drive login", async () => {
   const calls = [];
   const ctx = ctxWith({

@@ -7,7 +7,7 @@
     sudo nano /etc/eufy-wall-bridge.yaml     # lan.cidr, cameras, defaults
     sudo systemctl start eufy-wall-bridge && journalctl -fu eufy-wall-bridge
 The install script apt-installs Node 24 (NodeSource), rsync and **ffmpeg**. Copy-mode streams use
-go2rtc's raw HTTP source; FFmpeg is used when `go2rtc.transcode` selects a hardware transcode.
+go2rtc's timestamped HTTP source; FFmpeg is used when `go2rtc.transcode` selects a hardware transcode.
 
 ## First-run login (2FA / captcha)
     curl -s localhost:3000/auth/status
@@ -86,10 +86,17 @@ output; slice-only threading removed that hold while retaining hardware accelera
 Software decoder fallback retains its normal threading. Encoder processing depth
 and client buffering are unchanged. See [the stage measurements and limits](evidence/firetv-latency-investigation-2026-10-09.md).
 
-The resized Linux VA-API preset timestamps raw HTTP input by arrival time and preserves those
-timestamps through H.264 encoding. Raw Annex-B has no container PTS; synthesizing time from its
-nominal frame rate caused the outgoing media clock to run ahead of delivery on the tested Garage
-stream. Startup analysis is limited to 100 ms / 256 KiB while retaining the probed reference frames.
+The SDK frame clock is retained in MPEG-TS and preserved through H.264 encoding and
+RTSP. Internal FFmpeg inputs use `/stream/<serial>?format=mpegts&pes=fragmented`: finite
+PES fragments prevent large pictures from adding a next-frame delimiter wait. Copy
+streams also use FFmpeg remuxing with `-codec:v copy`, without decoding or re-encoding.
+The unfragmented `?format=mpegts` endpoint remains available for direct MPEG-TS readers. The legacy `/stream/<serial>` endpoint still
+serves unchanged Annex-B bytes. Arrival-based timestamps turned network bursts into
+irregular media timing; nominal-rate synthesis previously made the Garage clock run
+ahead of real time. Neither is substituted for the source clock now. Each HTTP consumer
+starts at a fresh keyframe, and a backwards source timestamp closes its timestamped
+consumer so it reconnects with a new clock. See [the source-timing evidence](evidence/source-timestamp-transport-2026-10-11.md).
+Startup analysis is limited to 100 ms / 256 KiB while retaining the probed reference frames.
 These limits do not bound camera buffering or time waiting for a live keyframe.
 
 To compare outgoing video clock progression with arrival time:

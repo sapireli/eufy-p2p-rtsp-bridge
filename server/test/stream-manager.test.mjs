@@ -83,6 +83,43 @@ test("warm feed sniffs codec/geometry, starts a late consumer at the next live k
   }
 });
 
+function tsPts(buffer) {
+  for (let offset = 0; offset < buffer.length; offset += 188) {
+    const packet = buffer.subarray(offset, offset + 188);
+    if ((((packet[1] & 31) << 8) | packet[2]) !== 0x100 || !(packet[1] & 0x40)) continue;
+    const start = 4 + ((packet[3] & 0x20) ? packet[4] + 1 : 0);
+    const b = packet.subarray(start + 9, start + 14);
+    return ((b[0] >> 1) & 7) * 2 ** 30 + b[1] * 2 ** 22 + (b[2] >> 1) * 2 ** 15 + b[3] * 2 ** 7 + (b[4] >> 1);
+  }
+  throw new Error("no video PES start");
+}
+
+test("object-mode feeds preserve the source clock for TS while raw consumers receive unchanged bytes", async () => {
+  const feed = new PassThrough({ objectMode: true });
+  const ctx = ctxWith({ feeds: [() => feed] });
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    const raw = fakeRes(), ts = fakeRes();
+    sm.attachConsumer("A", raw);
+    sm.attachConsumer("A", ts, { format: "mpegts" });
+    feed.write({ data: DELTA, sourceTimestampMs: 900, keyframe: false });
+    assert.equal(ts.chunks.length, 0);
+    feed.write({ data: KEY, sourceTimestampMs: 1000, keyframe: true });
+    // An arrival burst must not turn these regular source timestamps into equal PTS.
+    feed.write({ data: DELTA, sourceTimestampMs: 1067, keyframe: false });
+    feed.write({ data: DELTA, sourceTimestampMs: 1134, keyframe: false });
+    assert.deepEqual(raw.chunks, [KEY, DELTA, DELTA]);
+    assert.equal(ts.chunks.length, 3);
+    assert.equal(tsPts(ts.chunks[1]) - tsPts(ts.chunks[0]), 67 * 90);
+    assert.equal(tsPts(ts.chunks[2]) - tsPts(ts.chunks[1]), 67 * 90);
+    feed.write({ data: DELTA, sourceTimestampMs: 10, keyframe: false });
+    assert.equal(ts.destroyed, true, "a backwards source clock closes only its timestamped consumer");
+    assert.equal(raw.destroyed, false);
+    assert.equal(raw.chunks.length, 4);
+  } finally { await sm.stopAll(); }
+});
+
 test("a blocked media peer is closed before its feed is served", async () => {
   const feed = new PassThrough();
   const ctx = ctxWith({ feeds: [() => feed] });

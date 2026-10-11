@@ -18,6 +18,34 @@ def timestamp_delta(new, old):
     return ((new - old + (1 << 31)) % (1 << 32)) - (1 << 31)
 
 
+def play_message(pending):
+    """Consume one complete RTP/RTCP packet or keepalive response; None needs bytes."""
+    if len(pending) < 4:
+        return None
+    if pending[0] == 36:
+        channel, size = pending[1], struct.unpack("!H", pending[2:4])[0]
+        if len(pending) < 4 + size:
+            return None
+        return channel, pending[4:4 + size], pending[4 + size:]
+    if not pending.startswith(b"RTSP"):
+        raise ValueError("Unexpected non-interleaved data during PLAY")
+    end = pending.find(b"\r\n\r\n")
+    if end < 0:
+        return None
+    lines = pending[:end].decode().split("\r\n")
+    if not lines[0].startswith("RTSP/1.0 200 "):
+        raise ValueError(lines[0])
+    fields = dict(line.split(":", 1) for line in lines[1:])
+    size = int(next((value.strip() for key, value in fields.items()
+                     if key.lower() == "content-length"), "0"))
+    if size < 0:
+        raise ValueError("Negative RTSP content length")
+    stop = end + 4 + size
+    if len(pending) < stop:
+        return None
+    return None, pending[end + 4:stop], pending[stop:]
+
+
 def measure(url, duration, settle):
     parsed = urlsplit(url)
     name = parsed.path.strip("/")
@@ -81,16 +109,28 @@ def measure(url, duration, settle):
         request("SETUP", track, "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n")
         request("PLAY", url)
         start = time.monotonic()
+        last_keepalive = start
+        keepalive_requests = 0
+        keepalive_responses = 0
         frames = []
         bytes_read = 0
         while time.monotonic() - start < duration:
+            # go2rtc advertises a 60-second RTSP session timeout. Long observers
+            # must remain active clients; receive-only traffic does not renew it.
+            if time.monotonic() - last_keepalive >= 20:
+                sequence += 1
+                sock.sendall((f"OPTIONS {url} RTSP/1.0\r\nCSeq: {sequence}\r\n"
+                              f"Session: {session}\r\n\r\n").encode())
+                last_keepalive = time.monotonic()
+                keepalive_requests += 1
             while len(pending) >= 4:
-                if pending[0] != 36:
-                    raise ValueError("Unexpected non-interleaved data during PLAY")
-                channel, size = pending[1], struct.unpack("!H", pending[2:4])[0]
-                if len(pending) < 4 + size:
+                message = play_message(pending)
+                if message is None:
                     break
-                packet, pending = pending[4:4 + size], pending[4 + size:]
+                channel, packet, pending = message
+                if channel is None:
+                    keepalive_responses += 1
+                    continue
                 bytes_read += len(packet)
                 if channel == 0 and len(packet) >= 12 and packet[0] >> 6 == 2 and packet[1] & 128:
                     frames.append((time.monotonic() - start, struct.unpack("!I", packet[4:8])[0]))
@@ -117,6 +157,7 @@ def measure(url, duration, settle):
         "rtp_fps": round((len(stable) - 1) / media, 2),
         "timestamp_steps": sorted(set(steps))[:12],
         "timestamp_regressions": sum(step < 0 for step in steps), "bytes": bytes_read,
+        "keepalive_requests": keepalive_requests, "keepalive_responses": keepalive_responses,
     }
 
 

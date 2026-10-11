@@ -60,13 +60,13 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     },
     async closeStreamClients() { /* single client is owned by createSdk; disconnected on shutdown elsewhere */ },
 
-    /** Open the raw Annex-B Readable for a camera on the given client. */
+    /** Keep SDK frame timestamps alongside Annex-B data for timestamped egress. */
     async openFeed(client, sn) {
       const cam = (await client.getDevice(sn)).camera?.();
       if (!cam?.openReadable) throw new Error(`${sn}: no live video (not a camera or openReadable unavailable)`);
       const claim = powerClaims[sn];
       const powered = claim === "always-on" ? "wired" : claim === "battery" ? "battery" : undefined;
-      return cam.openReadable({ streamType: 2, ...(powered ? { powered } : {}) });
+      return cam.openReadable({ objectMode: true, streamType: 2, ...(powered ? { powered } : {}) });
     },
 
     /**

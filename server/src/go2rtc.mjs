@@ -125,9 +125,9 @@ export function createGo2rtc(ctx) {
       const device = cfg.go2rtcVaapiDevice || "auto";
       const preference = cfg.go2rtcVaapiDecode === false ? "encode" : "auto";
       const height = cfg.go2rtcMaxHeight || 0;
-      // Annex-B HTTP has no packet timestamps. Preserve live wall-clock timing
-      // and the probed keyframe/reference packets in every hardware/fallback path.
-      doc.setIn(["ffmpeg", "ewb_dynamic_http"], `--eufy-vaapi ${device} ${height} ${preference} -reinit_filter 0 -use_wallclock_as_timestamps 1 -analyzeduration 100000 -probesize 262144 -i {input}`);
+      // MPEG-TS carries the camera frame clock. Restamping at arrival would turn
+      // network bursts back into irregular presentation timestamps.
+      doc.setIn(["ffmpeg", "ewb_dynamic_http"], `--eufy-vaapi ${device} ${height} ${preference} -reinit_filter 0 -f mpegts -analyzeduration 100000 -probesize 262144 -i {input}`);
       // The launcher substitutes these private tokens. Main profile is accepted
       // by the Pi V4L2 decoder; passthrough timestamps avoid nominal-FPS backlog.
       doc.setIn(["ffmpeg", "tvh264"], "-vf ewb_scale -codec:v ewb_encoder -profile:v main -g:v 30 -bf:v 0 -fps_mode:v passthrough -enc_time_base:v 1:90000");
@@ -137,10 +137,19 @@ export function createGo2rtc(ctx) {
       doc.setIn(["ffmpeg", "output"], "-user_agent ffmpeg/go2rtc -rtsp_transport tcp -f rtsp {output}#killsignal=15#killtimeout=2");
       text = doc.toString();
     }
+    {
+      const doc = parseDocument(text);
+      // Finite PES fragments avoid waiting for the next frame to delimit large pictures.
+      // FFmpeg joins those fragments; go2rtc's direct TS reader treats each PES as a picture.
+      doc.setIn(["ffmpeg", "ewb_timestamped_http"], "-f mpegts -analyzeduration 100000 -probesize 262144 -i {input}");
+      text = doc.toString();
+    }
     for (const [sn, suffix] of Object.entries(plan)) {
-      const url = `http://${cfg.selfHost}:${cfg.port}/stream/${sn}`;
-      const source = suffix === "#video=copy" ? url : `ffmpeg:${url}${suffix}`;
-      text = text.replace(`ffmpeg:${url}#video=copy`, source);
+      const rawUrl = `http://${cfg.selfHost}:${cfg.port}/stream/${sn}`;
+      const url = `${rawUrl}?format=mpegts&pes=fragmented`;
+      const input = suffix.includes("#input=") ? "" : "#input=ewb_timestamped_http";
+      const source = `ffmpeg:${url}${input}${suffix}`;
+      text = text.replace(`ffmpeg:${rawUrl}#video=copy`, source);
     }
     text = withNamedStreams(text, ctx.listCameras().filter((c) => c.enabled));
     await writeFile(cfg.go2rtcConfig, text, "utf8");
