@@ -13,6 +13,8 @@ Open **Eufy Wall** from the TV launcher. The app discovers `_eufy-wall._tcp` (HT
 
 The bridge installer publishes the Avahi record. On a Linux client, `rtsp_base: auto` resolves the same record at startup; explicit RTSP URLs continue to work. The TV uses `/api/cameras`, `/ws`, and bounded `/hold/<serial>` requests. Video uses the bridge's advertised RTSP URL over TCP. It tries hardware decoding first and can fall back to software when hardware decoder instances are exhausted. H.265 passthrough requires device decoder support.
 
+Live output uses timestamp-based surface pacing with at most 67 ms of future scheduling headroom. Late decoded pictures can be discarded without dropping compressed references. Hardware decoding and software fallback are retained. See [the pacing implementation and measurements](../docs/evidence/client-frame-pacing-2026-10-11.md); the scheduling allowance is not a camera-to-screen latency guarantee.
+
 Source dimensions are preserved by default. If a camera exceeds a display's
 working decoder limit, enable bridge transcoding and set `go2rtc.max_height`
 to the highest shared ceiling verified with all displays and concurrent tiles.

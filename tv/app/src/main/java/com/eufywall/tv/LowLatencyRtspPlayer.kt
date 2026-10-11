@@ -44,6 +44,7 @@ internal class LowLatencyRtspPlayer(
     private val previousRenderNs = AtomicLong()
     private val latestInputTimestamp = AtomicLong(-1)
     private val latestRenderedTimestamp = AtomicLong(-1)
+    @Volatile private var frameClock = LiveFrameClock()
 
     // Keep the library's RTSP/RTP parsing and codec helpers. The decoder adapter drains
     // output independently of new input and adds actual-render monitoring.
@@ -66,6 +67,7 @@ internal class LowLatencyRtspPlayer(
         val initialHeight = surface.height.takeIf { it > 0 } ?: 1080
         object : DrainingVideoDecoder(mime, initialWidth, initialHeight, rotation, frames, monitoredListener, type) {
             override fun decoderCreated(mediaCodec: MediaCodec, mediaFormat: MediaFormat) {
+                frameClock = LiveFrameClock()
                 check(!released && surface.holder.surface.isValid) { "Video surface unavailable" }
                 decoderName = mediaCodec.name
                 mediaCodec.configure(mediaFormat, surface.holder.surface, null, 0)
@@ -89,8 +91,13 @@ internal class LowLatencyRtspPlayer(
             }
 
             override fun releaseOutputBuffer(mediaCodec: MediaCodec, outIndex: Int, bufferInfo: MediaCodec.BufferInfo, render: Boolean) {
-                if (render) if (Log.isLoggable(TIMING_TAG, Log.DEBUG)) Log.d(TIMING_TAG, "${camera.sn} decoded ptsUs=${bufferInfo.presentationTimeUs} atNs=${System.nanoTime()}")
-                mediaCodec.releaseOutputBuffer(outIndex, render && !released && surface.holder.surface.isValid)
+                val now = System.nanoTime()
+                val target = if (render && !released && surface.holder.surface.isValid)
+                    frameClock.presentationTimeNs(bufferInfo.presentationTimeUs, now) else null
+                if (render && Log.isLoggable(TIMING_TAG, Log.DEBUG)) Log.d(TIMING_TAG,
+                    "${camera.sn} decoded ptsUs=${bufferInfo.presentationTimeUs} atNs=$now targetNs=${target ?: -1}")
+                if (target == null) mediaCodec.releaseOutputBuffer(outIndex, false)
+                else mediaCodec.releaseOutputBuffer(outIndex, target)
             }
 
             override fun decoderDestroyed(mediaCodec: MediaCodec) {}
@@ -164,7 +171,7 @@ internal class LowLatencyRtspPlayer(
         // RTP video ticks are converted to microseconds and passed unchanged to MediaCodec.
         val pending = if (latestRenderedTimestamp.get() < 0) -1 else
             (latestInputTimestamp.get() - latestRenderedTimestamp.get()).coerceAtLeast(0) / 1_000
-        return "decoder=$decoderName receivedUnits=${receivedUnits.get()} renderedFrames=${renderedFrames.get()} queuedUnits=${queue?.size ?: 0} pendingMediaMs=$pending longestFrameGapMs=${longestFrameGap.get()}"
+        return "decoder=$decoderName receivedUnits=${receivedUnits.get()} renderedFrames=${renderedFrames.get()} queuedUnits=${queue?.size ?: 0} pendingMediaMs=$pending longestFrameGapMs=${longestFrameGap.get()} pacingDropped=${frameClock.dropped} pacingResets=${frameClock.resets} maxPacingWaitMs=${frameClock.maxWaitNs / 1_000_000}"
     }
 
     private companion object { const val TIMING_TAG = "EufyFrameTiming" }
