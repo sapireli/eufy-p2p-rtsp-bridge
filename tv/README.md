@@ -11,6 +11,14 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Open **Eufy Wall** from the TV launcher. The app discovers `_eufy-wall._tcp` (HTTP port 3000, TXT `rtsp=<RTSP port>`) or accepts a bridge IP address. It ignores a service that resolves to `127.0.0.1` or another loopback address. Select one to four cameras and choose **Start live wall**. Press Back to return to setup. The selection and bridge are saved locally. Each dual-lens camera has its own **View: Split/PiP** button in setup. Changing it sends a command to the camera through the bridge, restarts that camera's stream, and persists on the bridge. PiP uses the lower-right inset.
 
+Launcher artwork lives in `assets/icon.svg` and `assets/banner.svg`. The manifest
+supplies both a square icon and a 16:9 banner, with an adaptive square icon on
+API 26+. The density-specific PNGs are checked in; to regenerate them after
+editing the SVGs, run `python3 assets/render.py` with ImageMagick installed.
+The launcher activity points both its icon and banner to the wide artwork so
+Fire TV can use the 16:9 image for its app tile; the application icon remains
+square for system surfaces that require it.
+
 The bridge installer publishes the Avahi record. On a Linux client, `rtsp_base: auto` resolves the same record at startup; explicit RTSP URLs continue to work. The TV uses `/api/cameras`, `/ws`, and bounded `/hold/<serial>` requests. Video uses the bridge's advertised RTSP URL over TCP. It tries hardware decoding first and can fall back to software when hardware decoder instances are exhausted. H.265 passthrough requires device decoder support.
 
 Live output uses timestamp-based surface pacing with at most 67 ms of future scheduling headroom. Newest late pictures display immediately; duplicate/out-of-order decoded pictures can be discarded without dropping compressed references. Hardware decoding and software fallback are retained. See [the pacing implementation and measurements](../docs/evidence/client-frame-pacing-2026-10-11.md); the scheduling allowance is not a camera-to-screen latency guarantee.
