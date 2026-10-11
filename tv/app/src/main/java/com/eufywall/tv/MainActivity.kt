@@ -99,7 +99,7 @@ class MainActivity : Activity() {
         text = value; textSize = 20f; setOnClickListener { action() }
     }
 
-    private fun showSetup(message: String = "Enter the bridge IP or use discovery") {
+    private fun showSetup(message: String = "Enter the bridge hostname or IP, or use discovery") {
         cancelCameraLoad()
         resumeWallOnStart = false
         wallVisible = false
@@ -108,7 +108,7 @@ class MainActivity : Activity() {
         root.addView(text("Eufy Wall", 32f))
         status = text(message, 18f).also { root.addView(it) }
         ipEntry = EditText(this).apply {
-            setSingleLine(true); hint = "Bridge IP, e.g. 192.168.1.10"; setText(bridge.removePrefix("http://").substringBefore(':'))
+            setSingleLine(true); hint = "Bridge hostname or IP, e.g. homebridge.lan"; setText(bridge.removePrefix("http://").substringBefore(':'))
             setTextColor(0xffffffff.toInt()); setHintTextColor(0xffaabbcc.toInt()); inputType = android.text.InputType.TYPE_CLASS_TEXT
         }.also { root.addView(it) }
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }

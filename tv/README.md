@@ -9,7 +9,7 @@ gradle assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Open **Eufy Wall** from the TV launcher. The app discovers `_eufy-wall._tcp` (HTTP port 3000, TXT `rtsp=<RTSP port>`) or accepts a bridge IP address. It ignores a service that resolves to `127.0.0.1` or another loopback address. Select one to four cameras and choose **Start live wall**. Press Back to return to setup. The selection and bridge are saved locally. Each dual-lens camera has its own **View: Split/PiP** button in setup. Changing it sends a command to the camera through the bridge, restarts that camera's stream, and persists on the bridge. PiP uses the lower-right inset.
+Open **Eufy Wall** from the TV launcher. The app discovers `_eufy-wall._tcp` (HTTP port 3000, TXT `rtsp=<RTSP port>`) or accepts a bridge hostname or IP address. Enter `homebridge.lan` to save `http://homebridge.lan:3000` and use that hostname for camera URLs advertised by the bridge. The name must resolve through the device's network resolver; `.lan` is normally supplied by LAN DNS, while mDNS hostnames normally end in `.local`. It ignores a service that resolves to `127.0.0.1` or another loopback address. Select one to four cameras and choose **Start live wall**. Press Back to return to setup. The selection and bridge are saved locally. Each dual-lens camera has its own **View: Split/PiP** button in setup. Changing it sends a command to the camera through the bridge, restarts that camera's stream, and persists on the bridge. PiP uses the lower-right inset.
 
 Launcher artwork lives in `assets/icon.svg` and `assets/banner.svg`. The manifest
 supplies both a square icon and a 16:9 banner, with an adaptive square icon on
