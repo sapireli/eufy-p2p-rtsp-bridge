@@ -107,3 +107,26 @@ repairs upstream pauses. No indoor-camera unit measurement is claimed. Source
 clock resets/wrap, conversion to a media timebase and any cross-source comparison
 are the host's responsibility. Clock origin, absolute capture/presentation time,
 and cross-camera synchronization are not established.
+
+## Follow-up guide and PR-description review
+
+The next review confirmed that the raw field, removal of the millisecond claim,
+and actual running-host need are accepted. It requested:
+
+1. Delete the guide paragraph advising hosts on timestamping and playout.
+2. Replace reader instructions with facts about unsigned wrap and session resets.
+3. Retain measurements in the PR body, but remove consumer repository/stack links
+   and the “production fork” wording under the SDK’s consumer-agnostic rule.
+
+These edits affect documentation only. The field, emitted bytes, source clock
+propagation and running implementation are unchanged. No new live measurement or
+playback benefit is attributed to this documentation edit. The measurements and
+verification boundaries preserved above still explain the code change’s need.
+
+Published the guide-only change as verified signed PR commit
+`6f9d0a324900ed3df5eeae4affadc7605fcf47e5` and synchronized it to fork
+`35b9581d79d414602c63e7240677cb15aa09cf63`. Full gates passed again:
+**230 files / 4,020 tests** for the PR and **234 files / 4,096 tests** for the fork.
+Confirmed the current PR body contains no consumer repository links or the
+“production fork” wording. Replied to both inline comments; reviewer resolution
+and approval remain with the reviewer.
