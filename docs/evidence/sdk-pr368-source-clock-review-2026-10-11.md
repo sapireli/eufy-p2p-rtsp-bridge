@@ -9,6 +9,12 @@ this host repository. The SDK’s generic live-media guide and field contract st
 This preserves the evidence required for the SDK commits without publishing a
 consumer-specific review log as SDK guidance. The original evidence follows.
 
+Review fix: PR commit `2c846e78fa7e684fe1b78f3ece13876cb37b7d71`; synchronized
+fork commit `869ef01f86eb0effcc481fcd384376f491067726`. Both commits are
+GitHub-verified signed. Full gates passed again: 230 files / 4,020 tests on the
+PR branch and 234 files / 4,096 tests on the fork. The deployed packed runtime
+is byte-for-byte identical across the documentation-only fork change.
+
 ---
 
 # Live video source timestamp: need, evidence and limits
