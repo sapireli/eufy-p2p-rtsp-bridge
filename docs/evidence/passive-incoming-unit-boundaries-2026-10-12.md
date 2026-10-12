@@ -195,3 +195,47 @@ Private provenance:
 - `incoming-aligned-60-analysis.json` and `incoming-aligned-60-runtime.txt`
   retain exact boundaries, fixed integer fields, exclusion counts, and resource
   accounting under the private evidence directories.
+
+## Same-endpoint liveness during the longest intervals (offline audit)
+
+No additional capture was started. The same metadata was filtered by exact
+anonymous peer/local-port/peer-port identity inside each longest quiet interval.
+
+During Door's703.095ms interval, the same endpoint sent a zero-body PING at
+**21:07:55.906209008 UTC** and received a zero-body PONG at
+**21:07:55.907176633 UTC**: outgoing→incoming kernel-tap delta **0.967625ms**.
+That PONG was the only incoming same-endpoint packet in the interval: no ACK,
+CONTROL/BINARY DATA, or alternate-data-type audio was present. VIDEO transport
+itself includes command1300 and1301, so both its video and audio units were quiet.
+The other HomeBase endpoint continued143 VIDEO datagrams, including8 command1300
+and8 command1301 starts on channel1; first/last arrivals were21:07:55.873332897
+and21:07:56.560647196 UTC. Thus the Door interval is media-channel silence while
+that endpoint and the same HomeBase's other media path demonstrably respond.
+It is not global IP-peer silence.
+
+During Garage's786.833ms interval, **no incoming packet of any observed protocol
+type arrived on that same endpoint**. Five final outgoing VIDEO ACKs departed;
+no scheduled PING occurred inside the interval. Therefore this particular
+endpoint cannot be called heartbeat-alive from this interval alone. The other
+HomeBase endpoint continued269 VIDEO datagrams, including16 command1300 and16
+command1301 starts on channel2, first/last21:08:03.439236321 and
+21:08:04.074785359 UTC. The HomeBase was not globally silent, but its per-camera
+endpoint liveness during this subsecond interval remains unprobed.
+
+The unit-start counts above include logical media chunks and audio; they are
+not decoded-picture counts. PING/PONG lacks a request identity in this metadata;
+this bounded interval contains exactly one matching endpoint pair, not a general
+cross-window RTT attribution. These findings do not identify camera RF quality,
+peer ACK acceptance, sensor capture age, or the firmware queue responsible.
+The same35.05%-core observer-cost limitation applies.
+
+A possible next causal experiment is a coordinated short A/B/A comparison of
+**actual HomeBase media subscriptions2→1→2**, preserving streamType2 and quality.
+Merely removing a UI/RTSP consumer does not remove the shared SDK source and
+would not test this hypothesis. That experiment would deliberately pause one
+feed and must restore exact source/view policies, guard startup transients,
+and use validated low-cost timing or the existing Mac stamped-frame observer.
+A repeatable change in the other camera's pre-ingress pause distribution could
+implicate concurrent serving, without establishing a specific firmware cause.
+No such intervention was performed, and no SDK ACK/policy change is justified
+by this offline analysis.
