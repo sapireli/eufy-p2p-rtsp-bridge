@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "yaml";
@@ -166,4 +166,44 @@ test("native capability retains actual geometry and per-client addresses, absent
   assert.equal(nativeRenditionFor(ctx,cam,"tv-host"),undefined);
   ctx.state.slots.set("A",{codec:"h265",width:1920,height:1080});
   assert.deepEqual(nativeRenditionFor(ctx,cam,"tv-host"),{rtsp:"rtsp://tv-host:8560/garage_native",codec:"h265",width:1920,height:1080,freshness:{version:2,mode:"observe",clockUrl:"http://tv-host:3030/api/clock"}});
+});
+
+
+test("simultaneous codec discoveries and config writes preserve all compatible and native streams atomically", async () => {
+  const dir=mkdtempSync(join(tmpdir(),"ewb-config-race-"));
+  const cfg={go2rtcConfig:join(dir,"go2rtc.yaml"),selfHost:"127.0.0.1",port:3000,go2rtcTranscode:"always"};
+  const cams=[{sn:"A",name:"Door",enabled:true},{sn:"B",name:"Garage",enabled:true},{sn:"C",name:"Balcony",enabled:true}];
+  const state=createState();state.flags.ready=true;
+  const g=createGo2rtc({cfg,state,listCameras:()=>cams,getCamera:sn=>cams.find(c=>c.sn===sn),freshness:{enabledFor:()=>true}});
+  await g.writeGo2rtc();
+  state.slots.set("B",{codec:"h265"});state.slots.set("C",{codec:"h265"});
+  let kills=0;state.flags.go2rtcProc={kill:()=>{kills++;}};
+  let watching=true,observations=0;
+  const watcher=(async()=>{while(watching){
+    const streams=parse(readFileSync(cfg.go2rtcConfig,"utf8")).streams;
+    assert.ok(streams.door&&streams.garage&&streams.balcony,"published file always retains all compatible keys");
+    observations++;
+    await new Promise(resolve=>setTimeout(resolve,0));
+  }})();
+  try{await Promise.all(Array.from({length:24},(_,i)=>i%3 ? g.syncGo2rtc() : g.writeGo2rtc()));}
+  finally{watching=false;await watcher;}
+  assert.ok(observations>3);
+  const streams=parse(readFileSync(cfg.go2rtcConfig,"utf8")).streams;
+  assert.deepEqual(Object.keys(streams),["door","garage","balcony","garage_native","balcony_native"]);
+  assert.ok(kills<=1,"serialized plan comparison avoids repeated simultaneous restarts");
+  assert.deepEqual(readdirSync(dir),["go2rtc.yaml"],"private staging files are removed");
+});
+
+test("failed config generation never replaces the last valid published config", async () => {
+  const dir=mkdtempSync(join(tmpdir(),"ewb-config-failure-"));
+  const cfg={go2rtcConfig:join(dir,"go2rtc.yaml"),selfHost:"127.0.0.1",port:3000};
+  let fail=false;
+  const cams=[{sn:"A",name:"Front Door",enabled:true}];
+  const state=createState();state.slots.set("A",{codec:"h265"});
+  const g=createGo2rtc({cfg,state,listCameras:()=>cams,getCamera:()=>cams[0],freshness:{enabledFor:()=>{if(fail)throw Error("registry unavailable");return false;}}});
+  await g.writeGo2rtc();const prior=readFileSync(cfg.go2rtcConfig,"utf8");
+  fail=true;await assert.rejects(g.writeGo2rtc(),/registry unavailable/);
+  assert.equal(readFileSync(cfg.go2rtcConfig,"utf8"),prior);
+  assert.deepEqual(readdirSync(dir),["go2rtc.yaml"]);
+  fail=false;await g.writeGo2rtc();assert.equal(readFileSync(cfg.go2rtcConfig,"utf8"),prior,"a failed queue item does not poison future updates");
 });

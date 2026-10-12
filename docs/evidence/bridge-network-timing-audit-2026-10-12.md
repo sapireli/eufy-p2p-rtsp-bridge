@@ -187,3 +187,12 @@ Instrumentation limitation: producer hooks attached only to processes present at
 The observers closed afterward, Balcony's extra encoder stopped, and the original two-camera load was restored. No quality reduction or software-only default was used to conceal the failure. A separate native HEVC rendition is being implemented so capable clients can use the original source pictures without requiring a third encoder; compatible H.264 URLs and configured default policy remain available. That candidate still requires live multi-camera acceptance.
 
 Raw artifacts: `flv-threecam-manifest.json`, `flv-threecam-boundaries.json`, `flv-threecam-loopback.jsonl`, `flv-threecam-kernel.jsonl`, and `flv-threecam-backlog-journal.txt`.
+
+
+## Native rollout regression: concurrent go2rtc config publication
+
+The first native-rendition deployment exposed a config-publication race: simultaneous camera codec discoveries rewrote the same generated YAML while another generation read it. The running go2rtc API then contained only the two native aliases; compatible camera keys were absent and returned 404. The parent restored the previous server before further capacity testing. This was a real rollout failure, not a decoder capability failure.
+
+The generator previously wrote the published path before the bridge reread, hardened, renamed camera keys and added native aliases. Concurrent writes could truncate the file or replace a completed configuration with the other writer's intermediate generator output. The repair serializes the entire generation/plan-check/restart transaction and performs generation in a unique file in the same directory. Only a completed configuration is atomically renamed over the published path. Failure removes its private staging file and preserves the last valid published config.
+
+Two regression tests were run against the first native commit `de780fc`; both failed: the concurrent reader saw null YAML (no `streams`), and an injected registry failure replaced the prior hardened named config with raw intermediate generator output. The same tests pass with serialized atomic publication, while a concurrent reader verifies compatible keys remain present throughout 24 queued updates. The failed queue item also no longer prevents later successful updates. Live rollout and all-rendition capacity verification remain separate gates.
