@@ -7,7 +7,7 @@ import android.util.Log
 import org.json.JSONObject
 
 data class NativeRendition(val rtsp: String, val codec: String, val width: Int, val height: Int,
-    val freshness: FreshnessCapability? = null)
+    val freshness: FreshnessCapability? = null, val profile: Int? = null, val level: Int? = null, val tier: Int? = null)
 
 /** API 28 has no isHardwareAccelerated: reject known software implementations by name. */
 internal fun hardwareCodecName(name: String): Boolean {
@@ -18,6 +18,15 @@ internal fun hardwareCodecName(name: String): Boolean {
 internal fun nativeGeometryValid(codec: String, width: Int, height: Int): Boolean =
     codec.lowercase() in setOf("h265", "hevc", "video/hevc") && width > 0 && height > 0
 
+internal fun supportsHevcProfileLevel(profile: Int?, level: Int?, tier: Int?, supportedProfile: Int, supportedLevel: Int): Boolean {
+    if (profile !in listOf(1, 2) || tier !in listOf(0, 1)) return false
+    val levels = listOf(30, 60, 63, 90, 93, 120, 123, 150, 153, 156, 180, 183, 186)
+    val requiredIndex = levels.indexOf(level)
+    if (requiredIndex < 0 || supportedProfile != profile || supportedLevel <= 0 || supportedLevel and (supportedLevel - 1) != 0) return false
+    val bit = Integer.numberOfTrailingZeros(supportedLevel)
+    return bit / 2 >= requiredIndex && (tier == 0 || bit % 2 == 1)
+}
+
 internal fun nativeHardwareDecoder(rendition: NativeRendition): String? {
     if (!nativeGeometryValid(rendition.codec, rendition.width, rendition.height)) return null
     return try {
@@ -26,11 +35,14 @@ internal fun nativeHardwareDecoder(rendition: NativeRendition): String? {
                 (Build.VERSION.SDK_INT < 29 || info.isHardwareAccelerated) &&
                 info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, true) } &&
                 runCatching {
-                    val caps = info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_HEVC).videoCapabilities
+                    val codecCaps = info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_HEVC)
+                    Log.i("EufyWallTV", "Native HEVC profiles ${info.name}: ${codecCaps.profileLevels.joinToString { "${it.profile}:${it.level}" }}")
+                    val caps = codecCaps.videoCapabilities
                     val size = caps != null && caps.isSizeSupported(rendition.width, rendition.height)
                     val rate = size && caps!!.areSizeAndRateSupported(rendition.width, rendition.height, 30.0)
-                    Log.i("EufyWallTV", "Native HEVC candidate ${info.name}: ${rendition.width}x${rendition.height} size=$size rate30=$rate")
-                    rate
+                    val profile = codecCaps.profileLevels.any { supportsHevcProfileLevel(rendition.profile, rendition.level, rendition.tier, it.profile, it.level) }
+                    Log.i("EufyWallTV", "Native HEVC candidate ${info.name}: ${rendition.width}x${rendition.height} size=$size rate30=$rate streamProfile=${rendition.profile} level=${rendition.level} tier=${rendition.tier} profileSupported=$profile")
+                    rate && profile
                 }.getOrDefault(false)
         }?.name
     } catch (_: Exception) { null }
@@ -47,7 +59,7 @@ internal fun parseNativeRendition(f: JSONObject?): NativeRendition? {
     val width = f.optInt("width"); val height = f.optInt("height")
     val url = f.optString("rtsp")
     if (!nativeGeometryValid(codec, width, height) || !url.startsWith("rtsp://")) return null
-    return NativeRendition(url, codec, width, height, parseFreshness(f.optJSONObject("freshness")))
+    return NativeRendition(url, codec, width, height, parseFreshness(f.optJSONObject("freshness")), f.optInt("profile").takeIf { f.has("profile") }, f.optInt("level").takeIf { f.has("level") }, f.optInt("tier").takeIf { f.has("tier") })
 }
 
 /** A failed native decoder is not retried forever or replaced by a slow software decoder. */

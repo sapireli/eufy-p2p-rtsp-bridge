@@ -16,6 +16,19 @@ class NativeRenditionTest {
         assertFalse(nativeGeometryValid("h265", 0, 1440))
         assertFalse(nativeGeometryValid("h265", 1280, -1))
     }
+    @Test fun requiresKnownCompatibleProfileLevelAndTier() {
+        assertTrue(supportsHevcProfileLevel(1, 123, 0, 1, 4096))
+        assertTrue(supportsHevcProfileLevel(1, 123, 0, 1, 8192))
+        assertFalse(supportsHevcProfileLevel(1, 150, 0, 1, 8192))
+        assertTrue(supportsHevcProfileLevel(1, 150, 0, 1, 16384))
+        assertFalse(supportsHevcProfileLevel(1, 150, 1, 1, 16384))
+        assertTrue(supportsHevcProfileLevel(1, 150, 1, 1, 32768))
+        assertFalse(supportsHevcProfileLevel(2, 123, 0, 1, 8192))
+        assertFalse(supportsHevcProfileLevel(null, 123, 0, 1, 8192))
+        assertFalse(supportsHevcProfileLevel(1, null, 0, 1, 8192))
+        assertFalse(supportsHevcProfileLevel(1, 123, null, 1, 8192))
+        assertFalse(supportsHevcProfileLevel(1, 124, 0, 1, 8192))
+    }
     @Test fun failedNativeStaysOnCompatibilityWithoutAffectingOtherCameras() {
         val policy = NativeFallback()
         assertTrue(policy.permits("door"))
