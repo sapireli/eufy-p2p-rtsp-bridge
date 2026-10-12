@@ -70,6 +70,28 @@ export function streamKeys(cameras) {
   return keys;
 }
 
+/** Reserve native aliases against every compatible stream key, including similarly named cameras. */
+export function nativeStreamKeys(cameras) {
+  const compatible = streamKeys(cameras), taken = new Set(compatible.values()), native = new Map();
+  for (const [sn, key] of compatible) {
+    const base = `${key}_native`;
+    let candidate = base, suffix = 2;
+    while (taken.has(candidate)) candidate = `${base}_${suffix++}`;
+    taken.add(candidate); native.set(sn, candidate);
+  }
+  return native;
+}
+
+/** Only advertise learned native HEVC; explicit compatible URLs and their policy remain intact. */
+export function nativeRenditionFor(ctx, cam, host) {
+  const slot = ctx.state.slots?.get(cam.sn);
+  if (!cam.enabled || slot?.codec !== "h265" || !(slot.width > 0 && slot.height > 0)) return undefined;
+  const freshness = ctx.freshness?.capability({ ...cam, transcode: "never" }, host);
+  if (!freshness) return undefined;
+  const key = nativeStreamKeys(ctx.listCameras().filter((c) => c.enabled)).get(cam.sn);
+  return { rtsp: `rtsp://${host}:${ctx.cfg.rtspPort ?? 8554}/${key}`, codec: "h265", width: slot.width, height: slot.height, freshness };
+}
+
 /** Rewrite the generated config's serial-keyed streams to {@link streamKeys}, in place and one for one. */
 export function withNamedStreams(text, cameras) {
   const doc = parseDocument(text);
@@ -102,7 +124,8 @@ export function createGo2rtc(ctx) {
     for (const c of ctx.listCameras().filter((x) => x.enabled)) plan[c.sn] = egressFor(codecOf(c.sn), c.transcode ?? cfg.go2rtcTranscode, cfg.go2rtcMaxHeight, platform, cfg.go2rtcVaapiDevice);
     return plan;
   }
-  let lastPlan = {};
+  let lastPlan = {}, lastNativePlan = "";
+  const nativePlan = () => ctx.listCameras().filter((c) => c.enabled && state.slots.get(c.sn)?.codec === "h265" && ctx.freshness?.enabledFor({ ...c, transcode: "never" })).map((c) => c.sn).join("|");
 
   async function writeGo2rtc() {
     const devices = ctx.listCameras().filter((c) => c.enabled).map((c) => ({ sn: c.sn, stream: `/stream/${c.sn}` }));
@@ -156,7 +179,16 @@ export function createGo2rtc(ctx) {
       text = text.replace(`ffmpeg:${rawUrl}#video=copy`, source);
     }
     text = withNamedStreams(text, ctx.listCameras().filter((c) => c.enabled));
+    {
+      const doc = parseDocument(text);
+      const keys = nativeStreamKeys(ctx.listCameras().filter((c) => c.enabled));
+      for (const sn of nativePlan().split("|").filter(Boolean)) {
+        doc.setIn(["streams", keys.get(sn)], `http://${cfg.selfHost}:${cfg.port}/timed-stream/${sn}?rendition=native`);
+      }
+      text = doc.toString();
+    }
     await writeFile(cfg.go2rtcConfig, text, "utf8");
+    lastNativePlan = nativePlan();
     lastPlan = plan;
     const t = Object.entries(plan).filter(([, v]) => v.includes("h264#")).map(([k]) => k);
     console.log(`[bridge] go2rtc config written (${sns.length} stream(s)${t.length ? `, transcoding ${t.join(", ")}` : ""}) → ${cfg.go2rtcConfig}`);
@@ -171,10 +203,14 @@ export function createGo2rtc(ctx) {
   async function syncGo2rtc() {
     if (!state.flags.ready) return;
     const plan = egressPlan();
-    if (JSON.stringify(plan) === JSON.stringify(lastPlan)) return;
+    if (JSON.stringify(plan) === JSON.stringify(lastPlan) && nativePlan() === lastNativePlan) {
+      await ctx.ws?.broadcastSnapshot?.();
+      return;
+    }
     console.log("[bridge] go2rtc egress changed — rewriting config and restarting go2rtc");
     await writeGo2rtc();
     state.flags.go2rtcProc?.kill(); // exit handler restarts it
+    await ctx.ws?.broadcastSnapshot?.();
   }
 
   function startGo2rtc() {

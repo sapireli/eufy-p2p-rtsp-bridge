@@ -153,10 +153,12 @@ export function createHttpHandler(ctx) {
 
     if (kind === "timed-stream" && arg) {
       const cam = ctx.getCamera(arg);
-      if (!cam?.enabled || !ctx.freshness?.enabledFor(cam)) return json(res, 404, { error: "timed stream unavailable" });
+      const rendition = url.searchParams.get("rendition") ?? "compatible";
+      if (!["compatible", "native"].includes(rendition)) return json(res, 400, { error: "invalid rendition" });
+      if (!cam?.enabled || !ctx.freshness?.enabledFor(rendition === "native" ? { ...cam, transcode: "never" } : cam)) return json(res, 404, { error: "timed stream unavailable" });
       if (ctx.isBlocked(arg)) return json(res, 423, { error: "camera peer blocked" });
       res.writeHead(200, { "content-type": "video/x-flv", "cache-control": "no-store", connection: "close" });
-      ctx.attachFreshConsumer(arg, res);
+      ctx.attachFreshConsumer(arg, res, { rendition });
       return;
     }
 

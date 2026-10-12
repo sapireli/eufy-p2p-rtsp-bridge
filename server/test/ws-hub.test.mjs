@@ -60,6 +60,8 @@ test("initial and refreshed capabilities identify the actual stream for each cli
   const { ctx, hub, url } = await withHub(t, [battery]);
   ctx.cfg.rtspPort = 9554;
   ctx.streamKeyFor = () => "yard";
+  ctx.state.slots = new Map();
+  ctx.state.slots.set("BATT", { codec: "h265", width: 1920, height: 1080 });
   ctx.freshness = { capability: (_camera, host) => ({ clockUrl: `http://${host}:3000/api/clock` }) };
   const peers = await Promise.all(["first.test", "second.test"].map((host) => new Promise((resolve, reject) => {
     const ws = new WebSocket(url, { headers: { Host: `${host}:3000` } });
@@ -73,6 +75,8 @@ test("initial and refreshed capabilities identify the actual stream for each cli
   for (let i = 0; i < peers.length; i++) for (const message of [peers[i].initial, updates[i]]) {
     assert.equal(message.cameras[0].rtsp, `rtsp://${peers[i].host}:9554/yard`);
     assert.equal(message.cameras[0].freshness.clockUrl, `http://${peers[i].host}:3000/api/clock`);
+    assert.equal(message.cameras[0].nativeRendition.rtsp, `rtsp://${peers[i].host}:9554/yard_native`);
+    assert.equal(message.cameras[0].nativeRendition.freshness.clockUrl, `http://${peers[i].host}:3000/api/clock`);
   }
 });
 

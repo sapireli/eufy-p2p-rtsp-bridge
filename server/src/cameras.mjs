@@ -1,6 +1,6 @@
 // Camera registry: SDK device list ∩ config → the set of cameras this bridge serves, plus the /api shape.
 
-import { streamKeys } from "./go2rtc.mjs";
+import { streamKeys, nativeRenditionFor } from "./go2rtc.mjs";
 
 /** Dual-lens models → the SET_PAYLOAD sub-command that sets their composed view (from bropat's client). */
 export const DUAL_MODELS = {
@@ -116,6 +116,7 @@ export function createCameras(ctx) {
       // Keep the regular URL unchanged: this is not suitable for UDP/MTU-sized RTP.
       rtspTcpPacketSize: 8192,
       ...(freshness ? { freshness } : {}),
+      ...(nativeRenditionFor(ctx, cam, host) ? { nativeRendition: nativeRenditionFor(ctx, cam, host) } : {}),
       ...(st.freshness ? { freshnessStatus: st.freshness } : {}),
       stream: `/stream/${cam.sn}`,
     };

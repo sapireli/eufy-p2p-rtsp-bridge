@@ -15,6 +15,7 @@
 // hello carries a snapshot so a tile that connects mid-event knows what is already happening rather than
 // waiting for the next one.
 import { WebSocketServer } from "ws";
+import { nativeRenditionFor } from "./go2rtc.mjs";
 
 const HEARTBEAT_MS = 30_000;
 
@@ -46,6 +47,7 @@ export function createWsHub(ctx) {
       rtsp: `rtsp://${host}:${ctx.cfg?.rtspPort ?? 8554}/${ctx.streamKeyFor?.(c.sn) ?? c.sn}`,
       rtspTcpPacketSize: 8192,
       freshness: ctx.freshness?.capability(c, host),
+      nativeRendition: nativeRenditionFor(ctx, c, host),
       state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
       // Whether GET /snapshot/<sn> has a thumbnail. A wall that renders a still for a camera with
       // none would be pointing a pipeline at a 404 and restarting it forever.
@@ -77,6 +79,7 @@ export function createWsHub(ctx) {
       send(ws, { ...hello, cameras: hello.cameras.map((c) => ({ ...c,
         rtsp: `rtsp://${ws.wallHost ?? ctx.cfg?.selfHost ?? "127.0.0.1"}:${ctx.cfg?.rtspPort ?? 8554}/${c.streamKey}`,
         freshness: ctx.freshness?.capability(ctx.getCamera?.(c.sn) ?? c, ws.wallHost ?? ctx.cfg?.selfHost ?? "127.0.0.1"),
+        nativeRendition: nativeRenditionFor(ctx, ctx.getCamera?.(c.sn) ?? c, ws.wallHost ?? ctx.cfg?.selfHost ?? "127.0.0.1"),
       })) });
     }
     return hello;

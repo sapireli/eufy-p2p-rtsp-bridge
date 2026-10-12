@@ -213,3 +213,16 @@ test("a camera with no retained still returns 404 rather than an empty image", a
     assert.match(body.error, /no retained snapshot/i);
   });
 });
+
+
+test("native timed route passes an explicit per-consumer profile and validates unknown profiles", async () => {
+  const profiles = [];
+  await withServer(ctxWith({freshness:{enabledFor:c=>c.transcode === "never"},attachFreshConsumer:(sn,res,options)=>{profiles.push(options);res.end();}}), async base => {
+    assert.equal((await fetch(`${base}/timed-stream/A`)).status,404);
+    const native = await fetch(`${base}/timed-stream/A?rendition=native`);
+    assert.equal(native.status,200); await native.arrayBuffer();
+    assert.deepEqual(profiles,[{rendition:"native"}]);
+    assert.equal((await fetch(`${base}/timed-stream/A?rendition=low`)).status,400);
+    assert.equal((await fetch(`${base}/timed-stream/B?rendition=native`)).status,404);
+  });
+});

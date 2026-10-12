@@ -25,7 +25,7 @@ function payload(flv) {
   let at = flv.subarray(0,3).toString() === "FLV" ? 13 : 0;
   while (at + 15 <= flv.length) {
     const size = flv.readUIntBE(at+1,3), body = flv.subarray(at+11,at+11+size);
-    if (flv[at] === 9 && body[1] === 1) {
+    if (flv[at] === 9 && (body[1] === 1 || ((body[0] & 128) && (body[0] & 15) === 3))) {
       const nals=[];
       for(let p=5;p<body.length;) {
         const length=body.readUInt32BE(p);p+=4;
@@ -44,24 +44,24 @@ function fakeProcess() {
   child.kill = (signal) => { child.killed = signal; };
   return child;
 }
-function harness({ mode = "never", spawnFn } = {}) {
+function harness({ mode = "never", spawnFn, rendition, codec = "h264" } = {}) {
   const res = new EventEmitter();
   res.writes = []; res.writableNeedDrain = false; res.destroyed = false;
   res.write = (data) => { res.writes.push(data); return true; };
   res.destroy = () => { if (!res.destroyed) { res.destroyed = true; res.emit("close"); } };
-  const slot = { codec: "h264" };
+  const slot = { codec };
   let source, onFrame, detached = 0, nowUs = 2000000n;
   const cfg = { go2rtcTranscode: mode, go2rtcVaapiDevice: "/dev/dri/renderD128", go2rtcMaxHeight: 0 };
   const ctx = { cfg, state: { slots: new Map([["camera", slot]]) }, getCamera: () => ({}), sdk: { extractParamSets: paramSets }, freshness: { nowUs: () => nowUs },
     attachConsumer: (_sn, consumer, options) => { source = consumer; onFrame = options.onFrame; return () => { detached++; }; }, spawn: spawnFn };
   const api = createFreshEgress(ctx);
-  const stop = api.attachFreshConsumer("camera", res);
+  const stop = api.attachFreshConsumer("camera", res, { rendition });
   let frameId = 0n;
   function feed(data = idr, ts = 1000, ageMs = 100, metadata = true) {
     if (source.destroyed) return;
-    if (source._ewbDropping && !paramSets(data)) return;
+    if (source._ewbDropping && codec === "h264" && !paramSets(data)) return;
     source._ewbDropping = false;
-    const frame = { data, sourceTimestamp: ts, codec: "h264", width:128,height:96,keyframe: Boolean(paramSets(data)) };
+    const frame = { data, sourceTimestamp: ts, codec, width:128,height:96,keyframe: Boolean(paramSets(data)) };
     const stamp = { serverEpoch: Buffer.alloc(8, 0x44), sourceTimestamp: ts, ingressMonoUs: nowUs - BigInt(ageMs)*1000n, frameId: frameId++, maxAgeMs: 500 };
     onFrame(frame, metadata ? stamp : undefined);
     return stamp;
@@ -251,4 +251,48 @@ test("real software transcoder preserves irregular source PTS and stamps their e
     assert.deepEqual(seen.map(row=>row.frameId),expected.map(row=>row.frameId));
     assert.deepEqual(seen.map(row=>row.ingressMonoUs),expected.map(row=>row.ingressMonoUs));
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+
+test("native consumer bypasses global always policy without changing the compatible producer", () => {
+  let spawned = 0;
+  const h = harness({ mode: "always", rendition: "native", spawnFn: () => { spawned++; return fakeProcess(); } });
+  const stamp = h.feed();
+  assert.equal(spawned, 0);
+  assert.equal(h.slot.freshness, undefined);
+  assert.equal(h.slot.nativeFreshness.outputFrames, 1);
+  assert.equal(h.res.writes.length, 1);
+  assert.equal(parseFrameStamp(payload(h.res.writes[0]), "h264").frameId, stamp.frameId);
+  h.stop();
+  const compatible = harness({ mode: "always", spawnFn: () => { spawned++; return fakeProcess(); } });
+  compatible.feed();
+  assert.equal(spawned, 1);
+  compatible.stop();
+});
+
+
+test("native HEVC copy delivers real source pictures and exact stamps under global always without encoder", t => {
+  const dir=mkdtempSync(join(tmpdir(),"ewb-native-hevc-"));
+  let h;
+  try {
+    const stats=join(dir,"stats.txt");
+    const fixture=spawnSync("ffmpeg",["-v","error","-f","lavfi","-i","testsrc2=size=128x96:rate=15","-frames:v","3","-c:v","libx265","-x265-params","pools=1:frame-threads=1:bframes=0:keyint=3:log-level=error","-map","0:v:0","-f","data","-stats_mux_pre",stats,"-stats_mux_pre_fmt","{n} {pts} {tb} {size}","pipe:1"],{maxBuffer:1024*1024});
+    assert.equal(fixture.status,0,fixture.stderr.toString());
+    const frames=[];const reader=new EncodedFrameReader({onFrame:row=>frames.push(row)});
+    reader.pushData(fixture.stdout);reader.pushStats(readFileSync(stats));reader.end();
+    h=harness({mode:"always",codec:"h265",rendition:"native",spawnFn:()=>{throw Error("native must not create an encoder");}});
+    const stamps=frames.map((row,i)=>h.feed(row.data,1000+i*67));
+    assert.equal(h.res.writes.length,3);
+    const restored=h.res.writes.map(bytes=>payload(bytes));
+    for(let i=0;i<restored.length;i++){
+      const stamp=parseFrameStamp(restored[i],"h265");
+      assert.equal(stamp.frameId,stamps[i].frameId);
+      assert.equal(stamp.sourceTimestamp,stamps[i].sourceTimestamp);
+      assert.equal(stamp.ingressMonoUs,stamps[i].ingressMonoUs);
+    }
+    const decode=data=>spawnSync("ffmpeg",["-v","error","-threads","1","-f","hevc","-i","pipe:0","-fps_mode:v","passthrough","-f","framemd5","pipe:1"],{input:data,encoding:"utf8"});
+    const original=decode(Buffer.concat(frames.map(row=>row.data))),copied=decode(Buffer.concat(restored));
+    assert.equal(original.status,0,original.stderr);assert.equal(copied.status,0,copied.stderr);
+    assert.equal(copied.stdout,original.stdout,"coded native pictures preserve decoded pixels/timing");
+  } finally {h?.stop();rmSync(dir,{recursive:true,force:true});}
 });

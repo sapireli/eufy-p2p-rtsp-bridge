@@ -142,3 +142,15 @@ test("an explicit local power claim sets the default stream mode and API policy"
   assert.equal(c.getCamera(camera.sn).mode, "always");
   assert.equal(c.apiShape(c.getCamera(camera.sn), "192.0.2.1").powerOverride, "always-on");
 });
+
+
+test("API native rendition advertises learned HEVC geometry while compatible RTSP remains stable", async () => {
+  const ctx=ctxWith([wired]);
+  ctx.freshness={capability:(_c,host)=>({version:2,mode:"observe",clockUrl:`http://${host}:3000/api/clock`})};
+  const cameras=createCameras(ctx);Object.assign(ctx,cameras);await cameras.refreshCameras();
+  assert.equal(cameras.apiShape(cameras.getCamera(wired.sn),"client.test").nativeRendition,undefined);
+  ctx.state.slots.set(wired.sn,{codec:"h265",width:1280,height:1440});
+  const api=cameras.apiShape(cameras.getCamera(wired.sn),"client.test");
+  assert.equal(api.rtsp,"rtsp://client.test:8554/garage");
+  assert.deepEqual(api.nativeRendition,{rtsp:"rtsp://client.test:8554/garage_native",codec:"h265",width:1280,height:1440,freshness:{version:2,mode:"observe",clockUrl:"http://client.test:3000/api/clock"}});
+});

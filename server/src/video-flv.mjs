@@ -54,7 +54,7 @@ export function newVideoFlvMuxer({ codec, maxFrameBytes = 4 * 1024 * 1024 } = {}
     }
     let nextConfig = config;
     if (!config || sawSet) nextConfig = videoCodecConfiguration([...updated.values()].flat(), codec);
-    const keyframe = nals.some((nal) => codec === "h264" ? type(nal) === 5 : [19, 20, 21].includes(type(nal)));
+    const keyframe = nals.some((nal) => codec === "h264" ? type(nal) === 5 : type(nal) >= 16 && type(nal) <= 21);
     const timestamp = elapsedMs + step;
     const chunks = [];
     if (!started) chunks.push(FILE_HEADER, metadata(codec));

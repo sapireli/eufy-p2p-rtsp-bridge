@@ -15,14 +15,16 @@ export function freshTranscodeArgs(cfg) {
 
 export function createFreshEgress(ctx) {
   const active = new Set();
-  function attachFreshConsumer(sn, res) {
+  function attachFreshConsumer(sn, res, { rendition = "compatible" } = {}) {
+    if (!["compatible", "native"].includes(rendition)) throw new Error("unknown video rendition");
     const cam = ctx.getCamera(sn);
     let stopped = false, child, detach, killTimer, sourceCodec, inputMux, outputMux, reader;
     let attemptIndex = 0, attempts, stderr = "", needKeyframe = true;
     const pending = new Map();
     const statistics = { scope: "bridge-ingress", captureClockValidated: false, inputFrames: 0, outputFrames: 0, freshOutputFrames: 0, staleFrames: 0, expiredReferenceFrames: 0, unmappedFrames: 0, maximumEgressAgeMs: 0 };
+    const statusKey = rendition === "native" ? "nativeFreshness" : "freshness";
     const slot = ctx.state.slots.get(sn);
-    if (slot) slot.freshness = statistics;
+    if (slot) slot[statusKey] = statistics;
     const source = {
       destroyed: false, _ewbDropping: true,
       // A pipe's high-water mark is a flow-control hint, not transport loss.
@@ -100,10 +102,10 @@ export function createFreshEgress(ctx) {
       if (stopped) return;
       if (!stamp || !Buffer.isBuffer(frame?.data)) return stop(new Error("source receipt metadata unavailable"));
       const currentSlot = ctx.state.slots.get(sn);
-      if (currentSlot) currentSlot.freshness = statistics;
+      if (currentSlot) currentSlot[statusKey] = statistics;
       statistics.inputFrames++;
       const codec = frame.codec ?? ctx.state.slots.get(sn)?.codec;
-      const mode = cam.transcode ?? ctx.cfg.go2rtcTranscode;
+      const mode = rendition === "native" ? "never" : cam.transcode ?? ctx.cfg.go2rtcTranscode;
       const transcode = mode === "always" || (mode === "auto" && codec === "h265");
       if (!transcode) return writeFrame(frame.data, stamp, codec);
       if (!child) startAttempt(codec);

@@ -201,3 +201,33 @@ Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session 
 ## Verified devices (fill in from spike A)
 | sn | model | power | codec | WxH | dual view | p2p peer |
 |----|-------|-------|-------|-----|-----------|----------|
+
+
+## Optional native HEVC rendition
+
+When a live source has confirmed HEVC codec and dimensions, `/api/cameras` and
+WebSocket `hello` optionally advertise `nativeRendition`:
+
+```json
+{"rtsp":"rtsp://bridge:8554/balcony_native","codec":"h265","width":1920,"height":1080,"freshness":{"version":2,"mode":"observe","scope":"bridge-ingress","maxAgeMs":500,"captureClockValidated":false,"clockUrl":"http://bridge:3000/api/clock"}}
+```
+
+The original `rtsp` URL, configured `transcode` policy and compatible H.264
+producer remain unchanged. A capable client may choose the native URL only after
+checking its actual hardware decoder and coded dimensions; failures should return
+to the original compatible URL. Explicit manual stream choices remain authoritative.
+Native aliases are reserved against all camera default names; a collision adds a
+numeric suffix, so clients must use the advertised URL rather than derive it.
+
+The alias is pulled lazily through `/timed-stream/<serial>?rendition=native`.
+That request shares the existing SDK source and bypasses encoding only for that
+consumer. Complete original HEVC pictures retain their source timestamps and
+bridge-ingress stamps, including random-access NAL types 16–21. It does not change
+camera quality, add an SDK streaming session, or weaken hardware-first/software
+fallback on compatible producers. Compatible and native producer statistics are
+kept separate. Native advertisements currently require the timed/freshness path
+to be enabled; HEVC is the first supported optional native codec.
+
+This avoids needless bridge decode/encode work when a viewer can decode the
+native source. It does not guarantee that the camera supplies uninterrupted fresh
+pictures. See the measured [two- and three-camera capacity evidence](evidence/bridge-network-timing-audit-2026-10-12.md).

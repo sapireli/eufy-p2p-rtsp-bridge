@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { newVideoFlvMuxer } from "../src/video-flv.mjs";
+import { annexBNals } from "../src/video-matroska.mjs";
 import { EncodedFrameReader } from "../src/encoded-frame-reader.mjs";
 import { stampVideoFrame, parseFrameStamp } from "../src/frame-stamp.mjs";
 function fixture(codec, dir, width=128, height=96) {
@@ -34,6 +35,15 @@ for(const codec of ["h264","h265"])test(`FLV ${codec} preserves complete picture
  const dir=mkdtempSync(join(tmpdir(),"ewb-flv-"));
  try{
   const rows=fixture(codec,dir),source=[0xfffffff0,51,217],mux=newVideoFlvMuxer({codec});
+  if(codec === "h265") for(let irap=16;irap<=21;irap++) {
+    const nals=annexBNals(rows[0].data).map(nal=>{
+      const copy=Buffer.from(nal),kind=(copy[0]>>1)&63;
+      if(kind>=16&&kind<=21)copy[0]=(irap<<1)|(copy[0]&1);
+      return Buffer.concat([Buffer.from([0,0,0,1]),copy]);
+    });
+    const records=tags(newVideoFlvMuxer({codec}).push({data:Buffer.concat(nals),sourceTimestamp:0}));
+    assert.equal(records.at(-1).data[0],0x93,`HEVC IRAP ${irap} is a random-access FLV picture`);
+  }
   const stamps=rows.map((row,i)=>({serverEpoch:Buffer.alloc(8,1),sourceTimestamp:source[i],ingressMonoUs:100000n+BigInt(i),frameId:BigInt(i+1),maxAgeMs:500}));
   const chunks=rows.map((row,i)=>mux.push({...row,data:stampVideoFrame(row.data,codec,stamps[i]),sourceTimestamp:source[i]}));
   assert.equal(mux.pts90k,233*90);
