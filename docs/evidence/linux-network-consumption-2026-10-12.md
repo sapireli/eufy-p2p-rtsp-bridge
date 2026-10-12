@@ -146,3 +146,55 @@ Private follow-up metadata:
 `linux-reader-only-tasks30.jsonl` (corrected generic-task selection), under the
 same private evidence directory. Further measurement must first establish the
 reader's socket-descriptor identity and pass a short observer-overhead gate.
+
+## Native five-second gates: one reader directly identified
+
+The next preflight reported service active, MainPID 23349, disabled, with camera
+processes 27848 and 27849. The existing power helper reported **OFF**. No wake,
+service action or network change was issued. Physical output was unobservable.
+
+The native [reader helper](../../client/tools/rtsp_reader_probe.c) reads precisely
+16 bytes of poll-descriptor metadata only when the ARM32 poll syscall reports
+exactly two descriptors. It validates the syscall number, count and userspace
+pointer before reading, then verifies the same syscall arguments afterward.
+It does not read arbitrary buffers, video data, decoded pixels or socket payload.
+Socket descriptors are matched to `/proc/net/tcp` by inode and RTSP port.
+
+This directly established process 27849, task 27861, polling FD 20, whose inode
+595362 identifies its RTSP port-8554 connection. The second generic task was not
+directly identified within the bounded attempts. Process and task start ticks
+remained stable.
+
+| Bounded attempt | Elapsed | Observer CPU | Single-core observer cost | Longer capture |
+| --- | --- | --- | --- | --- |
+| Initial native gate | 5.0066 s | 29.142 ms | 0.582% | none |
+| Second identity gate | 5.0031 s | 20.968 ms | 0.419% | automatically rejected |
+
+The second gate passed the CPU limit but lacked both direct reader identities,
+so the helper rejected its requested 30-second extension. No long native reader
+capture occurred and no repeated polling followed. Native cost includes helper
+inventory/setup; compilation and transfer occurred before the measured gate.
+
+In the initial gate, the proven reader was runnable with wait channel zero when
+its receive queue showed 82,142 bytes. This is a positive reader/queued-data
+snapshot, not a blocking-stack diagnosis. State, poll metadata and queue reads
+remain non-atomic. Poll `revents` values were not interpreted: kernel poll
+completion and userspace descriptor storage can change asynchronously.
+
+Only combined user-plus-system task ticks were retained. Across the first gate,
+generic tasks 27854 and 27861 advanced 35 and 22 ticks (approximately 7.0% and
+4.4% of one core). Across the second gate they advanced 48 and 29 ticks
+(approximately 9.6% and 5.8%). Separate user/system splits were not captured;
+these short intervals do not establish a CPU-capacity limit.
+
+The next alternative identity check is a read/recvfrom/recvmsg syscall whose
+first argument directly identifies the RTSP descriptor; it needs no memory
+read. It has not been performed. A strict poll-only check can miss a busy task
+that does not enter a qualifying poll snapshot during the short window.
+
+Private native artifacts: `linux-native-reader-gate5.txt` and
+`linux-native-reader-proof-rejected-extension.txt`. The helper's focused
+`--self-test` rejects unsupported syscalls, descriptor counts and pointer bounds;
+it passed natively and on the local compiler. The committed helper additionally
+guards established connection state and subsequent socket-inode changes; these
+guards do not add any playback policy.
