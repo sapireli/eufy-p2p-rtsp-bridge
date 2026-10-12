@@ -64,8 +64,9 @@ Artifacts are under `.evidence/frame-freshness-2026-10-12/`.
 
 GaragePi still has delayed output and clock-sampling failures. These short TV
 and bridge checks do not resolve the Linux backlog or the independent source
-pauses. Keep the RTSP writer trial opt-in until its live behavior has been
-verified without deployment churn.
+pauses. At this checkpoint the writer needed a separate live gate without
+deployment churn. That gate and the subsequent default-repair decision are now
+recorded in [the writer decision](go2rtc-writer-decision-2026-10-12.md).
 
 ## Subsequent source interruption under the original binary
 

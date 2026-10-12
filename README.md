@@ -22,8 +22,9 @@ age is unverified; the protocol does not infer it from camera clock overlays.
 
 ### go2rtc deployment default
 
-Server installation and ordinary updates use stock go2rtc 1.9.14. The experimental
-TCP write-recovery candidate was rolled back after new Fire TV disconnect reports;
-its builder remains available only with explicit `GO2RTC_WRITE_FIX=1`. Normal
-updates do not build or transfer its cache. See the [server runbook](docs/runbook-server.md)
-and [trial evidence/rollback limits](docs/evidence/go2rtc-interleaved-write-failure-2026-10-12.md).
+Server installation and ordinary updates use pinned go2rtc 1.9.14 with the verified
+TCP framing repair. A failed or incomplete write closes only that connection,
+preventing later packets from continuing a damaged stream. There is no experimental
+enable flag. Updates build or verify the cache before installing atomically. See
+the [server runbook](docs/runbook-server.md) and
+[writer decision and live evidence](docs/evidence/go2rtc-writer-decision-2026-10-12.md).

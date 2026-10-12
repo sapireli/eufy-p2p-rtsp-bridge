@@ -1,5 +1,10 @@
 # Fail closed after incomplete RTSP/TCP writes
 
+**Latest decision:** the completed healthy-sibling/backpressure gate supports this
+repair as the default. The earlier rollback/opt-in checkpoint below is historical,
+not a current installation instruction. See the
+[writer decision](go2rtc-writer-decision-2026-10-12.md).
+
 ## Candidate defect and scope
 
 The official go2rtc **v1.9.14** `pkg/rtsp/consumer.go:writeInterleavedData`
@@ -238,11 +243,10 @@ viewer-removal regression.
 The structural partial-write proof, controlled backpressure test, paired688-frame
 sidecar equivalence and reproducible build remain valid within their scopes.
 They do **not** establish that the candidate is safe as a production default.
-Consequently the installer returns to the stock release path; the updater skips
-candidate compilation/cache transfer unless `GO2RTC_WRITE_FIX=1` is explicit,
-and forwards that choice to the remote installer. The builder/reproducer remain
-available for a separately authorized future trial; no ordinary update may
-silently reintroduce the withdrawn candidate.
+At that checkpoint the installer returned to the stock release path and updates
+required explicit selection of the candidate. This temporary policy has since
+been superseded by the completed [writer decision](go2rtc-writer-decision-2026-10-12.md);
+the experimental selection flag has been removed.
 
 Focused verification exercised both installer-selection paths and both updater
 paths with stubbed external commands, plus failed stock-download preservation

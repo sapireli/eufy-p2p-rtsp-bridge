@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install eufy-wall-bridge on Debian/Ubuntu (amd64 or arm64) without Docker.
 #   sudo deploy/install-server.sh            (run from the repo root)
-# Installs Node 24 (NodeSource), a go2rtc release binary (trial write fix is opt-in), the server under /opt/eufy-wall-bridge, a
+# Installs Node 24 (NodeSource), verified go2rtc with TCP framing repair, the server under /opt/eufy-wall-bridge, a
 # system user, config/env skeletons in /etc and a systemd unit. Idempotent: re-run to upgrade.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }

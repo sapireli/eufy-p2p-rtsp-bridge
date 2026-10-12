@@ -7,7 +7,7 @@
     sudo nano /etc/eufy-wall-bridge.yaml     # lan.cidr, cameras, defaults
     sudo systemctl start eufy-wall-bridge && journalctl -fu eufy-wall-bridge
 The install script apt-installs Node 24 (NodeSource), rsync, Python 3, patch and **ffmpeg**.
-Normal installation uses the stock go2rtc 1.9.14 release. The write-fix trial below requires explicit opt-in. Copy-mode streams use
+Normal installation uses verified go2rtc 1.9.14 with the TCP framing repair described below. Copy-mode streams use
 go2rtc's timestamped HTTP source; FFmpeg is used when `go2rtc.transcode` selects a hardware transcode.
 
 ## First-run login (2FA / captcha)
@@ -184,16 +184,15 @@ Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session 
 - go2rtc child dies → restarted after 3 s.
 - Cloud poll silent ≥ 30 min or push down ≥ 15 min → re-login in place, else exit(1).
 
-## Optional go2rtc write-fix trial build/cache
+## Verified go2rtc TCP framing repair and build/cache
 
-**Default remains stock.** The write-fix candidate was rolled back at22:00:47 UTC
-on12 October2026 after the user reported new Fire TV disconnects. Its isolated
-protocol proof does not establish acceptable production behavior. Normal updates
-neither build nor transfer the candidate cache. Only an explicitly authorized
-trial with `GO2RTC_WRITE_FIX=1 deploy/update-debian.sh` (or
-`sudo env GO2RTC_WRITE_FIX=1 deploy/install-server.sh`) selects it. Configuration
-and camera policies remain unchanged. See the rollback checkpoint in the
-[transport evidence](evidence/go2rtc-interleaved-write-failure-2026-10-12.md).
+**TCP framing repair is the default.** Installation and updates use pinned
+go2rtc 1.9.14 with the verified fail-closed write repair. A failed or incomplete
+TCP write closes only the affected connection, rather than appending new messages
+after a missing tail. The experimental enable flag has been removed. The bounded
+normal-plus-backpressured live gates verified healthy siblings and successful
+redial; they do not claim to fix camera/HomeBase source pauses. See the
+[writer decision and evidence](evidence/go2rtc-writer-decision-2026-10-12.md).
 
 `deploy/build-go2rtc.py` verifies the pinned upstream 1.9.14 source archive
 (SHA-256 `e3d59e553dfd0085889a2956281cfc0fd78bb7b4d6269d1c90c217d2ffcf2c7b`),
@@ -201,17 +200,17 @@ applies `server/patches/go2rtc-v1.9.14/fail-closed-write.patch`, copies the two
 focused regressions, tests, and builds a Linux binary for the selected architecture.
 The upstream go.mod declares `go 1.24.0`; a supported Go toolchain is needed only
 when building. The tested build used Go 1.27.1 and reproduced the live candidate
-binary byte for byte. An explicitly opted-in update builds on the Mac and transfers
+binary byte for byte. An ordinary update builds or verifies on the Mac and transfers
 the verified cache, so the smaller Debian bridge need not compile Go.
 
 The ignored `deploy/.go2rtc-cache/` contains per-target binary/JSON manifests.
 Manifests record target, upstream/archive SHA, patch SHA, both regression hashes,
-actual Go toolchain, build flags and binary SHA. Each opted-in install verifies those fields
+actual Go toolchain, build flags and binary SHA. Each install verifies those fields
 and reads/hashes the exact bytes that will be installed. A changed patch/test or
-corrupt binary invalidates the cache. Direct opted-in Debian installation needs either
+corrupt binary invalidates the cache. Direct Debian installation needs either
 this verified cache or a supported Go toolchain; without either it stops clearly
-and preserves the installed go2rtc binary. The opted-in path does not download stock as fallback.
-A non-1.9.14 GO2RTC_VERSION override stops only the trial path.
+and preserves the installed go2rtc binary. Installation does not download stock as fallback.
+A non-1.9.14 GO2RTC_VERSION override stops before installation until that version is audited.
 
 The source/archive, patch, build/test and cache gates finish before atomic binary
 replacement. A failed final rename leaves the old binary intact. Immutable
@@ -231,7 +230,7 @@ See [the transport evidence/handoff](evidence/go2rtc-interleaved-write-failure-2
 
 ## Upgrading
 - From the Mac checkout used for this installation: `deploy/update-debian.sh`. It syncs `server/`
-  and `deploy/` (candidate cache only when GO2RTC_WRITE_FIX=1), reruns the idempotent installer, restarts an already-running service, and checks
+  and `deploy/` (including the verified go2rtc cache), reruns the idempotent installer, restarts an already-running service, and checks
   `/healthz`. Server credentials, camera config, and session live outside the code directory and
   are preserved. Use an SSH key in `~/.ssh/eufy-wall-debian` or set `EUFY_WALL_SSH_KEY`.
   The current default target is `root@192.168.23.158`; pass a different SSH host as the first
