@@ -142,3 +142,9 @@ selection is restored and active players reconnect. Release builds ignore it.
 Use only for a bounded hardware experiment, with original preferences restored
 after a temporary third-camera selection. A successful probe does not change
 production capability policy.
+
+Playback diagnostics separate `pendingDecodeMediaMs` (received versus decoded
+media timestamps) from `callbackPendingMediaMs` (received versus the latest
+informational render callback). Older Android may batch or omit that callback;
+its pending value and callback count do not establish physical display latency
+or dropped pictures. Both values describe media progress, not sensor capture age.

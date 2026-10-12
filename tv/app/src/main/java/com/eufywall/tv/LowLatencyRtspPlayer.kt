@@ -55,6 +55,7 @@ internal class LowLatencyRtspPlayer(
     private val previousRenderNs = AtomicLong()
     private val latestInputTimestamp = AtomicLong(-1)
     private val latestRenderedTimestamp = AtomicLong(-1)
+    private val latestDecodedTimestamp = AtomicLong(-1)
     @Volatile private var frameClock = LiveFrameClock()
     private val freshnessClock = camera.freshness?.let { BridgeClockClient(it.clockUrl) }
     private val stamps = LinkedHashMap<Long, FrameStamp>()
@@ -148,6 +149,7 @@ internal class LowLatencyRtspPlayer(
             override fun releaseOutputBuffer(mediaCodec: MediaCodec, outIndex: Int, bufferInfo: MediaCodec.BufferInfo, render: Boolean) {
                 if (render) {
                     decodedFrames.incrementAndGet()
+                    latestDecodedTimestamp.set(bufferInfo.presentationTimeUs)
                     lastDecodedFrameAt.set(SystemClock.elapsedRealtime())
                 }
                 val now = System.nanoTime()
@@ -281,9 +283,8 @@ internal class LowLatencyRtspPlayer(
     fun diagnostics(): String {
         // The pinned library's getTimestampMsec()/timestampMs names are misleading:
         // RTP video ticks are converted to microseconds and passed unchanged to MediaCodec.
-        val pending = if (latestRenderedTimestamp.get() < 0) -1 else
-            (latestInputTimestamp.get() - latestRenderedTimestamp.get()).coerceAtLeast(0) / 1_000
-        return "decoder=$decoderName receivedUnits=${receivedUnits.get()} decodedFrames=${decodedFrames.get()} renderedFrames=${renderedFrames.get()} queuedUnits=${queue?.size ?: 0} pendingMediaMs=$pending longestFrameGapMs=${longestFrameGap.get()} pacingDropped=${frameClock.dropped} pacingResets=${frameClock.resets} maxPacingWaitMs=${frameClock.maxWaitNs / 1_000_000} freshness=$freshnessState staleOutputFrames=${staleOutputFrames.get()} frameId=$shownFrameId maxGpuSubmissionIngressAgeMs=${maximumGpuSubmissionAgeMs.get()} observeDecodeMaxAgeMs=${observedDecodeAgeMs.get()} observeRenderInformationalMaxAgeMs=${observedRenderAgeMs.get()} observeDecodeDeadlineMisses=${observationDeadlineMisses.get()} observeRenderInformationalDeadlineMisses=${observationRenderDeadlineMisses.get()} observeMissingStamp=${observationMissingStamp.get()} observeUnknownClock=${observationUnknownClock.get()} blankReasons=${freshRenderer?.diagnostics() ?: "none"} presentationScope=${if (enforcesFreshness) "GPU-swap-admission" else "codec-render-callback"}"
+        val progress = PlaybackProgress(latestInputTimestamp.get(), latestDecodedTimestamp.get(), latestRenderedTimestamp.get())
+        return "decoder=$decoderName receivedUnits=${receivedUnits.get()} decodedFrames=${decodedFrames.get()} renderedFrames=${renderedFrames.get()} queuedUnits=${queue?.size ?: 0} latestDecodedPtsUs=${progress.decodedPtsUs} pendingDecodeMediaMs=${progress.pendingDecodeMediaMs} callbackPendingMediaMs=${progress.callbackPendingMediaMs} callbackPendingScope=informational-render-callback longestFrameGapMs=${longestFrameGap.get()} pacingDropped=${frameClock.dropped} pacingResets=${frameClock.resets} maxPacingWaitMs=${frameClock.maxWaitNs / 1_000_000} freshness=$freshnessState staleOutputFrames=${staleOutputFrames.get()} frameId=$shownFrameId maxGpuSubmissionIngressAgeMs=${maximumGpuSubmissionAgeMs.get()} observeDecodeMaxAgeMs=${observedDecodeAgeMs.get()} observeRenderInformationalMaxAgeMs=${observedRenderAgeMs.get()} observeDecodeDeadlineMisses=${observationDeadlineMisses.get()} observeRenderInformationalDeadlineMisses=${observationRenderDeadlineMisses.get()} observeMissingStamp=${observationMissingStamp.get()} observeUnknownClock=${observationUnknownClock.get()} blankReasons=${freshRenderer?.diagnostics() ?: "none"} presentationScope=${if (enforcesFreshness) "GPU-swap-admission" else "codec-render-callback"}"
     }
 
     private companion object { const val TIMING_TAG = "EufyFrameTiming"; const val DISPLAY_MARGIN_NS = 20_000_000L }
