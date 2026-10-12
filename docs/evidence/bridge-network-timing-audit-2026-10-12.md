@@ -227,3 +227,39 @@ A later live failure at 17:37:11 UTC logged `timed media consumer stopped draini
 A real local Node HTTP regression reproduced the failure: a roughly 150 KiB keyframe (valid extra user-data SEI plus the coded picture) set the actual response's `writableNeedDrain` flag. The synchronous next reference picture then produced `ECONNRESET` against the previous implementation. The same test now delivers both whole FLV AUs, exact payloads and original frame IDs/source timestamps while the response remains open, before any third AU or EOF. A compatible-encoder test also drains two complete encoded packets in one callback with the high-water flag set.
 
 The fix checks the actual queued response byte count plus the next whole FLV tag against an explicit 8 MiB bound. It does not wait for a timer, withhold the next picture, drop compressed references or add a playout buffer. The bound accommodates ordinary maximum-sized AU bursts; sustained non-draining output still closes instead of growing without limit. A real paused HTTP consumer test fills the response queue above 7 MiB and is closed when the next write would exceed 8 MiB. Both high-water acceptance regressions fail on the preceding implementation and pass on the repair. Live producer recovery remains a separate deployment gate owned by the parent agent.
+
+
+## Final live HTTP repair verification and native receipt measurements
+
+After the HTTP queued-byte repair was deployed, the actual Fire TV HEVC depayloader was corrected for aggregation packets that contain both prefix SEI and coded picture NALs. The Android agent then measured a bounded native Balcony hardware trial on both TVs with actual 1280×720 source pictures: about 25 decoded frames/s, no missing stamps, and no growing queue. Exact original two-camera preferences were restored at 17:46:19.226 / 17:46:20.026 UTC. This is separate device evidence at **720p**, not acceptance of the earlier 1080p overload window or an assertion that advertised decoder profile limits can be ignored.
+
+The first requested four-URL diagnostic attempt exposed a measurement-tool limitation: its H.264-only observer rejected both native HEVC tracks before SETUP. Therefore, that 120-second receipt result establishes only compatible Front Door/Garage behavior while the TVs were temporarily displaying native Balcony. Native receipt ages were not inferred from it.
+
+| Compatible receipt path, 120 seconds | Front Door | Garage |
+| --- | ---: | ---: |
+| Stable stamped pictures | 1,626 | 1,642 |
+| Observed picture rate | 14.818 fps | 14.938 fps |
+| Conservative ingress age, median / p99 / maximum | 94.0 / 345.2 / 393.1 ms | 97.1 / 219.9 / 252.3 ms |
+| Missing/invalid stamps, transport errors, duplicate IDs | 0 / 0 / 0 | 0 / 0 / 0 |
+
+The observer was extended with bounded RFC 7798 HEVC single-NAL/AP/FU parsing for DONL=0. Unit tests cover fragmented SEI, sequence loss/wrap, malformed aggregation, duplicate stamps and AU size limits. Independently, the real 842-byte AP fixture reconstructed the exact expected 844-byte Annex-B sequence (prefix SEI 57 bytes + VCL 779 bytes), SHA-256 `e7d56a46a4b51d70504b6b84b6dd9388a5d0f182ed0e6a679692003983f18857`, and recovered its original frame-ID stamp. A five-second live preflight on both native URLs verified stamps before the longer run.
+
+The corrected native two-URL observer then ran for 120 seconds, with dynamic kernel accounting from 17:49:28.173–17:51:38.108 UTC. Both original compatible TV views continued running; neither a new encoder nor a new SDK camera session was created by the native observers.
+
+| Native receipt path, 120 seconds | Garage HEVC | Balcony HEVC |
+| --- | ---: | ---: |
+| Total / stable stamped pictures | 1,803 / 1,723 | 3,001 / 2,873 |
+| Observed picture rate | 14.986 fps | 24.975 fps |
+| Conservative ingress age, median | 11.41 ms | 9.99 ms |
+| Conservative ingress age, p99 | 48.60 ms | 46.48 ms |
+| Conservative ingress age, maximum | 92.32 ms | 84.26 ms |
+| Missing/invalid stamps, transport errors, duplicate/regressing IDs | 0 each | 0 each |
+| Receipt-age upper bound above advertised 500 ms | 0 | 0 |
+
+All 517 kernel samples had the same two encoder PIDs; no Balcony encoder was created. Combined video-engine utilization was median 66.7%, p95 95.9%. Values slightly above 100% remain sequential-counter sampling artifacts. Source dimensions stayed Front Door 1600×2200, Garage 1280×1440 and Balcony **1280×720** throughout both final windows. No camera quality or default transcoding configuration was changed by this measurement; this differs from the earlier 1920×1080 Balcony source and must not be described as an identical-resolution before/after capacity comparison.
+
+Filtered production journal records from 17:44:50–17:51:40 UTC contained **no** timed-output failure, encoder-backlog or go2rtc-restart lines. The HTTP streams completed the measurements without EOF, all probe consumers closed afterward, and the two compatible production views remained restored.
+
+Source-side pauses still exist. The largest native Garage/Balcony receipt gaps were 646 / 356 ms, compared with 629 / 348 ms between the neighboring original bridge-ingress stamps; source media timestamps advanced only 68 / 39 ms. Those pauses precede bridge receipt and were not cured by the output queue repair. The results verify stable HTTP producer flow and ingress-to-observer receipt, not camera sensor freshness, screen presentation age or a hard future latency bound. Production remains in observation mode.
+
+Raw artifacts: `http-flow-fixed-fourconsumers-loopback.jsonl`, `http-flow-fixed-fourconsumers-kernel.jsonl`, `http-flow-fixed-compatible-summary.json`, `hevc-observer-actual-ap-proof.json`, `hevc-observer-preflight.jsonl`, `http-flow-fixed-native-two-loopback.jsonl`, `http-flow-fixed-native-two-kernel.jsonl`, `http-flow-fixed-native-summary.json`, and `http-flow-fixed-producer-journal.txt`.
