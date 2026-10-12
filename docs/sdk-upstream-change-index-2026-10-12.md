@@ -52,17 +52,26 @@ deviceState triggered a forced all-feed reset at19:57:17 despite that event bein
 a state-diff signal. Earlier actual poll completion was unmeasured; the API supplies
 loop-progress observability, not a cloud-success or camera-reachability verdict.
 
-After deployment as PID26350 at20:12:31, the **first actual completion was observed
-20:22:43.317 UTC**, status `ok`, count1, lastCompletedAt1791836563317. The host
-reported all three sources active, go2rtc running, authentication valid and no
-lost session. The fifteen-minute rollback was canceled only after this observation
-and healthy checks. All155 dist files and package.json (156 package files total)
-were byte-identical to the built candidate. The private full-dist manifest SHA is
+The later live gate is complete: deployed PID 26350 stayed alive in all **366**
+health samples from **20:15:24.483332–20:45:49.483455 UTC**. Actual `ok`
+completions were observed at **20:22:43.317**, **20:32:44.432**, and
+**20:42:45.314 UTC**. Authentication remained valid, go2rtc running, sessionLost
+false, and reported stalls zero at every sample. A 109-row service journal from
+20:12:31–20:47:00 contains no `realtime stalled` event. The unchanged process
+survived more than 33 minutes after deployment, beyond the old 30-minute timeout.
+The rollback timer was canceled after the first actual completion plus healthy
+checks. All 155 dist files and package.json (156 total) were byte-identical to
+the built candidate; full-dist manifest SHA is
 `aeeb899f2cc699c81314a98986cc6f2bd57ff6538154be768a08aee805ece6d0`.
-**Thirty-minute survival was still pending when this update was recorded**; this
-first completion does not substitute for that later watchdog gate. SDK and host
-watchdog integration are separate changes; the host's companion is
-`docs/evidence/poll-watchdog-contract-2026-10-12.md`.
+
+**Continuity boundary:** 365/366 samples contained all three selected sources.
+One independent feed stopped/reopened at20:24:52–20:24:55, with two sources in
+the intervening sample. Its cause is not established here. No poll-idle reset or
+process restart occurred at that boundary. This validates the watchdog contract,
+not uninterrupted playback or a source-pause cure. The SDK companion now records
+the exact deployed checkpoint and private health/journal hashes. SDK and host
+watchdog integration remain separate changes; see
+[host contract evidence](evidence/poll-watchdog-contract-2026-10-12.md).
 
 The latest combined candidate passed **4,108 tests in 236 files**, typecheck and build.
 This was fork validation. Each companion file distinguishes its original gate
@@ -72,7 +81,7 @@ and its later live evidence; it is not clean upstream-base verification.
 
 1. Inspect current upstream main, search existing issues/PRs, and create isolated
    branches from that base. The inspected main `7d1f016` contained all three
-   underlying source patterns; recheck current source before applying them.
+   first three underlying source patterns; recheck current source before applying them.
 2. Port each narrow fix and its meaningful base-failing regression, with its own
    sanitized companion evidence. Keep these as separate commits/PR scopes;
    never merge unrelated eufy-wall history to obtain one fix.

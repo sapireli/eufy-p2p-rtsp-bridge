@@ -52,11 +52,31 @@ under `poll`. These are observations of settled loop passes, not a synthesized
 camera last-seen or capture-age signal. They allow the live contract to be checked
 without attaching an Inspector or changing the poll interval.
 
-## Verification limit at this checkpoint
+## Later deployed checkpoint
 
-The correction is staged, not deployed. The SDK event's complete tests and
-companion upstream evidence must accompany its eventual pinned dependency.
-Deployment must preserve camera settings and wait for the active passive capture
-window. Live proof must show poll completion reaching the bridge and no false
-poll-idle reset beyond the original 30-minute boundary. This change does not
-claim to fix the distinct short source pauses or per-receiver TCP delivery stalls.
+The original staged checkpoint is superseded by the deployed SDK `830fa1c`,
+bundle `b23b4ddaa58ad4669cd3a528de71f9570c3f14ffe7609062820be822c281b83b`,
+and the host integration. PID 26350 began at 20:12:31 UTC and remained alive
+through all 366 five-second health samples 20:15:24.483332–20:45:49.483455.
+Actual settled `ok` poll completions reached the bridge at 20:22:43.317,
+20:32:44.432, and20:42:45.314. Authentication, session, go2rtc and stall indicators
+were healthy at every sample. The bounded 109-row service journal through 20:47:00
+contains no `realtime stalled` event. This passes the original 30-minute watchdog
+boundary with the same process; all 155 dist files plus package.json match the
+built SDK package. The rollback timer was canceled only after the first observed
+completion and healthy checks.
+
+This is not uninterrupted-media proof. One source independently stopped at
+20:24:52.150943, reopened at 20:24:52.154226, and resumed streaming at
+20:24:55.015341. All three sources appear in 365/366 health samples; one sample during
+that reopen has two. Its cause is not established by this record. No false poll-idle
+recovery or process restart accompanied it. Separate short source pauses and
+receiver-side issues remain distinct.
+
+Private health artifact `.evidence/frame-freshness-2026-10-12/poll-completion-live-1830s.jsonl`,
+SHA-256 `ea25fe47ef54a0227a1b49850315f8e4dbf31a93d7eaec3f92f94767203dbc60`.
+Bounded journal `poll-completion-live-journal.jsonl` in the same directory,
+SHA-256 `3f90289f85d63a514b67c7220bc843f1210fd9f79b2b5471d426fd83687f2ec2`.
+[The SDK change index](../sdk-upstream-change-index-2026-10-12.md) points to the
+independent upstream handoff; no upstream PR or clean upstream-base validation
+is implied by this fork/live gate.
