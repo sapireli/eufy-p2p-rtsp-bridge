@@ -16,6 +16,11 @@ counts and longest dispatch gaps. The source metadata is private under this proj
 `.evidence/bridge-network-audit-2026-10-12/`; do not attach camera payloads or identifying
 capture records to the upstream PR.
 
+The change and its evidence were committed together as
+`55dacd367068b0d90460561e20c9410a2ec03724` and pushed to
+`sapireli/eufy-sdk` branch `eufy-wall`. The bridge lock now resolves that revision.
+This is the downstream fork commit, not an upstream PR or clean-main test result.
+
 The live host ran SDK base `35b9581d79d414602c63e7240677cb15aa09cf63` on branch
 `eufy-wall`, then the candidate bundle with SHA-256
 `4ddbf934ccab2ebee30832fdacb7a1874e308278f3db2f41aa98503b6e938cf4`.
