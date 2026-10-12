@@ -31,8 +31,9 @@ type Caps struct {
 	ClockFile         string
 	UnavailableMarker func()
 	StampReader       bool
-	ObservePacing     bool // installed pacing plugin accepts observe-only telemetry
-	DecodedPacing     bool // installed eufypacing raw-video clock mapper
+	ObservePacing     bool   // installed pacing plugin accepts observe-only telemetry
+	TimingDiagnostics string // optional bounded private per-frame phase metadata
+	DecodedPacing     bool   // installed eufypacing raw-video clock mapper
 }
 
 // kmssinkArgs is the sink plus the output it renders on, shared by every sink strategy.
@@ -128,6 +129,12 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		return nil, fmt.Errorf("pipeline: unknown decoder %q", caps.Decoder)
 	}
 	for _, t := range tiles {
+		if caps.TimingDiagnostics != "" {
+			cap, ok := caps.Freshness[t.Camera]
+			if !ok || !cap.Supported() || !cap.BoundTo(t.URL) || caps.ClockFile == "" || !caps.ObservePacing || !caps.StampReader || !caps.DecodedPacing || caps.Sink != "planes" || t.StillURL != "" {
+				return nil, fmt.Errorf("pipeline: timing diagnostics unavailable for tile %d: advertised=%t supported=%t matching=%t observer=%t stamp=%t pacing=%t clock=%t planes=%t still=%t", t.Index, ok, cap.Supported(), cap.BoundTo(t.URL), caps.ObservePacing, caps.StampReader, caps.DecodedPacing, caps.ClockFile != "", caps.Sink == "planes", t.StillURL != "")
+			}
+		}
 		if cap, strict := caps.Freshness[t.Camera]; strict && cap.Enforced() && cap.BoundTo(t.URL) && t.StillURL == "" {
 			if !caps.DecodedPacing || !caps.StampReader || caps.ClockFile == "" || caps.Sink != "planes" || caps.DRMFD <= 0 {
 				return nil, fmt.Errorf("pipeline: advertised strict freshness requires stamp reader, clock mapping and independent shared DRM planes")
@@ -173,7 +180,17 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 			// receive-time timestamping would turn delivery bursts into presentation jitter.
 			args = append(args, "buffer-mode=none")
 		}
-		args = append(args, "!", dp[0], "!", dp[1])
+		trace := func(phase string) []string {
+			return []string{"!", "eufytrace", fmt.Sprintf("channel=%d", t.Index+1), "phase=" + phase, "clock-file=" + caps.ClockFile, "diagnostic-file=" + caps.TimingDiagnostics}
+		}
+		args = append(args, "!", dp[0])
+		if caps.TimingDiagnostics != "" {
+			args = append(args, trace("depay-au")...)
+		}
+		args = append(args, "!", dp[1])
+		if caps.TimingDiagnostics != "" {
+			args = append(args, trace("parsed-au")...)
+		}
 		cap, advertised := caps.Freshness[t.Camera]
 		strict := advertised && cap.Enforced() && cap.BoundTo(t.URL)
 		observe := advertised && cap.Supported() && !cap.Enforced() && cap.BoundTo(t.URL) && caps.ObservePacing && caps.DecodedPacing && caps.StampReader && caps.ClockFile != "" && caps.Sink == "planes"
@@ -184,12 +201,22 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		if override := caps.decoderOverrides[t.Camera]; override != "" {
 			decoder = override
 		}
-		args = append(args, "!", decoder, "!", "watchdog", "timeout=15000")
+		args = append(args, "!", decoder)
+		if caps.TimingDiagnostics != "" {
+			args = append(args, trace("decoder-out")...)
+		}
+		args = append(args, "!", "watchdog", "timeout=15000")
 		if caps.DecodedPacing {
 			// Drop only decoded frames: every compressed reference still reaches the decoder.
 			args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream")
+			if caps.TimingDiagnostics != "" {
+				args = append(args, trace("post-queue")...)
+			}
 			if caps.Sink == "planes" {
 				args = append(args, "!", "eufypacing")
+				if caps.TimingDiagnostics != "" {
+					args = append(args, "diagnostic-file="+caps.TimingDiagnostics)
+				}
 				if strict || observe {
 					args = append(args, fmt.Sprintf("channel=%d", t.Index+1), "clock-file="+caps.ClockFile, fmt.Sprintf("max-age-ms=%d", cap.MaxAgeMs))
 					if strict {

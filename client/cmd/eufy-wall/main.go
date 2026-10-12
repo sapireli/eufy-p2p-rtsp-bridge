@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ import (
 func main() {
 	cfgPath := flag.String("config", "/etc/eufy-wall.yaml", "config file")
 	dryRun := flag.Bool("dry-run", false, "print the resolved layout and pipeline, then exit")
+	timingDiagnostics := flag.String("timing-diagnostics", "", "optional bounded private frame-phase metadata file (updated native plugin required)")
 	printLayout := flag.Bool("print-layout", false, "print the resolved layout table, then exit")
 	viewCamera := flag.String("view-camera", "", "camera name or serial to change (then exit)")
 	viewMode := flag.String("view-mode", "", "dual-lens mode: split, pip-tl, pip-tr, pip-bl, pip-br, or single")
@@ -95,6 +97,15 @@ func main() {
 	caps.DecodedPacing = detect.HasElement("eufypacing")
 	caps.StampReader = detect.HasElement("eufystamp")
 	caps.ObservePacing = detect.HasElementProperty("eufypacing", "observe-only")
+	if *timingDiagnostics != "" {
+		if !filepath.IsAbs(*timingDiagnostics) || strings.ContainsAny(*timingDiagnostics, " \t\r\n\"") {
+			log.Fatal("[wall] timing diagnostics needs an absolute path without whitespace or quotes")
+		}
+		if !detect.HasElement("eufytrace") || !detect.HasElementProperty("eufypacing", "diagnostic-file") {
+			log.Fatal("[wall] timing diagnostics requires an updated native plugin")
+		}
+		caps.TimingDiagnostics = *timingDiagnostics
+	}
 	caps.NativeDecoder = detect.HardwareHEVCFactory(c.Decoder, caps.Decoder, detect.HasElement)
 	caps.NativeHEVCSinkCaps = detect.HardwareHEVCSinkCaps(caps.NativeDecoder)
 	caps.Freshness, caps.NativeRenditions = discoverRenditions(c.RTSPBase)
@@ -123,6 +134,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
+	tiles = initialStreamResources(c, tiles, caps.Freshness)
 	var sharedFiles []*os.File
 	if caps.Sink == "planes" && (*dryRun || *printLayout) {
 		caps.DRMFD = 3
@@ -226,6 +238,43 @@ func main() {
 
 	runDynamic(ctx, c, caps, tiles, mgr, plans)
 	log.Printf("[wall] stopped")
+}
+
+// Camera identities and advertised stream aliases differ. Resolve automatic
+// initial URLs before plans are built, just as the subsequent WS update does.
+// Keep the configured authority, explicit manual URLs and packet-size policy.
+func initialStreamResources(c *config.Config, tiles []layout.Placed, advertised map[string]freshness.Capability) []layout.Placed {
+	out := append([]layout.Placed(nil), tiles...)
+	base, err := url.Parse(c.RTSPBase)
+	if err != nil {
+		return out
+	}
+	prefix := strings.TrimRight(base.EscapedPath(), "/") + "/"
+	for i, t := range out {
+		if t.Index < 0 || t.Index >= len(c.Tiles) || c.Tiles[t.Index].URL != "" {
+			continue
+		}
+		cap, ok := advertised[t.Camera]
+		if !ok || !cap.Supported() {
+			continue
+		}
+		target, err := url.Parse(cap.StreamURL)
+		if err != nil || target.Scheme != base.Scheme || !strings.EqualFold(target.Host, base.Host) || target.Fragment != "" || !strings.HasPrefix(target.EscapedPath(), prefix) {
+			continue
+		}
+		key := strings.TrimPrefix(target.EscapedPath(), prefix)
+		if key == "" {
+			continue
+		}
+		if target.RawQuery != "" {
+			key += "?" + target.RawQuery
+		}
+		candidate := c.TileURLForStream(c.Tiles[t.Index], key)
+		if cap.BoundTo(candidate) {
+			out[i].URL = candidate
+		}
+	}
+	return out
 }
 
 // detectAspects sizes fixed tiles from the bridge's observed stream geometry. An explicit aspect in

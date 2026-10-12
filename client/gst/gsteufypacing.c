@@ -1,9 +1,11 @@
+#define _GNU_SOURCE
 #include "freshness.h"
 #include "pacing.h"
 #include <gst/base/gstbasetransform.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include "timing-observer.h"
 #define PACKAGE "eufy-wall"
 GST_DEBUG_CATEGORY_STATIC(eufy_pacing_debug);
 #define GST_CAT_DEFAULT eufy_pacing_debug
@@ -12,6 +14,8 @@ typedef struct {
   PacingClock clock;
   guint64 rendered, dropped;
   gboolean observe_only;
+  gchar *diagnostic_file;
+  TimingObserver timing;
   guint64 observed, matched, missing, unknown_clock, late_observed, reordered;
   guint64 submit_matched;
   guint64 age_max, submit_age_max, uncertainty_max, sink_push_max, longest_gap;
@@ -48,20 +52,26 @@ static void remember(guint channel, guint64 pts, const FreshStamp *stamp) {
   registry[registry_next++ % 256] = (StampEntry){channel, pts, *stamp};
   g_mutex_unlock(&registry_lock);
 }
-static gboolean lookup(guint channel, guint64 pts, FreshStamp *stamp) {
+static gboolean lookup_entry(guint channel, guint64 pts, FreshStamp *stamp, gboolean consume) {
   gboolean found = FALSE;
   g_mutex_lock(&registry_lock);
   for (guint offset = 0; offset < 256; offset++) {
     guint i=(registry_next+255-offset)%256;
     if (registry[i].channel == channel && registry[i].pts == pts) {
       *stamp = registry[i].stamp;
-      registry[i].channel = 0;
+      if (consume) registry[i].channel = 0;
       found = TRUE;
       break;
     }
   }
   g_mutex_unlock(&registry_lock);
   return found;
+}
+static gboolean lookup(guint channel, guint64 pts, FreshStamp *stamp) {
+  return lookup_entry(channel,pts,stamp,TRUE);
+}
+static gboolean peek(guint channel, guint64 pts, FreshStamp *stamp) {
+  return lookup_entry(channel,pts,stamp,FALSE);
 }
 static gboolean clear_plane(GstEufyPacing *self) {
   if (self->drm_fd >= 0 && self->plane) {
@@ -237,6 +247,8 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
   GstClockTime raw_pts = GST_BUFFER_PTS(buffer);
   GstClockTime pts = gst_segment_to_running_time(
       &base->segment, GST_FORMAT_TIME, GST_BUFFER_PTS(buffer));
+  FreshStamp diagnostic_stamp;
+  gboolean diagnostic_found=self->timing.file && peek(self->channel,raw_pts,&diagnostic_stamp);
   FreshStamp stamp;
   guint64 deadline = 0, mono = (guint64)g_get_monotonic_time() * 1000;
   gboolean observed_stamp = self->observe_only && self->clock_file &&
@@ -294,6 +306,8 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
                      " deadlineNs=%" G_GUINT64_FORMAT,
                      stamp.frame, push_start, push_end, push_end - push_start,
                      self->deadline);
+    timing_record(&self->timing,self->clock_file,"kms-return",self->channel,
+        raw_pts,push_end,&diagnostic_stamp,diagnostic_found,gst_buffer_get_size(buffer),0,0);
     if (flow == GST_FLOW_OK)
       self->rendered++;
     g_cond_broadcast(&self->changed);
@@ -313,6 +327,8 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
     GstFlowReturn flow=gst_pad_push(GST_BASE_TRANSFORM_SRC_PAD(base),gst_buffer_ref(buffer));
     guint64 push_end=(guint64)g_get_monotonic_time()*1000;
     self->sink_push_max=MAX(self->sink_push_max,push_end-push_start);
+    timing_record(&self->timing,self->clock_file,"kms-return",self->channel,
+        raw_pts,push_end,&diagnostic_stamp,diagnostic_found,gst_buffer_get_size(buffer),0,0);
     if (flow==GST_FLOW_OK) {
       self->rendered++;
       guint64 upper;
@@ -354,6 +370,7 @@ static gboolean src_event(GstBaseTransform *base, GstEvent *event) {
 }
 static gboolean start(GstBaseTransform *base) {
   GstEufyPacing *self = (GstEufyPacing *)base;
+  if (!timing_open(&self->timing,self->diagnostic_file)) return FALSE;
   memset(&self->clock, 0, sizeof(self->clock));
   self->rendered = self->dropped = 0;
   self->observed = self->matched = self->missing = self->unknown_clock = 0;
@@ -387,6 +404,7 @@ static gboolean stop(GstBaseTransform *base) {
   if (self->clock_file && !self->observe_only)
     clear_plane(self);
   observation_report(self,(guint64)g_get_monotonic_time()*1000,TRUE);
+  timing_close(&self->timing);
   GST_INFO_OBJECT(base,
                   "pacing accepted=%" G_GUINT64_FORMAT
                   " dropped=%" G_GUINT64_FORMAT " expiries=%" G_GUINT64_FORMAT,
@@ -400,7 +418,8 @@ enum {
   PROP_DRM_FD,
   PROP_PLANE,
   PROP_MAX_AGE,
-  PROP_OBSERVE_ONLY
+  PROP_OBSERVE_ONLY,
+  PROP_DIAGNOSTIC_FILE
 };
 static void set_prop(GObject *object, guint prop, const GValue *value,
                      GParamSpec *spec) {
@@ -419,6 +438,8 @@ static void set_prop(GObject *object, guint prop, const GValue *value,
   case PROP_PLANE:
     s->plane = g_value_get_uint(value);
     break;
+  case PROP_DIAGNOSTIC_FILE:
+    g_free(s->diagnostic_file);s->diagnostic_file=g_value_dup_string(value);break;
   case PROP_OBSERVE_ONLY:
     s->observe_only=g_value_get_boolean(value);
     break;
@@ -432,6 +453,7 @@ static void set_prop(GObject *object, guint prop, const GValue *value,
 static void finalize(GObject *object) {
   GstEufyPacing *s = (GstEufyPacing *)object;
   g_free(s->clock_file);
+  timing_close(&s->timing);g_free(s->diagnostic_file);
   g_mutex_clear(&s->lock);
   g_cond_clear(&s->changed);
   G_OBJECT_CLASS(gst_eufy_pacing_parent_class)->finalize(object);
@@ -467,6 +489,8 @@ static void gst_eufy_pacing_class_init(GstEufyPacingClass *klass) {
   g_object_class_install_property(object,PROP_OBSERVE_ONLY,
       g_param_spec_boolean("observe-only","observe-only",
           "Report ingress age without deadlines, plane clearing or extra pacing",FALSE,G_PARAM_WRITABLE));
+  g_object_class_install_property(object,PROP_DIAGNOSTIC_FILE,
+      g_param_spec_string("diagnostic-file","diagnostic-file","Optional bounded private metadata file",NULL,G_PARAM_WRITABLE));
   GstElementClass *element = GST_ELEMENT_CLASS(klass);
   GstBaseTransformClass *transform = GST_BASE_TRANSFORM_CLASS(klass);
   GstCaps *caps = gst_caps_from_string("video/x-raw(ANY)");
@@ -554,13 +578,150 @@ static void gst_eufy_stamp_init(GstEufyStamp *s) {
   s->channel = 1;
   gst_base_transform_set_in_place(GST_BASE_TRANSFORM(s), TRUE);
 }
+/* The raw path reads only PTS and the registry; never maps decoded memory. */
+typedef struct {
+  GstBaseTransform parent;
+  guint channel;
+  gboolean raw,hevc,nal_aligned,pending_found;
+  FreshStamp pending_stamp;
+  guint64 pending_pts;
+  gsize pending_bytes;
+  guint nal_length;
+  gint width,height;
+  gchar *phase,*path,*clock_path;
+  TimingObserver timing;
+} GstEufyTrace;
+typedef struct {GstBaseTransformClass parent;} GstEufyTraceClass;
+G_DEFINE_TYPE(GstEufyTrace,gst_eufy_trace,GST_TYPE_BASE_TRANSFORM)
+static gboolean trace_encoded_stamp(GstEufyTrace *s,const guint8 *data,gsize size,FreshStamp *stamp) {
+  if (!s->nal_length) {
+    if(s->nal_aligned) {
+      gsize head=0;
+      if(size>=4 && !data[0] && !data[1] && !data[2] && data[3]==1)head=4;
+      else if(size>=3 && !data[0] && !data[1] && data[2]==1)head=3;
+      if(head>=size || (s->hevc?((data[head]>>1)&63):(data[head]&31))!=(s->hevc?39:6))return FALSE;
+    }
+    return fresh_extract(data,size,s->hevc,stamp);
+  }
+  gsize pos=0;
+  while(pos+s->nal_length<=size) {
+    guint64 len=fresh_be(data+pos,s->nal_length);pos+=s->nal_length;
+    if(!len || len>size-pos)return FALSE;
+    guint type=s->hevc?((data[pos]>>1)&63):(data[pos]&31);
+    if(type==(s->hevc?39:6) && len<=508) {
+      guint8 nal[512]={0,0,0,1};memcpy(nal+4,data+pos,len);
+      if(fresh_extract(nal,len+4,s->hevc,stamp))return TRUE;
+    }
+    pos+=len;
+  }
+  return FALSE;
+}
+static GstFlowReturn trace_frame(GstBaseTransform *base,GstBuffer *buffer) {
+  GstEufyTrace *s=(GstEufyTrace *)base;
+  if(!s->timing.file)return GST_FLOW_OK;
+  guint64 now=(guint64)g_get_monotonic_time()*1000;
+  FreshStamp stamp;gboolean found=FALSE;
+  if(s->raw) found=peek(s->channel,GST_BUFFER_PTS(buffer),&stamp);
+  else {
+    GstMapInfo map;
+    if(gst_buffer_map(buffer,&map,GST_MAP_READ)) {
+      found=trace_encoded_stamp(s,map.data,map.size,&stamp);
+      gst_buffer_unmap(buffer,&map);
+    }
+  }
+  guint64 pts=GST_BUFFER_PTS(buffer);
+  if(s->nal_aligned) {
+    if(pts!=s->pending_pts || GST_BUFFER_FLAG_IS_SET(buffer,GST_BUFFER_FLAG_DISCONT)) {
+      s->pending_found=FALSE;s->pending_bytes=0;s->pending_pts=pts;
+    }
+    gsize bytes=gst_buffer_get_size(buffer);
+    if(bytes>4*1024*1024 || s->pending_bytes>4*1024*1024-bytes) {
+      s->pending_found=FALSE;s->pending_bytes=0;
+    } else s->pending_bytes+=bytes;
+    if(found) {
+      s->pending_stamp=stamp;s->pending_found=TRUE;
+      timing_record(&s->timing,s->clock_path,"depay-sei",s->channel,pts,now,
+          &stamp,TRUE,bytes,s->width,s->height);
+    }
+    if(GST_BUFFER_FLAG_IS_SET(buffer,GST_BUFFER_FLAG_MARKER)) {
+      timing_record(&s->timing,s->clock_path,s->phase?s->phase:"unspecified",s->channel,
+          pts,now,&s->pending_stamp,s->pending_found,s->pending_bytes,s->width,s->height);
+      s->pending_found=FALSE;s->pending_bytes=0;
+    }
+  } else timing_record(&s->timing,s->clock_path,s->phase?s->phase:"unspecified",s->channel,
+      pts,now,&stamp,found,gst_buffer_get_size(buffer),s->width,s->height);
+  return GST_FLOW_OK;
+}
+static gboolean trace_caps(GstBaseTransform *base,GstCaps *in,GstCaps *out) {
+  (void)out;GstEufyTrace *s=(GstEufyTrace *)base;
+  const GstStructure *c=gst_caps_get_structure(in,0);
+  const gchar *name=gst_structure_get_name(c);
+  s->raw=g_str_equal(name,"video/x-raw");s->hevc=g_str_equal(name,"video/x-h265");
+  s->nal_length=0;s->pending_found=FALSE;s->pending_bytes=0;s->pending_pts=GST_CLOCK_TIME_NONE;
+  s->nal_aligned=g_strcmp0(gst_structure_get_string(c,"alignment"),"nal")==0;
+  const gchar *format=gst_structure_get_string(c,"stream-format");
+  if(!s->raw && format && !g_str_equal(format,"byte-stream")) {
+    const GValue *value=gst_structure_get_value(c,"codec_data");
+    if(!value || !GST_VALUE_HOLDS_BUFFER(value))return FALSE;
+    GstMapInfo map;GstBuffer *config=gst_value_get_buffer(value);
+    if(!gst_buffer_map(config,&map,GST_MAP_READ))return FALSE;
+    guint offset=s->hevc?21:4;
+    if(map.size>offset)s->nal_length=(map.data[offset]&3)+1;
+    gst_buffer_unmap(config,&map);
+    if(!s->nal_length)return FALSE;
+  }
+  s->width=s->height=0;gst_structure_get_int(c,"width",&s->width);gst_structure_get_int(c,"height",&s->height);
+  return s->raw || s->hevc || g_str_equal(name,"video/x-h264");
+}
+static gboolean trace_start(GstBaseTransform *base) {
+  GstEufyTrace *s=(GstEufyTrace *)base;return timing_open(&s->timing,s->path);
+}
+static gboolean trace_stop(GstBaseTransform *base) {
+  timing_close(&((GstEufyTrace *)base)->timing);return TRUE;
+}
+static void trace_prop(GObject *o,guint prop,const GValue *v,GParamSpec *spec) {
+  GstEufyTrace *s=(GstEufyTrace *)o;
+  if(prop==1)s->channel=g_value_get_uint(v);
+  else if(prop==2){g_free(s->phase);s->phase=g_value_dup_string(v);}
+  else if(prop==3){g_free(s->path);s->path=g_value_dup_string(v);}
+  else if(prop==4){g_free(s->clock_path);s->clock_path=g_value_dup_string(v);}
+  else G_OBJECT_WARN_INVALID_PROPERTY_ID(o,prop,spec);
+}
+static void trace_finalize(GObject *o) {
+  GstEufyTrace *s=(GstEufyTrace *)o;timing_close(&s->timing);
+  g_free(s->phase);g_free(s->path);g_free(s->clock_path);
+  G_OBJECT_CLASS(gst_eufy_trace_parent_class)->finalize(o);
+}
+static void gst_eufy_trace_class_init(GstEufyTraceClass *k) {
+  GObjectClass *o=G_OBJECT_CLASS(k);o->set_property=trace_prop;o->finalize=trace_finalize;
+  g_object_class_install_property(o,1,g_param_spec_uint("channel","channel","Registry channel",1,G_MAXUINT,1,G_PARAM_WRITABLE));
+  g_object_class_install_property(o,2,g_param_spec_string("phase","phase","Phase name",NULL,G_PARAM_WRITABLE));
+  g_object_class_install_property(o,3,g_param_spec_string("diagnostic-file","diagnostic-file","Bounded private metadata file",NULL,G_PARAM_WRITABLE));
+  g_object_class_install_property(o,4,g_param_spec_string("clock-file","clock-file","Monotonic mapping",NULL,G_PARAM_WRITABLE));
+  /* ANY preserves downstream caps ordering and existing depay negotiation.
+   * set_caps validates the actual video format instead of forcing a new one. */
+  GstElementClass *e=GST_ELEMENT_CLASS(k);GstCaps *caps=gst_caps_new_any();
+  gst_element_class_add_pad_template(e,gst_pad_template_new("sink",GST_PAD_SINK,GST_PAD_ALWAYS,caps));
+  gst_element_class_add_pad_template(e,gst_pad_template_new("src",GST_PAD_SRC,GST_PAD_ALWAYS,caps));gst_caps_unref(caps);
+  gst_element_class_set_static_metadata(e,"Optional phase timing observer","Filter/Video",
+      "Record metadata only; no decoded pixel access or pacing","eufy-wall");
+  GstBaseTransformClass *t=GST_BASE_TRANSFORM_CLASS(k);t->transform_ip=trace_frame;
+  t->set_caps=trace_caps;t->start=trace_start;t->stop=trace_stop;
+  t->transform_ip_on_passthrough=TRUE;
+}
+static void gst_eufy_trace_init(GstEufyTrace *s) {
+  s->channel=1;
+  /* Inspection must not make shared decoder memory writable or copy pixels. */
+  gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(s),TRUE);
+}
 static gboolean plugin_init(GstPlugin *plugin) {
   GST_DEBUG_CATEGORY_INIT(eufy_pacing_debug, "eufypacing", 0,
                           "Decoded video pacing");
   return gst_element_register(plugin, "eufypacing", GST_RANK_NONE,
                               gst_eufy_pacing_get_type()) &&
          gst_element_register(plugin, "eufystamp", GST_RANK_NONE,
-                              gst_eufy_stamp_get_type());
+                              gst_eufy_stamp_get_type()) &&
+         gst_element_register(plugin,"eufytrace",GST_RANK_NONE,gst_eufy_trace_get_type());
 }
 GST_PLUGIN_DEFINE(GST_VERSION_MAJOR, GST_VERSION_MINOR, eufypacing,
                   "Bounded decoded video pacing", plugin_init, "1.0",

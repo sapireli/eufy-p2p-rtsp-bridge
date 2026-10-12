@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/freshness"
 	"eufy-wall/internal/layout"
 	"eufy-wall/internal/pipeline"
 	"eufy-wall/internal/wallstate"
@@ -26,6 +27,23 @@ func TestAPIPacketHintWorksWithConfiguredAspectAndExplicitURL(t *testing.T) {
 	}
 	if got := c.TileURL(c.Tiles[1]); got != "rtsp://manual/custom" {
 		t.Fatalf("API hint changed explicit URL: %q", got)
+	}
+}
+
+func TestInitialResourcesResolveAliasWithoutChangingManualAuthorityOrHints(t *testing.T) {
+	c := &config.Config{RTSPBase: "rtsp://bridge:8554", Tiles: []config.Tile{{Camera: "A"}, {Camera: "A", URL: "rtsp://manual/custom"}, {Camera: "B"}}}
+	c = c.WithRTSPPacketSizeHints(map[string]int{"A": 8192})
+	original := []layout.Placed{{Index: 0, Camera: "A", URL: c.TileURL(c.Tiles[0])}, {Index: 1, Camera: "A", URL: c.TileURL(c.Tiles[1])}, {Index: 2, Camera: "B", URL: c.TileURL(c.Tiles[2])}}
+	advertised := map[string]freshness.Capability{
+		"A": {Version: 2, Mode: "observe", Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://bridge/api/clock", StreamURL: "rtsp://bridge:8554/front_alias?video=compatible"},
+		"B": {Version: 2, Mode: "observe", Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://other/api/clock", StreamURL: "rtsp://other:8554/garage_alias"},
+	}
+	got := initialStreamResources(c, original, advertised)
+	if got[0].URL != "rtsp://bridge:8554/front_alias?pkt_size=8192&video=compatible" || !advertised["A"].BoundTo(got[0].URL) {
+		t.Fatalf("automatic alias not bound: %s", got[0].URL)
+	}
+	if got[1].URL != original[1].URL || got[2].URL != original[2].URL || original[0].URL != c.TileURL(c.Tiles[0]) {
+		t.Fatal("manual URL, configured authority or original snapshot changed")
 	}
 }
 

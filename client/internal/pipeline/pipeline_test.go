@@ -374,3 +374,35 @@ func TestObserveModeMeasuresMatchedResourceWithoutEnforcement(t *testing.T) {
 		t.Fatal("observation bound to unrelated manual URI")
 	}
 }
+
+func TestTimingDiagnosticsObserveEachPhaseWithoutAddingQueues(t *testing.T) {
+	c := &config.Config{Planes: []int{98}, Latency: 0}
+	tiles := []layout.Placed{{Index: 0, Camera: "A", URL: "rtsp://bridge/A", W: 960, H: 1080}}
+	caps := Caps{Decoder: "v4l2", Sink: "planes", DRMFD: 3, DecodedPacing: true, StampReader: true, ObservePacing: true, ClockFile: "/tmp/clock", Freshness: map[string]freshness.Capability{"A": {Version: 2, Mode: "observe", Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://bridge/api/clock", StreamURL: "rtsp://bridge/A"}}}
+	baseline, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps.TimingDiagnostics = "/tmp/private-frames.jsonl"
+	args, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	phases := []string{"phase=depay-au", "phase=parsed-au", "phase=decoder-out", "phase=post-queue", "eufypacing diagnostic-file="}
+	previous := -1
+	for _, phase := range phases {
+		at := strings.Index(got, phase)
+		if at <= previous {
+			t.Fatalf("phase absent or ordered incorrectly: %s in %s", phase, got)
+		}
+		previous = at
+	}
+	if strings.Count(got, "! queue ") != strings.Count(String(baseline), "! queue ") || !strings.Contains(got, "max-size-buffers=1") || !strings.Contains(got, "sync=true") {
+		t.Fatal("diagnostics changed queue/presentation policy")
+	}
+	tiles[0].URL = "rtsp://manual/A"
+	if _, err = Build(c, tiles, caps); err == nil {
+		t.Fatal("diagnostics borrowed unrelated resource identity")
+	}
+}
