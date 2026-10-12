@@ -4,6 +4,10 @@ Eufy cameras → RTSP (server) → grid on a Raspberry Pi's HDMI (client). No Do
 
 - `server/` — Node 24 bridge on [`@mega-yfue/eufy-sdk`](https://github.com/mega-yfue/eufy-sdk) with go2rtc for RTSP. Runbook: `docs/runbook-server.md`.
 - `client/` — Go `eufy-wall`: independent hardware-decoded tiles on KMS overlays, or a shared compositor. It discovers bridge TCP packet-size hints to reduce RTSP processing overhead without changing video resolution. Runbook: `docs/runbook-client.md`.
+
+The optional [frame freshness protocol](docs/frame-freshness.md) follows each
+picture from bridge ingress through encoding to client output. Camera capture
+age is unverified; the protocol does not infer it from camera clock overlays.
 - Design: `docs/superpowers/specs/2026-09-18-eufy-wall-design.md`.
 
 ## Upstream
