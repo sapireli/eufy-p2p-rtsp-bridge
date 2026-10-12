@@ -604,8 +604,9 @@ VIDEO and command bodies remain metadata-only. Packet buffers are temporary;
 using a memoryview avoids copying the entire media body during parsing.
 
 The default capture format remains unchanged. Capture-start metadata reports
-whether the option was requested. Capture duration remains bounded to 120
-seconds; packet-tap loss/truncation counters must be checked before interpreting
+whether the option was requested. The default duration remains 90 seconds; the maximum was subsequently extended
+to 600 seconds for a separately authorized deployment/peer-END witness.
+Captures remain bounded; packet-tap loss/truncation counters must be checked before interpreting
 absence. No live capture was run for this addition.
 
 Two parser tests pass, including privacy assertions that arbitrary encrypted

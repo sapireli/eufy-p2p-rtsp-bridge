@@ -99,8 +99,8 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--command-headers", action="store_true", help="Record integer fields from outbound DATA fixed headers only; never encrypted bodies")
     args = parser.parse_args()
-    if not 0 < args.seconds <= 120:
-        parser.error("seconds must be >0 and <=120")
+    if not 0 < args.seconds <= 600:
+        parser.error("seconds must be >0 and <=600")
     peers = {socket.inet_aton(str(ipaddress.IPv4Address(host))): f"peer-{i+1}" for i,host in enumerate(args.peer)}
     if not hasattr(socket,"AF_PACKET"):
         parser.error("Linux AF_PACKET and root/CAP_NET_RAW are required")
