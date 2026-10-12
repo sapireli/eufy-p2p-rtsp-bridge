@@ -1,4 +1,4 @@
-# Live SDK checkpoint — 19:55 UTC, 12 October 2026
+# Live SDK checkpoint — 12 October 2026
 
 This is a deployment checkpoint, not a declaration that playback is fixed.
 
