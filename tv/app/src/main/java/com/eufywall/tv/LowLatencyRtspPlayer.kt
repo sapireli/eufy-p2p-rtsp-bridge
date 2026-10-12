@@ -107,9 +107,9 @@ internal class LowLatencyRtspPlayer(
         // Bridge geometry describes the original camera, which may be transcoded for the TV.
         // For H.264 the adapter replaces this viewport hint with the SDP SPS coded size
         // before allocating the decoder. Bridge metadata can describe a different rendition.
-        val initialWidth = surface.width.takeIf { it > 0 } ?: 1920
-        val initialHeight = surface.height.takeIf { it > 0 } ?: 1080
-        object : DrainingVideoDecoder(mime, initialWidth, initialHeight, rotation, frames, monitoredListener, type) {
+        val initialWidth = if (camera.nativeDecoderName != null) camera.width else surface.width.takeIf { it > 0 } ?: 1920
+        val initialHeight = if (camera.nativeDecoderName != null) camera.height else surface.height.takeIf { it > 0 } ?: 1080
+        object : DrainingVideoDecoder(mime, initialWidth, initialHeight, rotation, frames, monitoredListener, type, camera.nativeDecoderName) {
             override fun beforeInputFrame(frame: FrameQueue.VideoFrame) {
                 if (camera.freshness == null) return
                 FrameStampReader.read(frame.data, frame.offset, frame.length, mime == MediaFormat.MIMETYPE_VIDEO_HEVC)?.let { stamp ->

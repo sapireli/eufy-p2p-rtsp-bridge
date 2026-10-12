@@ -38,7 +38,9 @@ import java.util.UUID
 data class Camera(val sn: String, val name: String, val rtsp: String, val mode: String, val streaming: Boolean,
                   val dual: Boolean, val dualView: String?, val width: Int, val height: Int,
                   val rtspTcpPacketSize: Int? = null,
-                  internal val freshness: FreshnessCapability? = null)
+                  internal val freshness: FreshnessCapability? = null,
+                  internal val nativeRendition: NativeRendition? = null,
+                  internal val nativeDecoderName: String? = null)
 
 class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
@@ -51,6 +53,7 @@ class MainActivity : Activity() {
     private val chosen = linkedSetOf<String>()
     private val states = mutableMapOf<String, String>()
     private val players = mutableMapOf<String, LowLatencyRtspPlayer>()
+    private val nativeFallback = NativeFallback()
     private val frameWatchdogs = mutableMapOf<String, Runnable>()
     private val labels = mutableMapOf<String, TextView>()
     private val surfaces = mutableMapOf<String, FrameLayout>()
@@ -153,7 +156,7 @@ class MainActivity : Activity() {
                     .filter { it.optBoolean("enabled") }
                     .map {
                         val f = it.optJSONObject("freshness")?.takeIf { f -> freshnessMode(f.optInt("version"), if(f.has("mode")) f.optString("mode") else null) != null && f.optString("scope") == "bridge-ingress" && f.optInt("maxAgeMs") in 100..60000 }
-                        Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming"), it.optBoolean("dual"), if (it.isNull("dualView")) null else it.optString("dualView").ifBlank { null }, it.optInt("width"), it.optInt("height"), it.optInt("rtspTcpPacketSize").takeIf { size -> size in 256..65535 }, f?.let { f -> FreshnessCapability(f.getInt("maxAgeMs"), f.getString("clockUrl"), freshnessMode(f.getInt("version"), if(f.has("mode")) f.optString("mode") else null)!!) })
+                        Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming"), it.optBoolean("dual"), if (it.isNull("dualView")) null else it.optString("dualView").ifBlank { null }, it.optInt("width"), it.optInt("height"), it.optInt("rtspTcpPacketSize").takeIf { size -> size in 256..65535 }, f?.let { f -> FreshnessCapability(f.getInt("maxAgeMs"), f.getString("clockUrl"), freshnessMode(f.getInt("version"), if(f.has("mode")) f.optString("mode") else null)!!) }, parseNativeRendition(it.optJSONObject("nativeRendition")))
                     }
                 ui.post {
                     if (destroyed || generation != cameraLoadGeneration) return@post
@@ -322,6 +325,12 @@ class MainActivity : Activity() {
         val label = labels[sn] ?: return
         if (state == "live") {
             if (players.containsKey(sn)) return
+            val native = cam.nativeRendition?.takeIf { nativeFallback.permits(sn) }
+            val hardware = native?.let { nativeHardwareDecoder(it) }
+            val playback = if (native != null && hardware != null) cam.copy(rtsp = native.rtsp,
+                width = native.width, height = native.height, freshness = native.freshness,
+                nativeDecoderName = hardware, rtspTcpPacketSize = null) else cam
+            android.util.Log.i("EufyWallTV", "Rendition $sn: ${if (playback.nativeDecoderName != null) "native HEVC hardware=$hardware ${playback.width}x${playback.height}" else "compatibility (native absent, unsupported, or failed)"}")
             label.text = "${cam.name} • connecting"
             val startedAt = SystemClock.elapsedRealtime()
             lateinit var player: LowLatencyRtspPlayer
@@ -331,7 +340,10 @@ class MainActivity : Activity() {
                 retryScheduled = true
                 label.text = "${cam.name} • $message, reconnecting"
                 android.util.Log.w("EufyWallTV", "RTSP ${cam.sn}: $message; ${player.diagnostics()}")
-                if (decoder) {
+                if (playback.nativeDecoderName != null) {
+                    nativeFallback.fail(sn)
+                    android.util.Log.w("EufyWallTV", "Native rendition failed for $sn; switching to compatibility URL: $message")
+                } else if (decoder) {
                     decoderFailures++
                     if (decoderFailures >= 2) { recoverDecoder(); return }
                 }
@@ -341,10 +353,10 @@ class MainActivity : Activity() {
                     }
                 }, 1_000)
             }
-            player = LowLatencyRtspPlayer(this, cam,
+            player = LowLatencyRtspPlayer(this, playback,
                 onFirstFrame = {
                     if (players[sn] === player) {
-                        label.text = if(cam.freshness?.enforces == true) "${cam.name} • capture time unverified" else cam.name
+                        label.text = if(playback.freshness?.enforces == true) "${cam.name} • capture time unverified" else cam.name
                         decoderFailures = 0
                         android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn} after ${SystemClock.elapsedRealtime() - startedAt}ms; ${player.diagnostics()}")
                     }
@@ -442,7 +454,7 @@ class MainActivity : Activity() {
                                         ?.let { f -> FreshnessCapability(f.getInt("maxAgeMs"), f.getString("clockUrl"), freshnessMode(f.getInt("version"), if(f.has("mode")) f.optString("mode") else null)!!) }
                                     cameras = cameras.map { camera ->
                                         if (camera.sn != sn) camera else {
-                                            val updated = camera.copy(rtsp = item.optString("rtsp", camera.rtsp), freshness = cap)
+                                            val updated = camera.copy(rtsp = item.optString("rtsp", camera.rtsp), freshness = cap, nativeRendition = parseNativeRendition(item.optJSONObject("nativeRendition")))
                                             if (updated != camera) release(sn)
                                             updated
                                         }

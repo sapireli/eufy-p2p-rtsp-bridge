@@ -21,16 +21,20 @@ import com.limelight.binding.video.MediaCodecHelper
 internal abstract class DrainingVideoDecoder(
     mime: String, width: Int, height: Int, rotation: Int,
     frames: VideoFrameQueue, listener: VideoDecoderListener, type: DecoderType,
+    private val requiredHardwareName: String? = null,
 ) : VideoDecodeThread(mime, width, height, rotation, frames, listener, type) {
     private var codedWidth = width
     private var codedHeight = height
-    private var hasCodedSize = false
+    private var hasCodedSize = requiredHardwareName != null
     protected open fun beforeInputFrame(frame: FrameQueue.VideoFrame) {}
     private fun createDecoder(type: DecoderType): MediaCodec {
         val candidates = if (type == DecoderType.HARDWARE) MediaCodecUtils.getHardwareDecoders(mimeType)
             else MediaCodecUtils.getSoftwareDecoders(mimeType)
         val candidate = MediaCodecUtils.getLowLatencyDecoder(candidates) ?: candidates.firstOrNull()
-        val decoder = candidate?.let { MediaCodec.createByCodecName(it.name) } ?: MediaCodec.createDecoderByType(mimeType)
+        val decoder = if (requiredHardwareName != null) {
+            check(type == DecoderType.HARDWARE) { "Native rendition requires hardware decoding" }
+            MediaCodec.createByCodecName(requiredHardwareName)
+        } else candidate?.let { MediaCodec.createByCodecName(it.name) } ?: MediaCodec.createDecoderByType(mimeType)
         try {
             val caps = decoder.codecInfo.getCapabilitiesForType(mimeType).videoCapabilities
             val alignedWidth = caps?.let { ((codedWidth + it.widthAlignment - 1) / it.widthAlignment) * it.widthAlignment } ?: codedWidth
@@ -78,7 +82,7 @@ internal abstract class DrainingVideoDecoder(
                 }
             }
             decoder = try { createDecoder(videoDecoderType) } catch (error: Exception) {
-                if (exitFlag.get() || videoDecoderType == DecoderType.SOFTWARE) throw error
+                if (exitFlag.get() || videoDecoderType == DecoderType.SOFTWARE || requiredHardwareName != null) throw error
                 Log.w("EufyWallTV", "Hardware decoder unavailable; trying software", error)
                 createDecoder(DecoderType.SOFTWARE)
             }
