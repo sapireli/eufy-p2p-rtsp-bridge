@@ -25,6 +25,7 @@ internal abstract class DrainingVideoDecoder(
     private var codedWidth = width
     private var codedHeight = height
     private var hasCodedSize = false
+    protected open fun beforeInputFrame(frame: FrameQueue.VideoFrame) {}
     private fun createDecoder(type: DecoderType): MediaCodec {
         val candidates = if (type == DecoderType.HARDWARE) MediaCodecUtils.getHardwareDecoders(mimeType)
             else MediaCodecUtils.getSoftwareDecoders(mimeType)
@@ -115,6 +116,7 @@ internal abstract class DrainingVideoDecoder(
                     val buffer = checkNotNull(codec.getInputBuffer(index))
                     buffer.clear()
                     buffer.put(frame.data, frame.offset, frame.length)
+                    beforeInputFrame(frame)
                     codec.queueInputBuffer(index, 0, frame.length, frame.timestampMs,
                         if (frame.isKeyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
                     pending = null

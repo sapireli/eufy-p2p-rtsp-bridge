@@ -37,7 +37,8 @@ import java.util.UUID
 
 data class Camera(val sn: String, val name: String, val rtsp: String, val mode: String, val streaming: Boolean,
                   val dual: Boolean, val dualView: String?, val width: Int, val height: Int,
-                  val rtspTcpPacketSize: Int? = null)
+                  val rtspTcpPacketSize: Int? = null,
+                  internal val freshness: FreshnessCapability? = null)
 
 class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
@@ -150,7 +151,10 @@ class MainActivity : Activity() {
                 val parsed = JSONArray(body)
                 val list = (0 until parsed.length()).map { parsed.getJSONObject(it) }
                     .filter { it.optBoolean("enabled") }
-                    .map { Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming"), it.optBoolean("dual"), if (it.isNull("dualView")) null else it.optString("dualView").ifBlank { null }, it.optInt("width"), it.optInt("height"), it.optInt("rtspTcpPacketSize").takeIf { size -> size in 256..65535 }) }
+                    .map {
+                        val f = it.optJSONObject("freshness")?.takeIf { f -> freshnessMode(f.optInt("version"), if(f.has("mode")) f.optString("mode") else null) != null && f.optString("scope") == "bridge-ingress" && f.optInt("maxAgeMs") in 100..60000 }
+                        Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming"), it.optBoolean("dual"), if (it.isNull("dualView")) null else it.optString("dualView").ifBlank { null }, it.optInt("width"), it.optInt("height"), it.optInt("rtspTcpPacketSize").takeIf { size -> size in 256..65535 }, f?.let { f -> FreshnessCapability(f.getInt("maxAgeMs"), f.getString("clockUrl"), freshnessMode(f.getInt("version"), if(f.has("mode")) f.optString("mode") else null)!!) })
+                    }
                 ui.post {
                     if (destroyed || generation != cameraLoadGeneration) return@post
                     cameraLoadInFlight = false
@@ -340,12 +344,13 @@ class MainActivity : Activity() {
             player = LowLatencyRtspPlayer(this, cam,
                 onFirstFrame = {
                     if (players[sn] === player) {
-                        label.text = cam.name
+                        label.text = if(cam.freshness != null) "${cam.name} • capture time unverified" else cam.name
                         decoderFailures = 0
                         android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn} after ${SystemClock.elapsedRealtime() - startedAt}ms; ${player.diagnostics()}")
                     }
                 },
-                onFailure = { message, decoder -> retry(message, decoder) })
+                onFailure = { message, decoder -> retry(message, decoder) },
+                onFreshnessState = { message -> if (players[sn] === player) label.text = "${cam.name} • ${message ?: "capture age unverified"}" })
             players[sn] = player
             surfaces[sn]?.addView(player.view, FrameLayout.LayoutParams(-1, -1))
             var lastLogAt = 0L
@@ -353,14 +358,18 @@ class MainActivity : Activity() {
                 override fun run() {
                     if (!wallVisible || states[sn] != "live" || players[sn] !== player) return
                     val now = SystemClock.elapsedRealtime()
-                    val rendered = player.renderedFrames.get() > 0
-                    val silentForMs = now - (if (rendered) player.lastFrameAt.get() else startedAt)
+                    // An expired picture is masked, not a decoder failure.
+                    // Keep decoding references so fresh output can recover
+                    // without a cold reconnect/keyframe wait after every miss.
+                    val progress = if (player.enforcesFreshness) player.decodedFrames.get() > 0 else player.renderedFrames.get() > 0
+                    val lastProgress = if (player.enforcesFreshness) player.lastDecodedFrameAt.get() else player.lastFrameAt.get()
+                    val silentForMs = now - (if (progress) lastProgress else startedAt)
                     if (now - lastLogAt >= 5_000) {
                         android.util.Log.i("EufyWallTV", "Live RTSP ${cam.sn}: ${player.diagnostics()}")
                         lastLogAt = now
                     }
-                    if (silentForMs >= (if (rendered) liveFrameTimeoutMs else firstFrameTimeoutMs)) {
-                        retry("No rendered frames for ${silentForMs}ms", false)
+                    if (silentForMs >= (if (progress) liveFrameTimeoutMs else firstFrameTimeoutMs)) {
+                        retry("No playback progress for ${silentForMs}ms", false)
                     } else {
                         ui.postDelayed(this, 1_000)
                     }
@@ -425,7 +434,20 @@ class MainActivity : Activity() {
                         when (event.optString("type")) {
                             "hello" -> {
                                 val arr = event.optJSONArray("cameras") ?: JSONArray()
-                                for (i in 0 until arr.length()) { val item = arr.getJSONObject(i); states[item.getString("sn")] = item.optString("state", "idle") }
+                                for (i in 0 until arr.length()) {
+                                    val item = arr.getJSONObject(i)
+                                    val sn = item.getString("sn")
+                                    states[sn] = item.optString("state", "idle")
+                                    val cap = item.optJSONObject("freshness")?.takeIf { f -> freshnessMode(f.optInt("version"), if(f.has("mode")) f.optString("mode") else null) != null && f.optString("scope") == "bridge-ingress" && f.optInt("maxAgeMs") in 100..60000 }
+                                        ?.let { f -> FreshnessCapability(f.getInt("maxAgeMs"), f.getString("clockUrl"), freshnessMode(f.getInt("version"), if(f.has("mode")) f.optString("mode") else null)!!) }
+                                    cameras = cameras.map { camera ->
+                                        if (camera.sn != sn) camera else {
+                                            val updated = camera.copy(rtsp = item.optString("rtsp", camera.rtsp), freshness = cap)
+                                            if (updated != camera) release(sn)
+                                            updated
+                                        }
+                                    }
+                                }
                                 chosen.forEach { updateTile(it) }
                             }
                             "streamState" -> { val sn = event.optString("sn"); states[sn] = event.optString("state", "idle"); updateTile(sn) }

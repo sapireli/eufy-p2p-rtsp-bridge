@@ -50,17 +50,39 @@ claim a newly verified HEVC allocation change.
 
 `DrainingVideoDecoder` polls input for at most 5 ms and drains all available output before waiting
 for more input. This avoids the pinned library's one-second input wait stranding already decoded
-output. Frames render immediately: there is no playback speed controller, PTS presentation buffer,
-or periodic catch-up restart. The library still has a 60-unit compressed input queue and the
+output. Decoded pictures use the bounded 67 ms surface scheduling described above; there is no
+playback speed controller or periodic catch-up restart. The library still has a 60-unit compressed input queue and the
 hardware decoder has its own pipeline; this is not a claim of literally zero buffering. Upstream
 camera, bridge and network delivery can still pause or arrive in bursts.
 
-Actual surface-render callbacks drive the freeze watchdog. A live tile reconnects after five
+Codec render notifications drive the established playback freeze watchdog. A live tile reconnects after five
 seconds without a rendered frame (plus the one-second retry delay); startup allows fifteen seconds
 for the first frame. Idle cameras release their players. A connection error also schedules a
 one-second retry. `adb logcat -s EufyWallTV` reports decoder name, received/rendered counters,
 compressed input queue depth, media timestamp distance ahead of rendering, and longest render gap.
 `pendingMediaMs` is **not** camera-to-screen latency.
+
+The optional [frame freshness protocol](../docs/frame-freshness.md) tracks each picture
+from its receipt at the bridge. Capability revision 2 requires an explicit mode:
+
+- `observe` keeps established hardware MediaCodec/SurfaceView playback and pacing. It records
+  bridge-ingress age and 500 ms deadline misses without dropping or blanking pictures.
+  Codec render timestamps are informational: notifications can be delayed, batched, or omitted.
+  The stable label says capture time is unverified; observation does not guarantee freshness.
+- `enforce` uses an owned EGL renderer. SurfaceTexture timestamps identify the exact acquired
+  buffer; its own stamp and clock bound gate drawing and scheduled presentation. Expired output
+  is suppressed and expired retained pixels become black. Compressed references keep decoding,
+  and the watchdog follows decoded progress. Codec notifications never control visibility.
+  GPU submission timing is distinct from physical display presentation.
+
+Revision 1 without a mode preserves its legacy enforcement meaning. Old revision-1 clients
+ignore revision 2, which prevents them from treating observation as enforcement. The binary
+frame stamp remains version 1. Unsupported capability revisions retain established playback.
+
+Strict enforcement **failed the live playback gate** because it caused frequent blanking;
+it remains disabled in production. Observation is the diagnostic path for separating upstream
+pauses, transport delay, clock uncertainty, and decoder backlog. Capture age remains unverified
+in both modes. See the evidence document before making a freshness guarantee.
 
 The library's codec helper requests vendor low-latency options, including Fire OS's older Amlogic
 option. A request being applied is not proof of Android's standardized low-latency capability;
@@ -100,3 +122,11 @@ Retries stop when the wall opens, when setup is changed manually, and while the
 activity is in the background. Returning resumes the saved-wall attempt. Old
 HTTP responses cannot overwrite a newer setup choice. This is setup recovery;
 it does not add playback buffering or periodically rebuild active players.
+
+### Wi-Fi power investigation
+
+A bounded off/on/off test of a high-performance Wi-Fi lock did not show a consistent
+latency or cadence improvement relative to the second TV. The temporary debug hook
+and its permission were removed. The direct player and former Media3 player both lacked
+that lock, so its absence was not a demonstrated migration regression. See
+[the live test evidence](../docs/evidence/fire-tv-wifi-power-2026-10-12.md).

@@ -11,10 +11,12 @@ import android.util.Log
 import android.view.Gravity
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.View
 import android.widget.FrameLayout
 import com.alexvas.rtsp.codec.VideoDecodeThread
 import com.alexvas.rtsp.codec.VideoDecodeThread.DecoderType
 import com.alexvas.rtsp.codec.VideoFrameQueue
+import com.alexvas.rtsp.codec.FrameQueue
 import com.alexvas.rtsp.widget.RtspDataListener
 import com.alexvas.rtsp.widget.RtspProcessor
 import com.alexvas.rtsp.widget.RtspStatusListener
@@ -27,9 +29,15 @@ internal class LowLatencyRtspPlayer(
     private val camera: Camera,
     private val onFirstFrame: () -> Unit,
     private val onFailure: (String, Boolean) -> Unit,
+    private val onFreshnessState: (String?) -> Unit = {},
 ) {
     val view = FrameLayout(context).apply { setBackgroundColor(0xff000000.toInt()); keepScreenOn = true }
     private val surface = SurfaceView(context)
+    // Keep the decoder surface alive when masking expired video. Hiding a
+    // SurfaceView destroys its surface and prevents the next fresh callback.
+    private var freshRenderer: FreshVideoRenderer? = null
+    private var freshFirstFrame = true
+    private val freshnessCover = View(context).apply { setBackgroundColor(0xff000000.toInt()) }
     private val ui = Handler(Looper.getMainLooper())
     @Volatile private var released = false
     private var started = false
@@ -38,6 +46,9 @@ internal class LowLatencyRtspPlayer(
     @Volatile private var queue: VideoFrameQueue? = null
     @Volatile private var decoderName = "pending"
     val renderedFrames = AtomicLong()
+    val decodedFrames = AtomicLong()
+    val lastDecodedFrameAt = AtomicLong(SystemClock.elapsedRealtime())
+    val enforcesFreshness: Boolean get() = camera.freshness?.enforces == true
     val receivedUnits = AtomicLong()
     val lastFrameAt = AtomicLong(SystemClock.elapsedRealtime())
     private val longestFrameGap = AtomicLong()
@@ -45,6 +56,39 @@ internal class LowLatencyRtspPlayer(
     private val latestInputTimestamp = AtomicLong(-1)
     private val latestRenderedTimestamp = AtomicLong(-1)
     @Volatile private var frameClock = LiveFrameClock()
+    private val freshnessClock = camera.freshness?.let { BridgeClockClient(it.clockUrl) }
+    private val stamps = LinkedHashMap<Long, FrameStamp>()
+    private val stampLock = Any()
+    @Volatile private var shownDeadlineNs = 0L
+    @Volatile private var shownFrameId = 0L
+    @Volatile private var shownEpoch = ""
+    @Volatile private var freshnessState = "Timing unavailable"
+    val staleOutputFrames = AtomicLong()
+    private val maximumGpuSubmissionAgeMs = AtomicLong()
+    private val observedDecodeAgeMs = AtomicLong()
+    private val observedRenderAgeMs = AtomicLong()
+    private val observationDeadlineMisses = AtomicLong()
+    private val observationRenderDeadlineMisses = AtomicLong()
+    private val observationMissingStamp = AtomicLong()
+    private val observationUnknownClock = AtomicLong()
+    private fun observe(stamp: FrameStamp?, atNs: Long, stage: String) {
+        if (camera.freshness?.mode != "observe") return
+        if (stamp == null) { observationMissingStamp.incrementAndGet(); return }
+        val sample = freshnessClock?.currentSample(atNs)
+        val age = sample?.ageUpperNs(stamp, atNs)
+        if (age == null) { observationUnknownClock.incrementAndGet(); return }
+        val ageMs = age / 1_000_000
+        if(stage == "decode") {
+            observedDecodeAgeMs.updateAndGet { maxOf(it,ageMs) }
+            if(age >= minOf(stamp.maxAgeMs,camera.freshness.maxAgeMs)*1_000_000L) observationDeadlineMisses.incrementAndGet()
+        } else {
+            observedRenderAgeMs.updateAndGet { maxOf(it,ageMs) }
+            if(age >= minOf(stamp.maxAgeMs,camera.freshness.maxAgeMs)*1_000_000L) observationRenderDeadlineMisses.incrementAndGet()
+        }
+        if(Log.isLoggable(TIMING_TAG,Log.DEBUG)) Log.d(TIMING_TAG,
+            "${camera.sn} observe stage=$stage atNs=$atNs frameId=${stamp.frameId} ingressMonoUs=${stamp.ingressMonoUs} ageUpperMs=$ageMs clockRttMs=${(sample.responseNs-sample.requestStartNs)/1_000_000} clockLeaseNs=${sample.expiresNs} budgetMs=${camera.freshness.maxAgeMs} captureClockValidated=false")
+    }
+
 
     // Keep the library's RTSP/RTP parsing and codec helpers. The decoder adapter drains
     // output independently of new input and adds actual-render monitoring.
@@ -66,15 +110,26 @@ internal class LowLatencyRtspPlayer(
         val initialWidth = surface.width.takeIf { it > 0 } ?: 1920
         val initialHeight = surface.height.takeIf { it > 0 } ?: 1080
         object : DrainingVideoDecoder(mime, initialWidth, initialHeight, rotation, frames, monitoredListener, type) {
+            override fun beforeInputFrame(frame: FrameQueue.VideoFrame) {
+                if (camera.freshness == null) return
+                FrameStampReader.read(frame.data, frame.offset, frame.length, mime == MediaFormat.MIMETYPE_VIDEO_HEVC)?.let { stamp ->
+                    synchronized(stampLock) {
+                        stamps[frame.timestampMs] = stamp
+                        while (stamps.size > 256) stamps.remove(stamps.keys.first())
+                    }
+                }
+            }
             override fun decoderCreated(mediaCodec: MediaCodec, mediaFormat: MediaFormat) {
                 frameClock = LiveFrameClock()
                 check(!released && surface.holder.surface.isValid) { "Video surface unavailable" }
                 decoderName = mediaCodec.name
-                mediaCodec.configure(mediaFormat, surface.holder.surface, null, 0)
+                mediaCodec.configure(mediaFormat, freshRenderer?.inputSurface ?: surface.holder.surface, null, 0)
                 var first = true
                 mediaCodec.setOnFrameRenderedListener({ _, timestamp, renderNs ->
                     if (Log.isLoggable(TIMING_TAG, Log.DEBUG)) Log.d(TIMING_TAG, "${camera.sn} rendered ptsUs=$timestamp atNs=$renderNs")
                     if (!released) {
+                        if (enforcesFreshness) return@setOnFrameRenderedListener
+                        observe(synchronized(stampLock) { stamps[timestamp] }, renderNs, "codec-render-informational")
                         val now = SystemClock.elapsedRealtime()
                         lastFrameAt.set(now)
                         val previous = previousRenderNs.getAndSet(renderNs)
@@ -91,13 +146,39 @@ internal class LowLatencyRtspPlayer(
             }
 
             override fun releaseOutputBuffer(mediaCodec: MediaCodec, outIndex: Int, bufferInfo: MediaCodec.BufferInfo, render: Boolean) {
+                if (render) {
+                    decodedFrames.incrementAndGet()
+                    lastDecodedFrameAt.set(SystemClock.elapsedRealtime())
+                }
                 val now = System.nanoTime()
                 val target = if (render && !released && surface.holder.surface.isValid)
                     frameClock.presentationTimeNs(bufferInfo.presentationTimeUs, now) else null
+                val stamp = if (camera.freshness != null) synchronized(stampLock) { stamps[bufferInfo.presentationTimeUs] } else null
+                val sample = freshnessClock?.currentSample(now)
+                val until = stamp?.let { sample?.deadline(it,now,camera.freshness!!.maxAgeMs) }
+                if(render) observe(stamp,now,"decode")
+                val expired = enforcesFreshness && (until == null || target == null || target + DISPLAY_MARGIN_NS >= until)
                 if (render && Log.isLoggable(TIMING_TAG, Log.DEBUG)) Log.d(TIMING_TAG,
                     "${camera.sn} decoded ptsUs=${bufferInfo.presentationTimeUs} atNs=$now targetNs=${target ?: -1}")
-                if (target == null) mediaCodec.releaseOutputBuffer(outIndex, false)
-                else mediaCodec.releaseOutputBuffer(outIndex, target)
+                if (target == null || expired) {
+                    if (render && expired) {
+                        staleOutputFrames.incrementAndGet()
+                        val reason=when {
+                            stamp==null -> "missingStamp"
+                            sample==null -> "clockUnavailable"
+                            sample.epoch!=stamp.epoch -> "epochMismatch"
+                            sample.ageUpperNs(stamp,now)==null -> "clockBoundInvalid"
+                            until==null -> "ingressExpired"
+                            else -> "targetTooLate"
+                        }
+                        Log.i("EufyFreshness", "${camera.sn} outputSuppressed reason=$reason atNs=$now ptsUs=${bufferInfo.presentationTimeUs} frameId=${stamp?.frameId ?: -1} ingressMonoUs=${stamp?.ingressMonoUs ?: -1} ageUpperMs=${stamp?.let { sample?.ageUpperNs(it,now)?.div(1_000_000) } ?: -1} targetNs=${target ?: -1} deadlineNs=${until ?: -1} clockRttMs=${sample?.let { (it.responseNs-it.requestStartNs)/1_000_000 } ?: -1} budgetMs=${camera.freshness!!.maxAgeMs}")
+                    }
+                    mediaCodec.releaseOutputBuffer(outIndex, false)
+                }
+                else {
+                    val registered = if (stamp != null) freshRenderer?.register(stamp, target) ?: target else target
+                    mediaCodec.releaseOutputBuffer(outIndex, registered)
+                }
             }
 
             override fun decoderDestroyed(mediaCodec: MediaCodec) {}
@@ -107,6 +188,14 @@ internal class LowLatencyRtspPlayer(
     init {
         MediaCodecHelper.initialize(context.applicationContext, "")
         view.addView(surface, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
+        view.addView(freshnessCover, FrameLayout.LayoutParams(-1, -1))
+        freshnessCover.visibility = if (enforcesFreshness) View.VISIBLE else View.INVISIBLE
+        if(camera.freshness?.mode == "observe") {
+            freshnessState="observe • capture time unverified"
+            ui.post { if(!released) onFreshnessState("Capture time unverified") }
+        }
+        // Strict freshness is gated and expired by the owned GL renderer.
+        // MediaCodec render callbacks may be batched or omitted on older TVs.
         view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitSurface() }
         processor.videoDecoderType = DecoderType.HARDWARE // Adapter falls back to software if hardware cannot start.
         processor.videoFrameRateStabilization = false
@@ -131,6 +220,30 @@ internal class LowLatencyRtspPlayer(
         surface.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 if (!released && !started) {
+                    if (enforcesFreshness) {
+                        try {
+                            freshRenderer = FreshVideoRenderer(holder.surface, surface.width.coerceAtLeast(1), surface.height.coerceAtLeast(1),
+                                cameraSn = camera.sn, maxAgeMs = camera.freshness!!.maxAgeMs,
+                                clockSample = { now -> freshnessClock?.currentSample(now) },
+                                onPresented = { stamp, swapNs, until ->
+                                    if (shownEpoch != stamp.epoch || shownFrameId != stamp.frameId) {
+                                        shownEpoch = stamp.epoch; shownFrameId = stamp.frameId; shownDeadlineNs = until
+                                        synchronized(stampLock) { stamps.entries.firstOrNull { it.value.epoch == stamp.epoch && it.value.frameId == stamp.frameId }?.key }?.let { latestRenderedTimestamp.set(it) }
+                                        freshnessClock?.currentSample(swapNs)?.ageUpperNs(stamp, swapNs)?.let { age -> maximumGpuSubmissionAgeMs.updateAndGet { maxOf(it, age / 1_000_000) } }
+                                        lastFrameAt.set(SystemClock.elapsedRealtime())
+                                        val previous = previousRenderNs.getAndSet(swapNs)
+                                        if (renderedFrames.getAndIncrement() > 0) longestFrameGap.updateAndGet { maxOf(it, (swapNs - previous).coerceAtLeast(0) / 1_000_000) }
+                                        if (freshFirstFrame) { freshFirstFrame = false; ui.post { if (!released) onFirstFrame() } }
+                                    }
+                                },
+                                onState = { message -> ui.post { if (!released) {
+                                    freshnessState = message ?: "bridge-ingress admitted to GPU swap"
+                                    freshnessCover.visibility = View.INVISIBLE
+                                    onFreshnessState(message)
+                                } } },
+                                onFailure = { fail(it, true) })
+                        } catch (error: Exception) { fail(error.message ?: "GPU freshness renderer unavailable", true); return }
+                    }
                     started = true
                     val original = Uri.parse(camera.rtsp)
                     // Only a bridge-advertised capability enables larger interleaved TCP
@@ -145,9 +258,9 @@ internal class LowLatencyRtspPlayer(
                     processor.start(requestVideo = true, requestAudio = false, requestApplication = false)
                 }
             }
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { freshRenderer?.resize(width,height) }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                processor.stop(); processor.stopDecoders(); started = false
+                processor.stop(); processor.stopDecoders(); freshRenderer?.close(); freshRenderer = null; started = false
             }
         })
     }
@@ -171,13 +284,15 @@ internal class LowLatencyRtspPlayer(
         // RTP video ticks are converted to microseconds and passed unchanged to MediaCodec.
         val pending = if (latestRenderedTimestamp.get() < 0) -1 else
             (latestInputTimestamp.get() - latestRenderedTimestamp.get()).coerceAtLeast(0) / 1_000
-        return "decoder=$decoderName receivedUnits=${receivedUnits.get()} renderedFrames=${renderedFrames.get()} queuedUnits=${queue?.size ?: 0} pendingMediaMs=$pending longestFrameGapMs=${longestFrameGap.get()} pacingDropped=${frameClock.dropped} pacingResets=${frameClock.resets} maxPacingWaitMs=${frameClock.maxWaitNs / 1_000_000}"
+        return "decoder=$decoderName receivedUnits=${receivedUnits.get()} decodedFrames=${decodedFrames.get()} renderedFrames=${renderedFrames.get()} queuedUnits=${queue?.size ?: 0} pendingMediaMs=$pending longestFrameGapMs=${longestFrameGap.get()} pacingDropped=${frameClock.dropped} pacingResets=${frameClock.resets} maxPacingWaitMs=${frameClock.maxWaitNs / 1_000_000} freshness=$freshnessState staleOutputFrames=${staleOutputFrames.get()} frameId=$shownFrameId maxGpuSubmissionIngressAgeMs=${maximumGpuSubmissionAgeMs.get()} observeDecodeMaxAgeMs=${observedDecodeAgeMs.get()} observeRenderInformationalMaxAgeMs=${observedRenderAgeMs.get()} observeDecodeDeadlineMisses=${observationDeadlineMisses.get()} observeRenderInformationalDeadlineMisses=${observationRenderDeadlineMisses.get()} observeMissingStamp=${observationMissingStamp.get()} observeUnknownClock=${observationUnknownClock.get()} blankReasons=${freshRenderer?.diagnostics() ?: "none"} presentationScope=${if (enforcesFreshness) "GPU-swap-admission" else "codec-render-callback"}"
     }
 
-    private companion object { const val TIMING_TAG = "EufyFrameTiming" }
+    private companion object { const val TIMING_TAG = "EufyFrameTiming"; const val DISPLAY_MARGIN_NS = 20_000_000L }
 
     fun release() {
         released = true
+        freshnessClock?.close()
+        freshRenderer?.close(); freshRenderer = null
         processor.statusListener = null; processor.dataListener = null
         processor.stop(); processor.stopDecoders()
         (view.parent as? FrameLayout)?.removeView(view)
