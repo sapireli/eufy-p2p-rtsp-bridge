@@ -9,6 +9,15 @@ SSH=(ssh -o StrictHostKeyChecking=accept-new)
 if [[ -f $KEY ]]; then SSH+=(-i "$KEY"); fi
 REMOTE=/root/eufy-wall-source
 
+# Build on the update host, then sync a verified cache; the Atom need not compile Go.
+TARGET_MACHINE=$("${SSH[@]}" "$HOST" uname -m)
+case "$TARGET_MACHINE" in
+  x86_64) GO2RTC_TARGET=amd64 ;; aarch64) GO2RTC_TARGET=arm64 ;;
+  armv7l) GO2RTC_TARGET=arm ;; armv6l) GO2RTC_TARGET=armv6 ;;
+  *) echo "unsupported target architecture $TARGET_MACHINE"; exit 1 ;;
+esac
+python3 "$REPO/deploy/build-go2rtc.py" --target "$GO2RTC_TARGET"
+
 "${SSH[@]}" "$HOST" "mkdir -p '$REMOTE/server' '$REMOTE/deploy'"
 RSYNC_RSH="ssh -o StrictHostKeyChecking=accept-new"
 if [[ -f $KEY ]]; then RSYNC_RSH+=" -i $KEY"; fi

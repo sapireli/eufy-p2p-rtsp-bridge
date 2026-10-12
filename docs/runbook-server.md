@@ -6,7 +6,8 @@
     sudo nano /etc/eufy-wall-bridge.env      # EUFY_EMAIL / EUFY_PASSWORD / EUFY_COUNTRY (dedicated account!)
     sudo nano /etc/eufy-wall-bridge.yaml     # lan.cidr, cameras, defaults
     sudo systemctl start eufy-wall-bridge && journalctl -fu eufy-wall-bridge
-The install script apt-installs Node 24 (NodeSource), rsync and **ffmpeg**. Copy-mode streams use
+The install script apt-installs Node 24 (NodeSource), rsync, Python 3, patch and **ffmpeg**.
+It installs the verified patched go2rtc 1.9.14 artifact described below, never a silent stock fallback. Copy-mode streams use
 go2rtc's timestamped HTTP source; FFmpeg is used when `go2rtc.transcode` selects a hardware transcode.
 
 ## First-run login (2FA / captcha)
@@ -183,9 +184,45 @@ Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session 
 - go2rtc child dies → restarted after 3 s.
 - Cloud poll silent ≥ 30 min or push down ≥ 15 min → re-login in place, else exit(1).
 
+## Verified go2rtc build/cache
+
+`deploy/build-go2rtc.py` verifies the pinned upstream 1.9.14 source archive
+(SHA-256 `e3d59e553dfd0085889a2956281cfc0fd78bb7b4d6269d1c90c217d2ffcf2c7b`),
+applies `server/patches/go2rtc-v1.9.14/fail-closed-write.patch`, copies the two
+focused regressions, tests, and builds a Linux binary for the selected architecture.
+The upstream go.mod declares `go 1.24.0`; a supported Go toolchain is needed only
+when building. The tested build used Go 1.27.1 and reproduced the live candidate
+binary byte for byte. The standard update command builds on the Mac and transfers
+the verified cache, so the smaller Debian bridge need not compile Go.
+
+The ignored `deploy/.go2rtc-cache/` contains per-target binary/JSON manifests.
+Manifests record target, upstream/archive SHA, patch SHA, both regression hashes,
+actual Go toolchain, build flags and binary SHA. Each install verifies those fields
+and reads/hashes the exact bytes that will be installed. A changed patch/test or
+corrupt binary invalidates the cache. Direct Debian installation needs either
+this verified cache or a supported Go toolchain; without either it stops clearly
+and preserves the installed go2rtc binary. It does not download stock as fallback.
+An unsupported GO2RTC_VERSION override also stops rather than removing the fix.
+
+The source/archive, patch, build/test and cache gates finish before atomic binary
+replacement. A failed final rename leaves the old binary intact. Immutable
+`go2rtc.provenance-<binarySHA>.json` is written beside the installed binary first;
+its filename identifies which binary it describes. Configuration/credentials
+remain under /etc and /var/lib as before. This is local artifact integrity and
+build provenance, not a cryptographically signed external binary distribution.
+
+For a prebuilt offline cache, run `python3 deploy/build-go2rtc.py --target amd64`
+on a build host, transfer the cache with the repo, and verify with `--verify-only`.
+Targets are `amd64`, `arm64`, `arm` (ARMv7) and `armv6`; only amd64 was built in
+the current gate. The builder tests RTSP/TCP/core packages and the focused stream
+lifecycle regression. Existing unrelated v1.9.14 streams tests have stale return
+signatures, so that lifecycle gate uses unchanged production files plus the new
+fixture explicitly; it is not a claim that the entire upstream suite passes.
+See [the transport evidence/handoff](evidence/go2rtc-interleaved-write-failure-2026-10-12.md).
+
 ## Upgrading
 - From the Mac checkout used for this installation: `deploy/update-debian.sh`. It syncs `server/`
-  and `deploy/`, reruns the idempotent installer, restarts an already-running service, and checks
+  and `deploy/` including a verified locally built/cached go2rtc artifact, reruns the idempotent installer, restarts an already-running service, and checks
   `/healthz`. Server credentials, camera config, and session live outside the code directory and
   are preserved. Use an SSH key in `~/.ssh/eufy-wall-debian` or set `EUFY_WALL_SSH_KEY`.
   The current default target is `root@192.168.23.158`; pass a different SSH host as the first

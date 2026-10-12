@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # Install eufy-wall-bridge on Debian/Ubuntu (amd64 or arm64) without Docker.
 #   sudo deploy/install-server.sh            (run from the repo root)
-# Installs Node 24 (NodeSource), a go2rtc release binary, the server under /opt/eufy-wall-bridge, a
+# Installs Node 24 (NodeSource), a verified patched go2rtc binary, the server under /opt/eufy-wall-bridge, a
 # system user, config/env skeletons in /etc and a systemd unit. Idempotent: re-run to upgrade.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 PREFIX=/opt/eufy-wall-bridge
 GO2RTC_VERSION=${GO2RTC_VERSION:-1.9.14}
+[[ $GO2RTC_VERSION == 1.9.14 ]] || { echo "patched go2rtc supports only version 1.9.14; existing binary preserved"; exit 1; }
 WAS_ACTIVE=0
 systemctl is-active --quiet eufy-wall-bridge && WAS_ACTIVE=1
 
 # 1. Node 24 + rsync (step 3) + ffmpeg (go2rtc's generated `ffmpeg:` sources spawn the ffmpeg binary)
-apt-get update && apt-get install -y ca-certificates curl gnupg rsync ffmpeg avahi-daemon
+apt-get update && apt-get install -y ca-certificates curl gnupg rsync ffmpeg avahi-daemon python3 patch
 if ! command -v node >/dev/null || [[ $(node -v | sed 's/v\([0-9]*\).*/\1/') -lt 24 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
@@ -25,11 +26,7 @@ case "$(uname -m)" in
   *) echo "unsupported arch $(uname -m)"; exit 1 ;;
 esac
 mkdir -p "$PREFIX/bin"
-GO2RTC_TMP="$PREFIX/bin/go2rtc.tmp.$$"
-trap 'rm -f "$GO2RTC_TMP"' EXIT
-curl -fsSL -o "$GO2RTC_TMP" "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${ARCH}"
-chmod +x "$GO2RTC_TMP"
-mv -f "$GO2RTC_TMP" "$PREFIX/bin/go2rtc"
+python3 "$REPO/deploy/build-go2rtc.py" --target "$ARCH" --install "$PREFIX/bin/go2rtc"
 "$PREFIX/bin/go2rtc" --version || true
 
 # 3. app files + deps
