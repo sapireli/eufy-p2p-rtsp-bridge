@@ -3,10 +3,14 @@ package com.alexvas.rtsp.parser
 import android.util.Log
 
 class RtpH265Parser: RtpParser() {
+    var lastPacketMalformed: Boolean = false
+        private set
 
     override fun processRtpPacketAndGetNalUnit(data: ByteArray, length: Int, marker: Boolean): ByteArray? {
         if (DEBUG) Log.v(TAG, "processRtpPacketAndGetNalUnit(length=$length, marker=$marker)")
 
+        lastPacketMalformed = false
+        if (length < 2 || length > data.size) { lastPacketMalformed = true; return null }
         // NAL Unit Header.type (RFC7798 Section 1.1.4).
         val nalType = ((data[0].toInt() shr 1) and 0x3F).toByte()
         var nalUnit: ByteArray? = null
@@ -18,15 +22,47 @@ class RtpH265Parser: RtpParser() {
             clearFragmentedBuffer()
             if (DEBUG) Log.d(TAG, "Single NAL (${nalUnit.size})")
         } else if (nalType == RTP_PACKET_TYPE_AP) {
-            // TODO: Support AggregationPacket mode.
-            Log.e(TAG, "need to implement processAggregationPacket")
+            // Non-interleaved RFC 7798 AP: two-byte header, then uint16 length/NAL pairs.
+            // SDP has no sprop-max-don-diff, so no DONL/DOND fields are present.
+            clearFragmentedBuffer()
+            nalUnit = processAggregationPacket(data, length)
+            lastPacketMalformed = nalUnit == null
         } else if (nalType == RTP_PACKET_TYPE_FU) {
+            if (length < 4) { lastPacketMalformed = true; return null }
             nalUnit = processFragmentationUnitPacket(data, length, marker)
         } else {
+            lastPacketMalformed = true
             Log.e(TAG, "RTP H265 payload type [${nalType}] not supported.")
         }
 
         return nalUnit
+    }
+
+    private fun processAggregationPacket(data: ByteArray, length: Int): ByteArray? {
+        if (length < 6 || length > data.size) return null
+        val ranges = ArrayList<Pair<Int, Int>>()
+        var at = 2
+        var size = 0
+        while (at < length) {
+            if (length - at < 2) return null
+            val nalSize = ((data[at].toInt() and 255) shl 8) or (data[at + 1].toInt() and 255)
+            at += 2
+            if (nalSize < 2 || nalSize > length - at) return null
+            val type = (data[at].toInt() ushr 1) and 63
+            if (type >= 48 || data[at].toInt() and 128 != 0 || data[at + 1].toInt() and 7 == 0) return null
+            ranges.add(at to nalSize)
+            size += 4 + nalSize
+            at += nalSize
+        }
+        if (ranges.isEmpty()) return null
+        val result = ByteArray(size)
+        var output = 0
+        ranges.forEach { (start, count) ->
+            result[output + 3] = 1
+            data.copyInto(result, output + 4, start, start + count)
+            output += 4 + count
+        }
+        return result
     }
 
     private fun processFragmentationUnitPacket(data: ByteArray, length: Int, marker: Boolean): ByteArray? {

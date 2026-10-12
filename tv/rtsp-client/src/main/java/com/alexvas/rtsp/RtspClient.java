@@ -13,6 +13,7 @@ import com.alexvas.rtsp.parser.G711Parser;
 import com.alexvas.rtsp.parser.AudioParser;
 import com.alexvas.rtsp.parser.RtpH264Parser;
 import com.alexvas.rtsp.parser.RtpH265Parser;
+import com.alexvas.rtsp.parser.HevcAccessUnitAssembler;
 import com.alexvas.rtsp.parser.RtpHeaderParser;
 import com.alexvas.rtsp.parser.RtpParser;
 import com.alexvas.utils.NetUtils;
@@ -655,6 +656,7 @@ public class RtspClient {
         byte[] nalUnitSei = EMPTY_ARRAY;
         byte[] nalUnitAud = EMPTY_ARRAY;
         int videoSeqNum = 0;
+        HevcAccessUnitAssembler hevcAccessUnits = new HevcAccessUnitAssembler(4 * 1024 * 1024);
 
         long keepAliveSent = System.currentTimeMillis();
 
@@ -693,11 +695,18 @@ public class RtspClient {
                     nalUnit = videoParser.processRtpPacketAndGetNalUnit(data, header.payloadSize, header.marker == 1);
                 }
 
+                boolean isH265 = sdpInfo.videoTrack.videoCodec == VIDEO_CODEC_H265;
+                if (isH265) {
+                    nalUnit = hevcAccessUnits.push(nalUnit, header.getTimestampMsec(), header.marker == 1, ((RtpH265Parser) videoParser).getLastPacketMalformed());
+                }
                 if (nalUnit != null) {
-                    boolean isH265 = sdpInfo.videoTrack.videoCodec == VIDEO_CODEC_H265;
                     byte type = VideoCodecUtils.INSTANCE.getNalUnitType(nalUnit, 0, nalUnit.length, isH265);
 //                  Log.i(TAG, "NAL u: " + VideoCodecUtils.INSTANCE.getH265NalUnitTypeString(type));
-                    switch (type) {
+                    // HEVC NAL values overlap AVC SPS/PPS/SEI values. Do not route
+                    // HEVC VCL through the AVC cache/drop switch below.
+                    if (isH265) {
+                        listener.onRtspVideoNalUnitReceived(nalUnit, 0, nalUnit.length, header.getTimestampMsec());
+                    } else switch (type) {
                         case VideoCodecUtils.NAL_SPS:
                             nalUnitSps = nalUnit;
                             // Looks like there is NAL_IDR_SLICE as well. Send it now.
