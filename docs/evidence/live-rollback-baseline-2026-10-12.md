@@ -66,3 +66,26 @@ GaragePi still has delayed output and clock-sampling failures. These short TV
 and bridge checks do not resolve the Linux backlog or the independent source
 pauses. Keep the RTSP writer trial opt-in until its live behavior has been
 verified without deployment churn.
+
+## Subsequent source interruption under the original binary
+
+The later bounded bridge journal (22:13:20–22:14:40 UTC) contradicts any claim
+that rollback resolved all interruptions. Node PID 26350 and original go2rtc
+PID 29270 remained unchanged:
+
+- 22:14:08.099891: Front Door had no bytes for 31 seconds, stall #3.
+- 22:14:10.100287: Garage had no bytes for 31 seconds, stall #3.
+- 22:14:29.935386 and 22:14:31.133609: respectively, SDK errors reported
+  `warm-timeout at awaiting-first-frame after 10 attempts; 20000ms deadline`.
+
+`stream-manager.mjs` updates `lastBytesAt` before dispatching a received SDK
+frame to HTTP/FFmpeg consumers. These counters therefore describe absence of
+SDK Readable callbacks, not merely delayed encoded output. They do not locate
+the cause between physical delivery, SDK reassembly/decryption/gating,
+Readable state, or event-loop scheduling.
+
+The SDK can prime a reopened consumer with a retained keyframe. Consequently,
+the early `streaming` messages at 22:14:09.92 and 22:14:11.13 are insufficient
+proof that newly arriving camera frames had resumed: the warm watch still
+failed awaiting new source media. Recovery must be verified with advancing
+frame identities and receipt times, not only the streaming flag.
