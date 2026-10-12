@@ -16,3 +16,5 @@ server/run.log
 server/.no-sweep
 .evidence/
 __pycache__/
+
+/deploy/.go2rtc-cache/
