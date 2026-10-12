@@ -591,3 +591,33 @@ needed. An attached outer command 1350 does not reveal its encrypted inner
 1003/1004 selector; complete absence of outgoing DATA excludes both, while
 presence requires a separately authorized bounded command-call chronology.
 No ACK batching, selector, topology, quality or buffer change is justified yet.
+
+### Optional passive command-header chronology
+
+`server/scripts/capture-udp-metadata.py --command-headers` now supports that next
+observation. It inspects only the 16-byte unencrypted logical header at the
+start of an **outbound DATA/type-0** packet, after its transport prefix. The
+JSON includes integer `commandId`, `commandChannel`, `commandSignCode` and
+`commandType` fields. It does not scan later bytes for a header, assemble
+fragments, retain raw headers, decrypt or save encrypted/media bodies. Incoming
+VIDEO and command bodies remain metadata-only. Packet buffers are temporary;
+using a memoryview avoids copying the entire media body during parsing.
+
+The default capture format remains unchanged. Capture-start metadata reports
+whether the option was requested. Capture duration remains bounded to 120
+seconds; packet-tap loss/truncation counters must be checked before interpreting
+absence. No live capture was run for this addition.
+
+Two parser tests pass, including privacy assertions that arbitrary encrypted
+bodies of equal length produce identical output, no raw bytes/views appear in
+rows, and disabled, incoming, VIDEO, short and continuation packets never
+produce command-header fields. Commands encrypted inside outer 1350 remain
+unidentified; this option must not be described as observing inner 1003/1004.
+
+Example for a separately coordinated Linux capture (peer supplied privately):
+
+```sh
+rtk proxy python3 server/scripts/capture-udp-metadata.py \
+  --interface eth0 --peer '<LAN peer>' --seconds 90 \
+  --command-headers --out '<private metadata.jsonl>'
+```

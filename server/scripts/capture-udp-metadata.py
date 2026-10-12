@@ -10,7 +10,7 @@ import struct
 import time
 
 
-def parse_udp_metadata(packet, address, peers):
+def parse_udp_metadata(packet, address, peers, command_headers=False):
     """Parse only IPv4 UDP/protocol metadata; reject fragments and short headers.
 
     AF_PACKET SOCK_DGRAM removes the link header. ETH_P_ALL is required to
@@ -35,7 +35,7 @@ def parse_udp_metadata(packet, address, peers):
     source_port, destination_port, udp_size = struct.unpack_from("!HHH", packet, ihl)
     if udp_size < 8 or ihl + udp_size > total:
         return None
-    body = packet[ihl+8:ihl+udp_size]
+    body = memoryview(packet)[ihl+8:ihl+udp_size]
     if len(body) < 4 or body[0] != 0xf1:
         return None
     row = {"direction": "out" if outgoing else "in", "peer": peers[peer_bytes],
@@ -46,6 +46,14 @@ def parse_udp_metadata(packet, address, peers):
         if len(body) < 8:
             return None
         row.update(dataType=body[5], sequence=struct.unpack_from("!H", body, 6)[0])
+        # Inspect only the fixed 16-byte logical header at the packet start.
+        # Never scan continuations, decrypt a body or retain header/raw bytes.
+        if command_headers and outgoing and body[5] == 0 and len(body) >= 24:
+            header = body[8:24]
+            if header[:4] == b"XZYH":
+                row.update(commandId=struct.unpack_from("<H", header, 4)[0],
+                           commandChannel=header[12], commandSignCode=header[13],
+                           commandType=header[14])
     elif body[1] == 0xd1:
         if len(body) < 10:
             return None
@@ -87,6 +95,7 @@ def main():
     parser.add_argument("--peer", action="append", required=True, help="IPv4 peer to observe; saved as an anonymous peer ID")
     parser.add_argument("--seconds", type=float, default=90)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--command-headers", action="store_true", help="Record integer fields from outbound DATA fixed headers only; never encrypted bodies")
     args = parser.parse_args()
     if not 0 < args.seconds <= 120:
         parser.error("seconds must be >0 and <=120")
@@ -117,7 +126,7 @@ def main():
     os.umask(0o077)
     captured,ignored,untimestamped,truncated = 0,0,0,0
     with sock,open(args.out,"w",encoding="utf8") as out:
-        out.write(json.dumps({"phase":"capture-start","scope":"kernel-interface-packet-tap","interface":args.interface,"startedUnixNs":str(start_wall_ns),"startedMonotonicNs":str(start_mono_ns),"receiveBufferBytes":sock.getsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF),"peerIds":list(peers.values()),"payloadStored":False,"kernelFilter":"IPv4 UDP","receiveBufferForced":receive_buffer_forced})+"\n")
+        out.write(json.dumps({"phase":"capture-start","scope":"kernel-interface-packet-tap","interface":args.interface,"startedUnixNs":str(start_wall_ns),"startedMonotonicNs":str(start_mono_ns),"receiveBufferBytes":sock.getsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF),"peerIds":list(peers.values()),"payloadStored":False,"kernelFilter":"IPv4 UDP","receiveBufferForced":receive_buffer_forced,"commandHeaders":args.command_headers,"commandHeaderInspectionBytes":16 if args.command_headers else 0})+"\n")
         while time.monotonic_ns()-start_mono_ns < args.seconds*1e9:
             try:
                 packet,ancillary,flags,address=sock.recvmsg(65535,socket.CMSG_SPACE(32))
@@ -126,7 +135,7 @@ def main():
             if flags & socket.MSG_TRUNC:
                 truncated += 1
                 continue
-            row = parse_udp_metadata(packet, address, peers)
+            row = parse_udp_metadata(packet, address, peers, args.command_headers)
             if row is None:
                 ignored += 1
                 continue

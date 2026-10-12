@@ -23,3 +23,28 @@ bad=bytearray(rx);struct.pack_into('!H',bad,2,65535);assert m.parse_udp_metadata
 `,script], {encoding:"utf8"});
   assert.equal(result.status, 0, result.stderr);
 });
+
+test("optional command chronology retains fixed outbound header integers and no encrypted bytes", () => {
+  const script = fileURLToPath(new URL("../scripts/capture-udp-metadata.py", import.meta.url));
+  const result = spawnSync("python3", ["-c", `
+import importlib.util,struct,socket,json,sys
+sp=importlib.util.spec_from_file_location('tap',sys.argv[1]);m=importlib.util.module_from_spec(sp);sp.loader.exec_module(m)
+peer=socket.inet_aton('192.0.2.1');local=socket.inet_aton('192.0.2.2');peers={peer:'peer-1'}
+def packet(payload,out=True,datatype=0):
+ body=b'\\xf1\\xd0\\x00\\x00'+bytes([0,datatype])+struct.pack('!H',65535)+payload
+ ip=bytearray(20);ip[0]=0x45;ip[9]=17;struct.pack_into('!H',ip,2,28+len(body));ip[12:16]=local if out else peer;ip[16:20]=peer if out else local
+ return bytes(ip)+struct.pack('!HHHH',10001,10002,8+len(body),0)+body
+header=b'XZYH'+struct.pack('<HI',1350,4096)+bytes([8,0,2,8,11,0])
+secret=b'ENCRYPTED_PRIVATE_BODY_'+bytes(range(256))*16
+r=m.parse_udp_metadata(packet(header+secret),('eth0',0x0800,4),peers,True)
+assert (r['commandId'],r['commandChannel'],r['commandSignCode'],r['commandType'])==(1350,2,8,11)
+assert all(not isinstance(v,(bytes,bytearray,memoryview)) for v in r.values())
+assert 'PRIVATE' not in json.dumps(r) and 'XZYH' not in json.dumps(r)
+# Body contents cannot affect fixed-header fields; same-size encrypted bodies yield identical rows.
+assert r==m.parse_udp_metadata(packet(header+b'Z'*len(secret)),('eth0',0x0800,4),peers,True)
+for payload,out,kind,enabled in [(header+secret,True,0,False),(header+secret,False,0,True),(header+secret,True,1,True),(header[:15],True,0,True),(b'continuation'+header+secret,True,0,True)]:
+ row=m.parse_udp_metadata(packet(payload,out,kind),('eth0',0x0800,4 if out else 0),peers,enabled)
+ assert 'commandId' not in row
+`, script], {encoding: "utf8"});
+  assert.equal(result.status, 0, result.stderr);
+});
