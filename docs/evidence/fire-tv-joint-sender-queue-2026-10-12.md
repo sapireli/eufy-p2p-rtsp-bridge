@@ -184,3 +184,17 @@ elapsed, timestamp reset, sparse-field attachment, and byte-equivalent single-NA
 and fragmented AVC output against the unobserved parser with exact AnnexB fixtures.
 CPU/schedstat sampling is left to a separate bounded passive observer rather than
 adding an expensive per-packet system call.
+
+
+The read-stage APK SHA
+`c5611f04a53e0444045d9ed9281a35495d9d90a096dc3883ee0665d11278b63a`
+was installed sequentially; hardware decode, INFO logging and exact full original
+preferences were verified on both devices. The first bounded read-stage run at
+19:37:48.722–19:40:48.729 UTC was quiet: no lower/upper500 ms misses or sparse
+outlier records on any stream. PIDs25471/24932 stayed stable; sampled input queues
+were zero, with no warnings, missing stamps, unknown clocks or drops. Decoder
+pending maxima in table order(.85Door/Garage,.58Door/Garage) were74/67/130/135 ms;
+minimum five-second decoded rates were about12/12.60/12/12.60 fps. The observer
+recorded no late event, so it cannot yet validate live outlier read-stage fields or
+show that the previous delay is fixed. Subsequent exact-frame and socket-queue
+observation must capture recurrence. Tests passed41 app+12 library cases.
