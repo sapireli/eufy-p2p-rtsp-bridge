@@ -681,3 +681,11 @@ Private files under `.evidence/bridge-network-audit-2026-10-12/`:
 `command-nic-120-analysis.json` retains exact selected rows and the cross-port
 standalone boundary. Temporary script SHA-256 was
 `8e045fb69aa8994b8f913fd0fac877999c8d9b62c3eabf354ed703393904e2c0`.
+
+The optional header capture additionally records integer `declaredPayloadBytes`
+from the four-byte transport envelope. This permits a future END witness to
+compare declared length with actual packet bytes without retaining payload.
+Privacy tests cover zero-length END, a mismatched declared length and a valid
+opaque one-byte payload. Existing private captures predating this field cannot
+establish their wire-declared length retrospectively. No new live witness has
+been recorded for this parser addition alone.

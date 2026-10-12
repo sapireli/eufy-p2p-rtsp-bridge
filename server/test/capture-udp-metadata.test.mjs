@@ -42,6 +42,14 @@ assert all(not isinstance(v,(bytes,bytearray,memoryview)) for v in r.values())
 assert 'PRIVATE' not in json.dumps(r) and 'XZYH' not in json.dumps(r)
 # Body contents cannot affect fixed-header fields; same-size encrypted bodies yield identical rows.
 assert r==m.parse_udp_metadata(packet(header+b'Z'*len(secret)),('eth0',0x0800,4),peers,True)
+# END envelope length is an integer; the actual/declared payload can be distinguished without bytes.
+for body in [bytes.fromhex('f1f00000'), bytes.fromhex('f1f00001'), bytes.fromhex('f1f0000107')]:
+ raw=bytearray(packet(b''));struct.pack_into('!H',raw,2,28+len(body));struct.pack_into('!H',raw,24,8+len(body));raw=bytes(raw[:28])+body
+ end=m.parse_udp_metadata(raw,('eth0',0x0800,4),peers,True)
+ assert end['declaredPayloadBytes']==int.from_bytes(body[2:4],'big')
+ assert all(not isinstance(v,(bytes,bytearray,memoryview)) for v in end.values())
+ assert 'declaredPayloadBytes' not in m.parse_udp_metadata(raw,('eth0',0x0800,4),peers)
+
 for payload,out,kind,enabled in [(header+secret,True,0,False),(header+secret,False,0,True),(header+secret,True,1,True),(header[:15],True,0,True),(b'continuation'+header+secret,True,0,True)]:
  row=m.parse_udp_metadata(packet(payload,out,kind),('eth0',0x0800,4 if out else 0),peers,enabled)
  assert 'commandId' not in row

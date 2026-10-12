@@ -42,6 +42,8 @@ def parse_udp_metadata(packet, address, peers, command_headers=False):
            "localPort": source_port if outgoing else destination_port,
            "peerPort": destination_port if outgoing else source_port,
            "bytes": len(body), "messageType": body[1]}
+    if command_headers:
+        row["declaredPayloadBytes"] = struct.unpack_from("!H", body, 2)[0]
     if body[1] == 0xd0:
         if len(body) < 8:
             return None
