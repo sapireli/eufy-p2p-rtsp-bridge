@@ -107,3 +107,42 @@ keeping its RTSP/depay/parser/stamp input unchanged. This separates contribution
 from that downstream workload, but removes its CPU and buffer-pool demand too;
 it cannot alone distinguish lock blocking from scheduling capacity. No such
 experiment has been run, and it is not a production fix.
+
+## Reader-task follow-up: useful snapshots, not a causal gate
+
+A later 30-second read-only inventory found the generic `task0` thread once in
+each GStreamer process. An initial selected-name filter omitted that generic
+name and therefore did not measure the reader candidate. Its 7.27% observer CPU
+cost also rejects causal performance claims from that first follow-up.
+
+A corrected task-only observation selected TIDs 25074 and 25510 in processes
+25068 and 25500. PID/TID start times remained unchanged. Both processes owned
+their RTSP sockets at FD 20, matched by socket inode. However, the sampled poll
+syscall supplied a pointer to a two-entry descriptor array, rather than the
+descriptor values themselves. **The specific `task0` → FD 20 association remains
+an inference, not a directly inspected fact.**
+
+The corrected window took 30.091 seconds, with sampling CPU 0.993 seconds
+(**3.30% of one core**, excluding one-time inventory setup). This exceeds the
+desired 2% probe budget. The observation does not justify a performance or
+root-cause conclusion. No later five-second overhead gate was executed; that
+requirement arrived after this window had completed.
+
+The largest corrected-window receive queue was 823,615 bytes. For socket
+snapshots exceeding 100 KB, the associated generic-task snapshots were runnable
+with wait channel zero 20 times, and sleeping in a polling wait channel twice.
+No downstream futex wait was observed for these candidate tasks. Their CPU
+increments were approximately 5.6% and 8.1% of one core, respectively.
+
+Those statements describe snapshots only. Task state, wait channel, syscall and
+socket queue were not atomic observations. One task read spanned 99.8 ms,
+showing that observation itself could be delayed substantially. `R` means
+runnable or running; it does not prove the thread was continuously executing.
+Polling with queued bytes at a later read is not proof of a stuck socket reader.
+No service, power, network or playback policy changed; all observers terminated.
+
+Private follow-up metadata:
+`linux-reader-tasks30.jsonl` (wrong selected-name filter) and
+`linux-reader-only-tasks30.jsonl` (corrected generic-task selection), under the
+same private evidence directory. Further measurement must first establish the
+reader's socket-descriptor identity and pass a short observer-overhead gate.
