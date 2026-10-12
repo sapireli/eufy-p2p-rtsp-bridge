@@ -218,6 +218,7 @@ class RtspProcessor(
         private var framesPerGop = 0
 
         override fun onRtspVideoNalUnitReceived(data: ByteArray, offset: Int, length: Int, timestamp: Long) {
+            val receivedMonoNs = System.nanoTime()
             if (DEBUG) Log.v(TAG, "onRtspVideoNalUnitReceived(data.size=${data.size}, length=$length, timestamp=$timestamp)")
 
             val isH265 = videoMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC
@@ -231,7 +232,8 @@ class RtspProcessor(
                 offset,
                 length,
                 timestamp,
-                capturedTimestampMs = System.currentTimeMillis()
+                capturedTimestampMs = System.currentTimeMillis(),
+                receivedMonoNs = receivedMonoNs
             )
             if (isKeyframe && experimentalUpdateSpsFrameWithLowLatencyParams) {
                 videoFrame = getNewLowLatencyFrameFromKeyFrame(videoFrame)

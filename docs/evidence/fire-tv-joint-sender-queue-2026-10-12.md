@@ -60,8 +60,11 @@ Relevant .85 Garage observations:
 
 The latter event also added15 definite-late Garage frames on .58 in
 19:03:05.124–10.126, with its sender queue sampled at zero and write maximum
-75.25 ms. This establishes a shared component in that event; an upstream burst
-can coexist with additional downstream queueing on .85.
+75.25 ms. This establishes a coincident late-client event, not a common producer delay.
+The concurrent Mac observer's maximum Garage ingress age was358 ms (Door437 ms),
+so no Mac frame exceeded500 ms in that run. Shared Wi-Fi or client-side effects
+remain possible; exact same-frame identity joins are needed to identify where
+those TV frames were delayed.
 
 Other .85 Front Door late bursts occurred with its sender queue sampled at zero,
 write maximum at most61.88 ms, and decoder-pending sampled at zero. For example,
@@ -92,3 +95,21 @@ late-count increment windows. The lower180-second run is in
 `tv-age-interval-180s/`. Parent sender metadata is
 `.evidence/frame-freshness-2026-10-12/go2rtc-queues-writes-600s.jsonl`.
 No encoded camera image payload is included in this document.
+
+
+## Sparse exact-frame follow-up instrumentation
+
+A separate diagnostic-only Android change emits an INFO record only when decode
+age **lower >500 ms**. It includes bridge epoch/frameId/ingress timestamp, RTP PTS,
+complete parsed AU callback-entry monotonic time (before input queue insertion),
+input-submit-start time, codec-output time, receive-to-output elapsed time, current
+input queue depth, and exact lower/upper/clock-width nanoseconds. Receive time is
+after RTP assembly, not the first socket byte. Input time is immediately before
+`queueInputBuffer`, not an assertion of codec execution start. Missing times are
+explicitly-1 and never borrowed from another frame. Render callbacks are not used
+for this record. Frame-identity maps remain bounded256 entries. No per-packet logs,
+buffer changes, admission changes, pacing changes, or display gates were added.
+
+Tests cover upper-only uncertainty, the500 ms boundary, exact identity/times, and
+invalid/missing stage timestamps. These records enable joining the same frame
+with the parent Mac observer; they are not themselves a latency fix.

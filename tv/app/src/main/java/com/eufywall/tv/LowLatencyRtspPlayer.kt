@@ -59,6 +59,7 @@ internal class LowLatencyRtspPlayer(
     @Volatile private var frameClock = LiveFrameClock()
     private val freshnessClock = camera.freshness?.let { BridgeClockClient(it.clockUrl) }
     private val stamps = LinkedHashMap<Long, FrameStamp>()
+    private val frameStages = LinkedHashMap<Long, DecodeFrameStages>()
     private val stampLock = Any()
     @Volatile private var shownDeadlineNs = 0L
     @Volatile private var shownFrameId = 0L
@@ -76,7 +77,7 @@ internal class LowLatencyRtspPlayer(
     private val observationRenderDeadlineMisses = AtomicLong()
     private val observationMissingStamp = AtomicLong()
     private val observationUnknownClock = AtomicLong()
-    private fun observe(stamp: FrameStamp?, atNs: Long, stage: String) {
+    private fun observe(stamp: FrameStamp?, atNs: Long, stage: String, ptsUs: Long? = null) {
         if (camera.freshness?.mode != "observe") return
         if (stamp == null) { observationMissingStamp.incrementAndGet(); return }
         val sample = freshnessClock?.currentSample(atNs)
@@ -90,7 +91,15 @@ internal class LowLatencyRtspPlayer(
             lastDecodeAgeLowerMs.set(lower?.div(1_000_000) ?: -1)
             lastDecodeAgeUpperMs.set(ageMs)
             lastDecodeClockWidthMs.set(width?.div(1_000_000) ?: -1)
-            if(lower != null && lower >= minOf(stamp.maxAgeMs,camera.freshness.maxAgeMs)*1_000_000L) observationDefiniteDecodeMisses.incrementAndGet()
+            if(lower != null && lower >= minOf(stamp.maxAgeMs,camera.freshness.maxAgeMs)*1_000_000L) {
+                observationDefiniteDecodeMisses.incrementAndGet()
+                if (ptsUs != null) {
+                    val stages = synchronized(stampLock) { frameStages[ptsUs] }
+                    decodeAgeOutlier(stamp, ptsUs, stages, atNs, lower, age, width ?: -1, queue?.size ?: -1)?.let {
+                        Log.i("EufyWallTV", "${camera.sn} $it")
+                    }
+                }
+            }
             if(age >= minOf(stamp.maxAgeMs,camera.freshness.maxAgeMs)*1_000_000L) observationDeadlineMisses.incrementAndGet()
         } else {
             observedRenderAgeMs.updateAndGet { maxOf(it,ageMs) }
@@ -126,7 +135,12 @@ internal class LowLatencyRtspPlayer(
                 FrameStampReader.read(frame.data, frame.offset, frame.length, mime == MediaFormat.MIMETYPE_VIDEO_HEVC)?.let { stamp ->
                     synchronized(stampLock) {
                         stamps[frame.timestampMs] = stamp
-                        while (stamps.size > 256) stamps.remove(stamps.keys.first())
+                        frameStages[frame.timestampMs] = DecodeFrameStages(frame.receivedMonoNs, System.nanoTime())
+                        while (stamps.size > 256) {
+                            val oldest = stamps.keys.first()
+                            stamps.remove(oldest)
+                            frameStages.remove(oldest)
+                        }
                     }
                 }
             }
@@ -168,7 +182,7 @@ internal class LowLatencyRtspPlayer(
                 val stamp = if (camera.freshness != null) synchronized(stampLock) { stamps[bufferInfo.presentationTimeUs] } else null
                 val sample = freshnessClock?.currentSample(now)
                 val until = stamp?.let { sample?.deadline(it,now,camera.freshness!!.maxAgeMs) }
-                if(render) observe(stamp,now,"decode")
+                if(render) observe(stamp,now,"decode",bufferInfo.presentationTimeUs)
                 val expired = enforcesFreshness && (until == null || target == null || target + DISPLAY_MARGIN_NS >= until)
                 if (render && Log.isLoggable(TIMING_TAG, Log.DEBUG)) Log.d(TIMING_TAG,
                     "${camera.sn} decoded ptsUs=${bufferInfo.presentationTimeUs} atNs=$now targetNs=${target ?: -1}")
