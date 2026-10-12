@@ -70,6 +70,7 @@ export function createHttpHandler(ctx) {
         stalls: Object.fromEntries([...state.slots.values()].map((s) => [s.sn, s.stalls])),
         stalled: flags.ready && idle >= ctx.stallThresholdMs(),
         pushConnected: flags.pushConnected,
+        poll: ctx.pollHealth?.(),
         go2rtc: flags.go2rtcProc ? "running" : "stopped",
       });
     }

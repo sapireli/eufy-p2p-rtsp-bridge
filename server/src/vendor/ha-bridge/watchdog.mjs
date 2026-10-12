@@ -10,8 +10,11 @@ export function createWatchdog(ctx) {
   const { eufy, PUSH_STALL_MS } = ctx;
   const { flags } = ctx.state;
 
-  const bumpActivity = () => {
+  const bumpActivity = (completion) => {
     flags.lastActivity = Date.now();
+    flags.pollCompleteAt = flags.lastActivity;
+    flags.pollCompletions = (flags.pollCompletions ?? 0) + 1;
+    flags.pollStatus = completion?.status ?? "unknown";
   };
   eufy.on("pollComplete", bumpActivity);
 
@@ -52,5 +55,12 @@ export function createWatchdog(ctx) {
     }
   }
 
-  return { bumpActivity, stallThresholdMs, watchdogTick };
+  const pollHealth = () => ({
+    enabled: (eufy.pollIntervalMs ?? 600_000) > 0,
+    intervalMs: eufy.pollIntervalMs ?? 600_000,
+    completed: flags.pollCompletions ?? 0,
+    lastCompletedAt: flags.pollCompleteAt ?? null,
+    lastStatus: flags.pollStatus ?? null,
+  });
+  return { bumpActivity, pollHealth, stallThresholdMs, watchdogTick };
 }

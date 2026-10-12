@@ -31,6 +31,8 @@ test("successful unchanged polls prevent the 30-minute media-disconnecting recov
   f.at(31 * 60_000);
   await f.watchdog.watchdogTick();
   assert.equal(f.flags.lastActivity, 29 * 60_000);
+  assert.deepEqual(f.watchdog.pollHealth(), { enabled: true, intervalMs: 600_000,
+    completed: 1, lastCompletedAt: 29 * 60_000, lastStatus: "ok" });
   assert.deepEqual(f.counts(), { disconnects: 0, logins: 0, rearms: 0 });
 });
 
@@ -43,6 +45,8 @@ test("a settled partial or failed poll keeps loop liveness separate from cloud h
   f.at(60 * 60_000);
   await f.watchdog.watchdogTick();
   assert.equal(f.flags.lastActivity, 58 * 60_000);
+  assert.equal(f.watchdog.pollHealth().completed, 2);
+  assert.equal(f.watchdog.pollHealth().lastStatus, "error");
   assert.equal(f.counts().disconnects, 0);
 });
 
@@ -69,6 +73,8 @@ test("disabled polling cannot trigger poll-idle recovery", async (t) => {
   f.at(24 * 60 * 60_000);
   await f.watchdog.watchdogTick();
   assert.equal(f.watchdog.stallThresholdMs(), Infinity);
+  assert.deepEqual(f.watchdog.pollHealth(), { enabled: false, intervalMs: 0,
+    completed: 0, lastCompletedAt: null, lastStatus: null });
   assert.equal(f.counts().disconnects, 0);
 });
 

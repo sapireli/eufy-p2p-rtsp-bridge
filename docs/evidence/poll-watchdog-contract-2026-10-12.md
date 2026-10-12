@@ -47,6 +47,11 @@ partial/error, and disabled polling. The candidate passes all six. The complete
 bridge suite passes **195 tests**. Tests use a controlled clock; they do not
 substitute for a sustained live deployment.
 
+The health endpoint also exposes a count, last completion time and last status
+under `poll`. These are observations of settled loop passes, not a synthesized
+camera last-seen or capture-age signal. They allow the live contract to be checked
+without attaching an Inspector or changing the poll interval.
+
 ## Verification limit at this checkpoint
 
 The correction is staged, not deployed. The SDK event's complete tests and
