@@ -17,14 +17,15 @@ _spec.loader.exec_module(_clock)
 UUID = bytes.fromhex("455746524553484e4553533030303031")
 
 
-def parse_stamp(nal):
-    if not nal or nal[0] & 31 != 6:
+def parse_stamp(nal, codec="H264"):
+    header = 2 if codec == "H265" else 1
+    if not nal or (codec == "H265" and (len(nal) < 2 or (nal[0] >> 1) & 63 != 39)) or (codec == "H264" and nal[0] & 31 != 6):
         return None
     rbsp = bytearray()
     zeros = 0
-    for i, byte in enumerate(nal[1:]):
+    for i, byte in enumerate(nal[header:]):
         if zeros >= 2 and byte == 3:
-            if i + 2 >= len(nal) or nal[i + 2] > 3:
+            if i + header + 1 >= len(nal) or nal[i + header + 1] > 3:
                 return None
             zeros = 0
             continue
@@ -158,6 +159,77 @@ class H264Frames:
         return result
 
 
+
+class H265Frames(H264Frames):
+    """RFC7798 single NAL/AP/FU without DONL; same bounded AU identity checks."""
+    def push(self, packet):
+        seq, ts, ssrc, marker, body = rtp_payload(packet)
+        gap = self.sequence is not None and (seq-self.sequence) % 65536 != 1
+        if self.ssrc is not None and ssrc != self.ssrc:
+            gap = True
+        self.sequence, self.ssrc = seq, ssrc
+        if self.timestamp != ts:
+            if self.nals or self.fu:
+                self.abandoned += 1
+            self.timestamp, self.nals, self.fu, self.size, self.invalid = ts, [], None, 0, gap
+        else:
+            self.invalid |= gap
+        self.size += len(body)
+        if self.size > self.limit:
+            raise ValueError("RTP access-unit size limit exceeded")
+        if len(body) < 2 or body[0] & 128 or not body[1] & 7:
+            self.invalid = True
+        else:
+            kind = (body[0] >> 1) & 63
+            if kind < 48:
+                if self.fu is not None:
+                    self.invalid = True
+                self.nals.append(body)
+            elif kind == 48:
+                if self.fu is not None:
+                    self.invalid = True
+                at = 2
+                while at < len(body):
+                    if at + 2 > len(body):
+                        self.invalid = True
+                        break
+                    size = struct.unpack_from("!H", body, at)[0]
+                    at += 2
+                    if size < 2 or at+size > len(body):
+                        self.invalid = True
+                        break
+                    nal = body[at:at+size]
+                    if nal[0] & 128 or not nal[1] & 7 or (nal[0] >> 1) & 63 >= 48:
+                        self.invalid = True
+                    self.nals.append(nal)
+                    at += size
+            elif kind == 49 and len(body) >= 4:
+                start, end, nal_kind = bool(body[2] & 128), bool(body[2] & 64), body[2] & 63
+                header = bytes([(body[0] & 129) | (nal_kind << 1), body[1]])
+                if nal_kind >= 48 or start and end:
+                    self.invalid = True
+                if start:
+                    if self.fu is not None:
+                        self.invalid = True
+                    self.fu = bytearray(header)
+                elif self.fu is None or self.fu[:2] != header:
+                    self.invalid = True
+                if self.fu is not None:
+                    self.fu.extend(body[3:])
+                    if end:
+                        self.nals.append(bytes(self.fu))
+                        self.fu = None
+            else:
+                self.invalid = True
+        if not marker:
+            return None
+        invalid = self.invalid or self.fu is not None
+        stamps = [stamp for nal in self.nals if (stamp := parse_stamp(nal,"H265")) is not None]
+        has_vcl = any((nal[0] >> 1) & 63 <= 31 for nal in self.nals)
+        result = {"rtpTimestamp": ts, "transportValid": not invalid, "stamp": stamps[0] if not invalid and has_vcl and len(stamps) == 1 else None}
+        self.timestamp, self.nals, self.fu, self.size, self.invalid = None, [], None, 0, False
+        return result
+
 def sample_clock(url, samples=3):
     best = None
     for _ in range(samples):
@@ -201,7 +273,7 @@ def measure(url, clock_url, duration, settle, drift_ppm):
         raise ValueError("Use an unauthenticated rtsp://host:port/stream URL")
     clock = sample_clock(clock_url)
     clocks = [clock]
-    frames, assembler = [], H264Frames()
+    frames, assembler = [], None
     with socket.create_connection((parsed.hostname, parsed.port or 554), 5) as sock:
         sock.settimeout(5)
         pending, seq, session = b"", 0, None
@@ -244,8 +316,11 @@ def measure(url, clock_url, duration, settle, drift_ppm):
                 control = line[len("a=control:"):]
             if video and line.startswith("a=rtpmap:"):
                 codec = line.split(" ", 1)[1].split("/", 1)[0].upper()
-        if not control or codec != "H264":
-            raise ValueError("Observer requires an H264 video track")
+        if not control or codec not in ("H264", "H265"):
+            raise ValueError("Observer requires an H264 or H265 video track")
+        if codec == "H265" and any("sprop-max-don-diff=" in line and int(line.split("sprop-max-don-diff=",1)[1].split(";",1)[0]) != 0 for line in sdp.decode().splitlines()):
+            raise ValueError("HEVC observer does not support DONL")
+        assembler = H265Frames() if codec == "H265" else H264Frames()
         base = fields.get("content-base", url.rstrip("/")+"/")
         track = control if control.startswith("rtsp://") else base.rstrip("/")+"/"+control.lstrip("/")
         request("SETUP", track, "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n")
@@ -283,6 +358,7 @@ def measure(url, clock_url, duration, settle, drift_ppm):
                     continue
                 local_us = time.perf_counter_ns()//1000
                 frame["seconds"] = round(time.monotonic()-start, 6)
+                frame["receiptMonotonicUs"] = local_us
                 if frame["stamp"]:
                     low, high = age_bounds(frame["stamp"], local_us, clock, drift_ppm)
                     frame["ageLowerMs"], frame["ageUpperMs"] = round(low, 3), round(high, 3)
@@ -302,7 +378,7 @@ def measure(url, clock_url, duration, settle, drift_ppm):
     stamped = [f for f in stable if f["stamp"]]
     ids = [f["stamp"]["frameId"] for f in stamped]
     upper = [f["ageUpperMs"] for f in stamped]
-    result = {"camera": parsed.path.strip("/"), "scope": "bridge-ingress-to-observer-receipt", "captureClockValidated": False,
+    result = {"camera": parsed.path.strip("/"), "codec": codec, "scope": "bridge-ingress-to-observer-receipt", "captureClockValidated": False,
               "presentationMeasured": False, "serverEpoch": clock["epoch"], "clockDriftAllowancePpm": drift_ppm,
               "frames": len(frames), "stableFrames": len(stable), "stampedFrames": len(stamped),
               "missingOrInvalidStampFrames": len(stable)-len(stamped), "transportInvalidFrames": sum(not f["transportValid"] for f in stable),

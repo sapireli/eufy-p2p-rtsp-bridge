@@ -95,3 +95,40 @@ print("observer clock, SEI, FU-A, STAP-A, packet-loss, limits and actual RTSP te
   assert.equal(result.status,0,result.stderr || result.error?.message);
   assert.match(result.stdout,/tests passed/);
 });
+
+
+test("HEVC freshness observer accepts RFC7798 AP/FU and rejects loss, malformed units and duplicate stamps", () => {
+ const vcl=Buffer.from([0,0,0,1,0x26,1,0x88]);
+ const record={serverEpoch:Buffer.from("0000000100000002","hex"),sourceTimestamp:12345,ingressMonoUs:123456789n,frameId:9n,maxAgeMs:500};
+ const encoded=stampVideoFrame(vcl,"h265",record),sei=encoded.subarray(4,encoded.length-vcl.length);
+ const fixture={sei:sei.toString("hex"),script:fileURLToPath(new URL("../scripts/measure-frame-freshness.py",import.meta.url))};
+ const result=spawnSync("python3",["-c",String.raw`
+import json,sys,importlib.util,struct
+x=json.load(sys.stdin);spec=importlib.util.spec_from_file_location("freshness",x["script"]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+s=bytes.fromhex(x["sei"]);vcl=b"\x26\x01\x88"
+def p(seq,data,mark=False,ts=100):return bytes([128,96|int(mark)*128])+struct.pack("!HII",seq,ts,55)+data
+def ap(*nals):return b"\x60\x01"+b"".join(struct.pack("!H",len(n))+n for n in nals)
+assert m.parse_stamp(s,"H265")["frameId"]==9
+assert m.parse_stamp(s) is None
+out=m.H265Frames().push(p(65535,ap(s,vcl),True));assert out["transportValid"] and out["stamp"]["frameId"]==9
+# FU reconstructs the exact two-byte NAL header; emulation prevention spans fragments.
+a=m.H265Frames();parts=[s[2:20],s[20:40],s[40:]]
+for i,part in enumerate(parts):
+ flags=(128 if i==0 else 64 if i==2 else 0)|39
+ assert a.push(p(i,b"\x62\x01"+bytes([flags])+part)) is None
+assert a.push(p(3,vcl,True))["stamp"]["frameId"]==9
+# Single NAL SEI+VCL, RTP wrap, orphan continuation, missing FU and malformed AP.
+a=m.H265Frames();assert a.push(p(65535,s)) is None;assert a.push(p(0,vcl,True))["stamp"]["frameId"]==9
+for packets in [[p(1,s),p(3,vcl,True)],[p(1,b"\x62\x01\xa7"+s[2:20]),p(2,vcl,True)],[p(1,b"\x62\x01\x67"+s[20:]),p(2,vcl,True)]]:
+ a=m.H265Frames();out=None
+ for packet in packets:out=a.push(packet)
+ assert out["stamp"] is None and not out["transportValid"]
+for body in [b"\x60\x01\x00\xff\x4e",ap(s,s,vcl),b"\x4e\x00",b"\x62\x01\xe7abc"]:
+ assert m.H265Frames().push(p(1,body,True))["stamp"] is None
+assert m.H265Frames().push(p(1,s,True))["stamp"] is None
+try:m.H265Frames(2).push(p(1,ap(s,vcl),True));raise AssertionError("unbounded HEVC accepted")
+except ValueError:pass
+print("HEVC observer tests passed")
+`],{input:JSON.stringify(fixture),encoding:"utf8",timeout:10000});
+ assert.equal(result.status,0,result.stderr||result.error?.message);assert.match(result.stdout,/tests passed/);
+});

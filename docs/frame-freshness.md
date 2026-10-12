@@ -115,6 +115,9 @@ rtk proxy python3 server/scripts/measure-frame-freshness.py \
   rtsp://bridge:8554/front_door_cle rtsp://bridge:8554/garage_cle
 ```
 
+The observer accepts H.264 and H.265 video tracks, including bounded HEVC
+RFC 7798 single-NAL, aggregation and fragmentation packets with DONL disabled.
+Loss, incomplete units or duplicate stamps do not confer verified receipt age.
 Its scope is ingress-to-observer receipt, not screen presentation or sensor
 capture. Private captures should remain outside Git; commit only measurements
 and reproducible commands.
