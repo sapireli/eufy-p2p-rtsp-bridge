@@ -30,6 +30,17 @@ internal data class BridgeClockSample(val epoch: String, val serverMonoUs: Long,
         return earliestIngress
     }
     fun ageUpperNs(stamp: FrameStamp, nowNs: Long): Long? = ingressNs(stamp, nowNs)?.let { nowNs - it }
+    /** Diagnostic counterpart only: no admission or deadline is changed. */
+    fun clockIntervalWidthNs(stamp: FrameStamp, nowNs: Long): Long? {
+        if (ingressNs(stamp, nowNs) == null) return null
+        val deltaUs = stamp.ingressMonoUs - serverMonoUs
+        return responseNs - requestStartNs + 2 * kotlin.math.abs(deltaUs)
+    }
+    fun ageLowerNs(stamp: FrameStamp, nowNs: Long): Long? {
+        val earliest = ingressNs(stamp, nowNs) ?: return null
+        val width = clockIntervalWidthNs(stamp, nowNs) ?: return null
+        return (nowNs - earliest - width).coerceAtLeast(0)
+    }
     fun deadline(stamp: FrameStamp, nowNs: Long, allowedAgeMs: Int): Long? = ingressNs(stamp, nowNs)?.let {
         minOf(it + minOf(stamp.maxAgeMs, allowedAgeMs) * 1_000_000L, expiresNs).takeIf { deadline -> deadline > nowNs }
     }

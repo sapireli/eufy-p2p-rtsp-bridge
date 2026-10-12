@@ -148,3 +148,8 @@ media timestamps) from `callbackPendingMediaMs` (received versus the latest
 informational render callback). Older Android may batch or omit that callback;
 its pending value and callback count do not establish physical display latency
 or dropped pictures. Both values describe media progress, not sensor capture age.
+
+Freshness observation logs both ingress-age bounds and clock interval width. An
+upper bound beyond the budget means freshness is uncertified; only a lower bound
+beyond the budget establishes a late bridge-ingress frame under the clock model.
+This still does not measure sensor capture age or physical panel latency.

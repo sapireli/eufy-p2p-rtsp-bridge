@@ -58,6 +58,22 @@ class FrameFreshnessTest {
         val picture = stamp(14_000_000)
         assertEquals(5_496_000_000L, sample.deadline(picture, 5_100_000_000, 500))
     }
+    @Test fun wideRoundTripUpperMissDoesNotProveActualLateFrame() {
+        val sample = BridgeClockSample(epoch, 10_000_000, 1_000_000_000, 1_500_000_000)
+        val now = 1_600_000_000L
+        assertEquals(600_000_000L, sample.ageUpperNs(stamp(), now))
+        assertEquals(100_000_000L, sample.ageLowerNs(stamp(), now))
+        assertEquals(500_000_000L, sample.clockIntervalWidthNs(stamp(), now))
+        assertNull(sample.deadline(stamp(), now, 500))
+    }
+    @Test fun diagnosticLowerBoundPreservesLeaseEpochAndBothClockDriftDirections() {
+        val sample = BridgeClockSample(epoch, 10_000_000, 1_000_000_000, 1_010_000_000)
+        assertEquals(18_000_000L, sample.clockIntervalWidthNs(stamp(14_000_000), 5_100_000_000))
+        assertEquals(86_000_000L, sample.ageLowerNs(stamp(14_000_000), 5_100_000_000))
+        assertEquals(18_000_000L, sample.clockIntervalWidthNs(stamp(6_000_000), 1_100_000_000))
+        assertNull(sample.ageLowerNs(stamp().copy(epoch = "wrong"), 1_100_000_000))
+        assertNull(sample.ageLowerNs(stamp(), sample.expiresNs))
+    }
     @Test fun annexBStampEscapingAndFrameIdentitySurvive() {
         val payload = ByteBuffer.allocate(48).order(ByteOrder.BIG_ENDIAN).apply {
             put("EWFRESHNESS00001".toByteArray()); put(1); put(1); putShort(500)
