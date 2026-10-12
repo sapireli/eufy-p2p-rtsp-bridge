@@ -41,6 +41,29 @@ function nalStarts(bytes) {
   }
   return starts;
 }
+const ANNEXB_START3 = Buffer.from([0, 0, 1]);
+
+/** Read prefix NAL headers only; return before inspecting the first coded slice.
+ * Native start-code searches skip prefix payloads without a JavaScript byte walk.
+ * keyframe identifies an H.264 IDR or H.265 random-access VCL, not parameter sets.
+ */
+export function firstVclNal(data, codec) {
+  if (!Buffer.isBuffer(data) || (codec !== "h264" && codec !== "h265")) return null;
+  let searchFrom = 0;
+  for (;;) {
+    const start = data.indexOf(ANNEXB_START3, searchFrom);
+    if (start < 0) return null;
+    const body = start + 3;
+    if (body >= data.length || (codec === "h265" && body + 1 >= data.length)) return null;
+    const type = codec === "h264" ? data[body] & 31 : (data[body] >> 1) & 63;
+    if (codec === "h264" ? type >= 1 && type <= 5 : type <= 31) {
+      return { from: start > 0 && data[start - 1] === 0 ? start - 1 : start, body, type,
+        keyframe: codec === "h264" ? type === 5 : type >= 16 && type <= 21 };
+    }
+    searchFrom = body + (codec === "h264" ? 1 : 2);
+  }
+}
+
 function nalUnits(bytes) {
   const starts = nalStarts(bytes);
   if (!starts.length) return [bytes]; // A depacketized NAL without an Annex-B prefix.
@@ -69,10 +92,7 @@ export function stampVideoFrame(data, codec, record) {
   const sei = escapeRbsp(Buffer.concat([Buffer.from([5, 48]), payload, Buffer.from([0x80])]));
   // The decoder/client may retain only the most recent prefix SEI. Place ours
   // after encoder SEIs and immediately before VCL, preserving all other bytes.
-  const vcl = nalStarts(data).find(({ body }) => {
-    const type = codec === "h264" ? data[body] & 31 : (data[body] >> 1) & 63;
-    return codec === "h264" ? type >= 1 && type <= 5 : type <= 31;
-  });
+  const vcl = firstVclNal(data, codec);
   if (!vcl) throw new TypeError("encoded access unit has no Annex-B VCL NAL");
   return Buffer.concat([data.subarray(0, vcl.from), Buffer.from([0, 0, 0, 1]), nalHeader, sei, data.subarray(vcl.from)]);
 }

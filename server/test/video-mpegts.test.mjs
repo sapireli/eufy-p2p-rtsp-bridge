@@ -4,7 +4,27 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { newVideoMpegTsMuxer, TimestampDiscontinuityError } from "../src/video-mpegts.mjs";
+
+test("one-buffer packetization preserves the previous transport bytes across boundaries and source wrap", () => {
+  // Golden digests were captured from the previous per-packet allocator. They
+  // cover PAT/PMT, PCR/PTS, stuffing and continuity over small and large units.
+  const expected = {
+    h264: ["63dfbe08d103bf6502dc6d8f66ebe796ed9d6a2c89e91fa5130d1f37c710e45a", "9188aba9b82d7382ed48243fb134c3906d687530ca1a9d07d95535eb47ebe717"],
+    h265: ["1070a6722ee3d9d6a2a803369df5c75ff5cfd87ee29b9ab9c94ed630dfd3746a", "09a5e59a239c5aade2b557d3080bf416c17872b81b403c5f1c0120ddb1299c21"],
+  };
+  for (const codec of ["h264", "h265"]) for (const [mode, maxPesPayloadBytes] of [0, 65527].entries()) {
+    const mux = newVideoMpegTsMuxer({ codec, maxPesPayloadBytes });
+    const hash = createHash("sha256"); let sourceTimestamp = 0xfffffff0;
+    for (const [i, length] of [1,162,163,170,171,176,177,184,185,65527,65528,590000].entries()) {
+      const data = Buffer.alloc(length); for (let p = 0; p < length; p++) data[p] = p % 251;
+      hash.update(mux.push({ data, codec, sourceTimestamp, keyframe: i % 3 === 0 }));
+      sourceTimestamp = (sourceTimestamp + 67) >>> 0;
+    }
+    assert.equal(hash.digest("hex"), expected[codec][mode]);
+  }
+});
 
 function packets(buf) {
   assert.equal(buf.length % 188, 0);

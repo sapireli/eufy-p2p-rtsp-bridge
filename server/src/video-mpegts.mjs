@@ -72,12 +72,10 @@ export function newVideoMpegTsMuxer({ codec, maxTimestampStepMs, maxPesPayloadBy
     continuity.set(pid, (cc + 1) & 15);
   }
 
-  function table(pid, bytes) {
-    const packet = Buffer.alloc(PACKET_SIZE, 0xff);
+  function table(packet, pid, bytes) {
     header(packet, pid, true, false);
     packet[4] = 0; // PSI pointer: section begins immediately.
     bytes.copy(packet, 5);
-    return packet;
   }
 
   function reset() {
@@ -102,13 +100,27 @@ export function newVideoMpegTsMuxer({ codec, maxTimestampStepMs, maxPesPayloadBy
     // The SDK preserves the raw word without promising a universal time unit.
     pts90k += step * 90;
     previousSource = frame.sourceTimestamp;
-    const out = [];
-    if (first || frame.keyframe) {
-      out.push(table(0, section([0x00, 0xb0, 0x0d, 0, 1, 0xc1, 0, 0, 0, 1, 0xf0, 0])));
-      out.push(table(PMT_PID, section([0x02, 0xb0, 0x12, 0, 1, 0xc1, 0, 0,
-        0xe1, 0x00, 0xf0, 0, streamType, 0xe1, 0x00, 0xf0, 0])));
-    }
+    // Allocate the whole transport unit once. A large IDR contains thousands
+    // of 188-byte packets; allocating and concatenating each backing store
+    // separately blocks other cameras and UDP ACK handling on small hosts.
     const limit = maxPesPayloadBytes || frame.data.length;
+    let packetCount = first || frame.keyframe ? 2 : 0;
+    for (let offset = 0; offset < frame.data.length; offset += limit) {
+      const pesBytes = 14 + Math.min(limit, frame.data.length - offset);
+      packetCount += 1 + Math.ceil(Math.max(0, pesBytes - 176) / 184);
+    }
+    const out = Buffer.alloc(packetCount * PACKET_SIZE, 0xff);
+    let packetOffset = 0;
+    const nextPacket = () => {
+      const packet = out.subarray(packetOffset, packetOffset + PACKET_SIZE);
+      packetOffset += PACKET_SIZE;
+      return packet;
+    };
+    if (first || frame.keyframe) {
+      table(nextPacket(), 0, section([0x00, 0xb0, 0x0d, 0, 1, 0xc1, 0, 0, 0, 1, 0xf0, 0]));
+      table(nextPacket(), PMT_PID, section([0x02, 0xb0, 0x12, 0, 1, 0xc1, 0, 0,
+        0xe1, 0x00, 0xf0, 0, streamType, 0xe1, 0x00, 0xf0, 0]));
+    }
     for (let offset = 0; offset < frame.data.length; offset += limit) {
       const body = frame.data.subarray(offset, offset + limit);
       const firstFragment = offset === 0;
@@ -129,7 +141,7 @@ export function newVideoMpegTsMuxer({ codec, maxTimestampStepMs, maxPesPayloadBy
         const size = Math.min(pes.length - at, start ? 176 : 184);
         const adaptationLength = 183 - size;
         const adaptation = start || size < 184;
-        const packet = Buffer.alloc(PACKET_SIZE, 0xff);
+        const packet = nextPacket();
         header(packet, VIDEO_PID, start, adaptation);
         let payloadAt = 4;
         if (adaptation) {
@@ -139,13 +151,12 @@ export function newVideoMpegTsMuxer({ codec, maxTimestampStepMs, maxPesPayloadBy
           payloadAt += 1 + adaptationLength;
         }
         pes.copy(packet, payloadAt, at, at + size);
-        out.push(packet);
         at += size;
       }
     }
     first = false;
     discontinuity = false;
-    return Buffer.concat(out);
+    return out;
   }
   return { push, reset, get pts90k() { return pts90k; } };
 }
