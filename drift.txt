@@ -1,0 +1,119 @@
+== go2rtc-config.mjs differs from upstream go2rtc-config.mjs ==
+--- /home/runner/work/eufy-p2p-rtsp-bridge/eufy-p2p-rtsp-bridge/server/src/vendor/ha-bridge/go2rtc-config.mjs	2026-10-12 15:41:40.532713547 +0000
++++ /tmp/tmp.E8hRYjnrUR/up/go2rtc-config.mjs	2026-10-12 15:41:40.826690331 +0000
+@@ -28,7 +28,12 @@
+   ];
+   for (const d of cams) {
+     // A stream id per camera serial; the source is this bridge's own HTTP feed.
+-    lines.push(`  ${d.sn}: ffmpeg:http://${cfg.selfHost}:${cfg.port}/stream/${d.sn}#video=copy`);
++    // `#async` makes ffmpeg stamp frames from the wall clock (-use_wallclock_as_timestamps 1 -async 1)
++    // instead of trusting the camera's. The eufy feed starts at dts 0 and then jumps, which a consumer
++    // reads as a broken stream: Home Assistant aborts with "Timestamp discontinuity detected: last dts =
++    // 0, dts = 4219155056" seconds after the picture starts flowing. Re-stamping costs nothing here —
++    // the feed is remuxed, not transcoded, and a live view has no timeline to preserve.
++    lines.push(`  ${d.sn}: ffmpeg:http://${cfg.selfHost}:${cfg.port}/stream/${d.sn}#video=copy#async`);
+   }
+   const yaml = lines.join("\n") + "\n";
+   await mkdir(dirname(cfg.go2rtcConfig), { recursive: true }).catch(() => {});
+== auth.mjs differs from upstream src/auth.mjs ==
+--- /home/runner/work/eufy-p2p-rtsp-bridge/eufy-p2p-rtsp-bridge/server/src/vendor/ha-bridge/auth.mjs	2026-10-12 15:41:40.532713547 +0000
++++ /tmp/tmp.E8hRYjnrUR/up/src/auth.mjs	2026-10-12 15:41:40.827014695 +0000
+@@ -34,12 +34,12 @@
+   async function applyLogin(result) {
+     flags.lastLogin = result;
+     if (result.status === LoginStatus.Ok) {
++      eufy.forgetDevices?.(); // a fresh session rebinds command sinks: rebuild devices on next use
+       await ctx.completeBoot(); // no-op once `ready` (first boot only), so re-auth never re-wires listeners
+       if (flags.sessionLost) {
+         // Recovered from a post-boot expiry: clear the flag and re-arm the poll under the fresh epoch.
+         flags.sessionLost = false;
+         eufy.setPollInterval(eufy.pollIntervalMs);
+-        flags.lastActivity = Date.now();
+         flags.pushSince = Date.now();
+       }
+     }
+@@ -54,12 +54,11 @@
+   /**
+    * The cloud token was kicked/invalidated after boot. Surface the loss to HA at once (so it stops
+    * trusting stale poll data), then try to re-login in place. A fresh login usually needs 2FA — that is
+-   * broadcast as `require_2fa`, so HA can drive the re-auth immediately rather than after the 30-min
+-   * poll-stall watchdog exits the process.
++   * broadcast as `require_2fa`, so HA can drive the re-auth immediately.
+    */
+   async function onSessionExpired() {
+     flags.sessionLost = true;
+-    flags.recovering = true; // also blocks the poll-stall watchdog from racing this
++    flags.recovering = true; // also blocks push recovery from racing this
+     ctx.broadcast({ event: "auth", ...authStatus() });
+     console.error("[bridge] cloud session expired (kicked/invalid) — re-authenticating");
+     try {
+== watchdog.mjs differs from upstream src/watchdog.mjs ==
+--- /home/runner/work/eufy-p2p-rtsp-bridge/eufy-p2p-rtsp-bridge/server/src/vendor/ha-bridge/watchdog.mjs	2026-10-12 15:41:40.532713547 +0000
++++ /tmp/tmp.E8hRYjnrUR/up/src/watchdog.mjs	2026-10-12 15:41:40.827603350 +0000
+@@ -1,53 +1,37 @@
+-// Realtime liveness watchdog. The SDK's poll loop re-arms via `pollOnce().finally(schedulePoll)`, so a
+-// cloud call that HANGS (half-open socket, no timeout) never settles → the loop stalls forever while the
+-// WS server stays up serving stale state. `deviceState` fires on every healthy poll (proof-of-life even
+-// when nothing changed), so its silence is the stall signal; the FCM push channel is tracked separately
+-// (events ride push, state rides poll). On a stall we re-establish realtime in place, and exit for a
+-// clean restart (container `restart: unless-stopped`) if that fails.
++// FCM push liveness watchdog. Push connect/disconnect is an explicit transport lifecycle signal, so a
++// sustained disconnect can be recovered without inferring health from device traffic. The pinned SDK
++// exposes no successful-poll signal for unchanged polls; no poll-health state is inferred here.
++// Process/container supervision remains external to this watchdog.
+ import { LoginStatus } from "@mega-yfue/eufy-sdk";
+ 
+ export function createWatchdog(ctx) {
+   const { eufy, PUSH_STALL_MS } = ctx;
+   const { flags } = ctx.state;
+ 
+-  const bumpActivity = () => {
+-    flags.lastActivity = Date.now();
+-  };
+-
+-  /** No poll heartbeat for max(3 polls, 30 min) ⇒ treat the realtime/poll channel as stalled. */
+-  function stallThresholdMs() {
+-    return Math.max(3 * (eufy.pollIntervalMs || 600_000), 30 * 60_000);
+-  }
+-
+   async function watchdogTick() {
+     if (!flags.ready || flags.recovering) return;
+-    const idleMs = Date.now() - flags.lastActivity;
+     const pushDeadMs = flags.pushConnected ? 0 : Date.now() - flags.pushSince;
+-    const pollStalled = idleMs >= stallThresholdMs();
+-    const pushStalled = pushDeadMs >= PUSH_STALL_MS;
+-    if (!pollStalled && !pushStalled) return;
++    if (pushDeadMs < PUSH_STALL_MS) return;
+     flags.recovering = true;
+-    const why = pollStalled ? `poll idle ${Math.round(idleMs / 1000)}s` : `push down ${Math.round(pushDeadMs / 1000)}s`;
+-    console.error(`[bridge] realtime stalled (${why}) — re-establishing`);
++    console.error(`[bridge] realtime stalled (push down ${Math.round(pushDeadMs / 1000)}s) — re-establishing`);
+     try {
+       await eufy.disconnect();
+       const result = await eufy.login();
+-      await ctx.applyLogin(result); // refreshes auth state; completeBoot is a no-op once ready
++      await ctx.applyLogin(result);
+       if (result.status !== LoginStatus.Ok) {
+         console.error(`[bridge] re-login not OK (${result.status}) — exiting for a clean restart`);
+         process.exit(1);
+       }
+-      eufy.setPollInterval(eufy.pollIntervalMs); // re-arm the poll loop under the new realtime epoch
+-      flags.lastActivity = Date.now();
+-      flags.pushSince = Date.now(); // give push a fresh window to reconnect before flagging it again
+-      console.log("[bridge] realtime re-established after stall");
++      eufy.setPollInterval(eufy.pollIntervalMs);
++      flags.pushSince = Date.now();
++      console.log("[bridge] realtime re-established after push disconnect");
+     } catch (e) {
+-      console.error(`[bridge] stall recovery failed (${e?.message ?? e}) — exiting for a clean restart`);
++      console.error(`[bridge] push recovery failed (${e?.message ?? e}) — exiting for a clean restart`);
+       process.exit(1);
+     } finally {
+       flags.recovering = false;
+     }
+   }
+ 
+-  return { bumpActivity, stallThresholdMs, watchdogTick };
++  return { watchdogTick };
+ }
+upstream HEAD: ae52998a97272bd1be176cfeb30b6444b09f3a52  (recorded: Commit: 1154026d179ef523e28d75a4554844f055549cba)
