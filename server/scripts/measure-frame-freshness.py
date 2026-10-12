@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import socket
 import struct
+import threading
 import time
 from urllib.parse import urlsplit
 from urllib.request import urlopen
@@ -267,14 +268,58 @@ def percentile(values, fraction):
     return round(ordered[min(len(ordered)-1, int((len(ordered)-1)*fraction))], 3) if ordered else None
 
 
+class ClockSampler:
+    """Refresh calibration independently so an HTTP stall cannot stop RTSP reads."""
+    def __init__(self, initial, sample, interval=5):
+        self.clock, self.sample, self.interval = initial, sample, interval
+        self.history, self.error = [initial], None
+        self.lock, self.stop = threading.Lock(), threading.Event()
+        self.worker = threading.Thread(target=self._run, name="rtsp-observer-clock", daemon=True)
+
+    def _run(self):
+        while not self.stop.wait(self.interval):
+            try:
+                fresh = self.sample()
+                with self.lock:
+                    if self.stop.is_set():
+                        return
+                    if fresh["epoch"] != self.clock["epoch"]:
+                        raise ValueError("Bridge clock epoch changed during observation")
+                    self.clock = fresh
+                    self.history.append(fresh)
+            except Exception as error:
+                with self.lock:
+                    self.error = error
+                return
+
+    def snapshot(self):
+        with self.lock:
+            if self.error is not None:
+                raise self.error
+            return self.clock
+
+    def samples(self):
+        with self.lock:
+            return list(self.history)
+
+    def __enter__(self):
+        self.worker.start()
+        return self
+
+    def __exit__(self, *unused):
+        self.stop.set()
+        self.worker.join(7)
+        if self.worker.is_alive():
+            raise ValueError("Clock observer did not stop within its shutdown bound")
+
+
 def measure(url, clock_url, duration, settle, drift_ppm):
     parsed = urlsplit(url)
     if parsed.scheme != "rtsp" or not parsed.hostname or parsed.username:
         raise ValueError("Use an unauthenticated rtsp://host:port/stream URL")
     clock = sample_clock(clock_url)
-    clocks = [clock]
     frames, assembler = [], None
-    with socket.create_connection((parsed.hostname, parsed.port or 554), 5) as sock:
+    with ClockSampler(clock, lambda: sample_clock(clock_url, 1)) as sampler, socket.create_connection((parsed.hostname, parsed.port or 554), 5) as sock:
         sock.settimeout(5)
         pending, seq, session = b"", 0, None
         def receive():
@@ -326,17 +371,11 @@ def measure(url, clock_url, duration, settle, drift_ppm):
         request("SETUP", track, "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n")
         request("PLAY", url)
         start = time.monotonic()
-        keepalive_at, clock_at = start, start
+        keepalive_at = start
         keepalive_requests, keepalive_responses, bytes_read = 0, 0, 0
         while time.monotonic()-start < duration:
             now = time.monotonic()
-            if now-clock_at >= 5:
-                fresh_clock = sample_clock(clock_url, 1)
-                if fresh_clock["epoch"] != clock["epoch"]:
-                    raise ValueError("Bridge clock epoch changed during observation")
-                clock = fresh_clock
-                clocks.append(clock)
-                clock_at = time.monotonic()
+            clock = sampler.snapshot()
             if now-keepalive_at >= 20:
                 seq += 1
                 sock.sendall((f"OPTIONS {url} RTSP/1.0\r\nCSeq: {seq}\r\nSession: {session}\r\n\r\n").encode())
@@ -388,7 +427,8 @@ def measure(url, clock_url, duration, settle, drift_ppm):
               "negativeAgeUpperFrames": sum(age<0 for age in upper),
               "ageUpperMs": {"median": percentile(upper,.5),"p95":percentile(upper,.95),"p99":percentile(upper,.99),"maximum":round(max(upper),3) if upper else None},
               "maximumClockUncertaintyMs": max((f["clockUncertaintyMs"] for f in stamped),default=None),
-              "clockSamples": clocks,"bytes":bytes_read,"keepaliveRequests":keepalive_requests,"keepaliveResponses":keepalive_responses,"samples":stable}
+              "clockSamples": sampler.samples(),"clockRefreshScope":"independent-observer-thread",
+              "bytes":bytes_read,"keepaliveRequests":keepalive_requests,"keepaliveResponses":keepalive_responses,"samples":stable}
     if not stamped:
         result["error"] = "No complete stamped frames in stable observation window"
     return result
