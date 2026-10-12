@@ -54,6 +54,7 @@ class MainActivity : Activity() {
     private val states = mutableMapOf<String, String>()
     private val players = mutableMapOf<String, LowLatencyRtspPlayer>()
     private val nativeFallback = NativeFallback()
+    private var nativeProfileProbeUntil = 0L
     private val frameWatchdogs = mutableMapOf<String, Runnable>()
     private val labels = mutableMapOf<String, TextView>()
     private val surfaces = mutableMapOf<String, FrameLayout>()
@@ -88,6 +89,16 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val probeSeconds = if (BuildConfig.DEBUG) intent.getIntExtra("nativeProfileProbeSeconds", 0).coerceIn(0, 120) else 0
+        if (probeSeconds > 0) {
+            nativeProfileProbeUntil = SystemClock.elapsedRealtime() + probeSeconds * 1000L
+            android.util.Log.w("EufyWallTV", "DEBUG native profile probe active for ${probeSeconds}s; reported profile eligibility bypassed, bitstream unchanged")
+            ui.postDelayed({
+                nativeProfileProbeUntil = 0L
+                if (wallVisible) { chosen.forEach { release(it) }; chosen.forEach { updateTile(it) } }
+                android.util.Log.i("EufyWallTV", "DEBUG native profile probe expired; conservative selection restored")
+            }, probeSeconds * 1000L)
+        }
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         bridge = prefs.getString("bridge", "") ?: ""
         chosen.addAll((prefs.getString("chosen", "") ?: "").split(',').filter { it.isNotBlank() }.take(4))
@@ -326,7 +337,7 @@ class MainActivity : Activity() {
         if (state == "live") {
             if (players.containsKey(sn)) return
             val native = cam.nativeRendition?.takeIf { nativeFallback.permits(sn) }
-            val hardware = native?.let { nativeHardwareDecoder(it) }
+            val hardware = native?.let { nativeHardwareDecoder(it, BuildConfig.DEBUG && SystemClock.elapsedRealtime() < nativeProfileProbeUntil) }
             val playback = if (native != null && hardware != null) cam.copy(rtsp = native.rtsp,
                 width = native.width, height = native.height, freshness = native.freshness,
                 nativeDecoderName = hardware, rtspTcpPacketSize = null) else cam

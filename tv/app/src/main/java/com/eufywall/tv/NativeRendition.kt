@@ -27,7 +27,7 @@ internal fun supportsHevcProfileLevel(profile: Int?, level: Int?, tier: Int?, su
     return bit / 2 >= requiredIndex && (tier == 0 || bit % 2 == 1)
 }
 
-internal fun nativeHardwareDecoder(rendition: NativeRendition): String? {
+internal fun nativeHardwareDecoder(rendition: NativeRendition, debugProfileProbe: Boolean = false): String? {
     if (!nativeGeometryValid(rendition.codec, rendition.width, rendition.height)) return null
     return try {
         MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.firstOrNull { info ->
@@ -42,7 +42,7 @@ internal fun nativeHardwareDecoder(rendition: NativeRendition): String? {
                     val rate = size && caps!!.areSizeAndRateSupported(rendition.width, rendition.height, 30.0)
                     val profile = codecCaps.profileLevels.any { supportsHevcProfileLevel(rendition.profile, rendition.level, rendition.tier, it.profile, it.level) }
                     Log.i("EufyWallTV", "Native HEVC candidate ${info.name}: ${rendition.width}x${rendition.height} size=$size rate30=$rate streamProfile=${rendition.profile} level=${rendition.level} tier=${rendition.tier} profileSupported=$profile")
-                    rate && profile
+                    rate && (profile || debugProfileProbe)
                 }.getOrDefault(false)
         }?.name
     } catch (_: Exception) { null }

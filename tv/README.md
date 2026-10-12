@@ -131,3 +131,14 @@ latency or cadence improvement relative to the second TV. The temporary debug ho
 and its permission were removed. The direct player and former Media3 player both lacked
 that lock, so its absence was not a demonstrated migration regression. See
 [the live test evidence](../docs/evidence/fire-tv-wifi-power-2026-10-12.md).
+
+### Bounded native decoder diagnostic
+
+Debug APKs accept `nativeProfileProbeSeconds` (1–120 seconds) on a fresh activity
+launch. This explicit diagnostic temporarily bypasses only the advertised HEVC
+profile/level check; hardware, dimensions, and rate requirements remain. It never
+rewrites source headers or changes saved camera selection. At expiry, conservative
+selection is restored and active players reconnect. Release builds ignore it.
+Use only for a bounded hardware experiment, with original preferences restored
+after a temporary third-camera selection. A successful probe does not change
+production capability policy.
