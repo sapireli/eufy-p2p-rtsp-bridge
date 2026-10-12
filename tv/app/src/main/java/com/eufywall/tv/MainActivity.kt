@@ -377,22 +377,22 @@ class MainActivity : Activity() {
             players[sn] = player
             surfaces[sn]?.addView(player.view, FrameLayout.LayoutParams(-1, -1))
             var lastLogAt = 0L
+            val decoderWatchdog = DecoderProgressWatchdog(firstFrameTimeoutMs, liveFrameTimeoutMs)
             val watchdog = object : Runnable {
                 override fun run() {
                     if (!wallVisible || states[sn] != "live" || players[sn] !== player) return
                     val now = SystemClock.elapsedRealtime()
-                    // An expired picture is masked, not a decoder failure.
-                    // Keep decoding references so fresh output can recover
-                    // without a cold reconnect/keyframe wait after every miss.
-                    val progress = if (player.enforcesFreshness) player.decodedFrames.get() > 0 else player.renderedFrames.get() > 0
-                    val lastProgress = if (player.enforcesFreshness) player.lastDecodedFrameAt.get() else player.lastFrameAt.get()
-                    val silentForMs = now - (if (progress) lastProgress else startedAt)
+                    // Decoder output is reliable progress in every freshness mode.
+                    // OnFrameRendered is informational and can be delayed, batched,
+                    // or omitted on older TVs; its absence cannot prove a freeze.
+                    val stalledForMs = decoderWatchdog.stalledForMs(now, startedAt,
+                        player.decodedFrames.get(), player.lastDecodedFrameAt.get())
                     if (now - lastLogAt >= 5_000) {
                         android.util.Log.i("EufyWallTV", "Live RTSP ${cam.sn}: ${player.diagnostics()}")
                         lastLogAt = now
                     }
-                    if (silentForMs >= (if (progress) liveFrameTimeoutMs else firstFrameTimeoutMs)) {
-                        retry("No playback progress for ${silentForMs}ms", false)
+                    if (stalledForMs != null) {
+                        retry("No decoder output for ${stalledForMs}ms", false)
                     } else {
                         ui.postDelayed(this, 1_000)
                     }
