@@ -4,7 +4,7 @@
 
 The earlier same-window NIC/RTSP capture showed continuous source-media words after physical VIDEO transport quiet intervals, followed by faster delivery. That identifies delayed delivery upstream of bridge ingress, without identifying the camera, HomeBase, or peer ACK acceptance as the cause. See [the paired capture evidence](source-media-word-delivery-2026-10-12.md).
 
-The next discriminator is whether a physical quiet interval interrupts an already-started logical unit or occurs after a complete unit and before the next header. `server/scripts/capture-udp-metadata.py --incoming-logical-headers` adds that diagnostic bookkeeping. It does not change production sockets, ACKs, reordering, control commands, stream type, codec, or quality. The option is disabled by default. It has not yet been deployed or used for a live capture.
+The next discriminator is whether a physical quiet interval interrupts an already-started logical unit or occurs after a complete unit and before the next header. `server/scripts/capture-udp-metadata.py --incoming-logical-headers` adds that diagnostic bookkeeping. It does not change production sockets, ACKs, reordering, control commands, stream type, codec, or quality. The option is disabled by default. The first bounded live trial below records its actual coverage limitation.
 
 ## Interpretation
 
@@ -38,4 +38,29 @@ The JSON contains only anonymous peer IDs, existing packet metadata, fixed logic
 - Sequence wrap, duplicates, metadata-only out-of-order continuation accounting, refusal to infer an unseen reordered header, bounded reorder reset and endpoint eviction.
 - Valid endpoint END/CAM_ID reset, malformed END preservation, and opt-in/default isolation.
 
-These are synthetic parser/privacy regressions. They do not yet prove live header coverage, classify an actual source pause, or identify a cause. No new live capture was started during the coordinated Pi pacing measurements.
+These synthetic parser/privacy regressions do not prove live header coverage or identify a source-pause cause. The later authorized live trial below is reported separately.
+
+## First bounded live trial: coverage remained unknown
+
+A single paired 60-second run was subsequently authorized. The kernel tap ran **20:36:17.185514–20:37:17.193175 UTC** on the unchanged live SDK 830fa1c/b23 process; the Mac attached to the two existing compatible RTSP producers. No new SDK subscription, Inspector hook, quality/stream-type change, transport tuning, or service restart was requested. Coordinated Pi-only native fixture work may overlap this window; this is not an isolated CPU benchmark. Both owned tap and RTSP observer processes exited after the bounded measurement.
+
+The tap wrote **54,481 metadata rows**, with **zero drops, missing timestamps, or truncated packets**. VIDEO transport had 26,333 ordered packets and 769 duplicate/old packets. **Every logical boundary remained unknown**, with no tentative or chain-confirmed unit-start event. This establishes a diagnostic coverage failure, not evidence that the transport lacks logical headers. The raw payload was not retained, so this artifact cannot retroactively distinguish a packet-start alignment issue from an unsupported fixed-header field. Do not classify these pauses as within-unit or between-unit.
+
+The two anonymous HomeBase media endpoints delivered 9,618 and 9,612 VIDEO datagrams respectively. Their consecutive-datagram physical quiet intervals greater than 150 ms numbered 35 and 49; their largest were **404.847 ms** and **325.810 ms**, both followed by a sequence advance of one. Camera mapping from this tap is unverified because no header channel was accepted. The standalone endpoint delivered 7,872 VIDEO datagrams and had no interval above 150 ms. Those are datagram counts, not picture counts.
+
+The concurrently observed compatible streams delivered **913 Front Door** and **903 Garage** unique stamped frames, with zero missing/invalid stamps, abandoned access units, duplicates, or transport-invalid frames. Bridge-ingress-to-Mac-receipt age upper bounds were:
+
+| Stream | Median | p95 | Maximum |
+| --- | ---: | ---: | ---: |
+| Front Door | 81.707 ms | 183.944 ms | 260.295 ms |
+| Garage | 89.089 ms | 169.281 ms | 233.727 ms |
+
+These ages begin at bridge SDK ingress, exclude pre-ingress delivery holds, and are neither sensor-capture age nor presentation age. There is no new source-pause root-cause conclusion from this short trial.
+
+Private metadata provenance (not committed):
+
+- `.evidence/bridge-network-audit-2026-10-12/incoming-logical-nic-60.jsonl`, SHA-256 `2df2533b53c6e621dd0d076ec95e63d09dcf59ba9f02b1d4fc39437459c8c417`.
+- `.evidence/frame-freshness-2026-10-12/compat-mac-incoming-logical-60s.jsonl`, SHA-256 `129250f70fb853dbef54288beaf25f15b92613969621d828e1f24f86860b9992`.
+- `.evidence/bridge-network-audit-2026-10-12/incoming-logical-60-analysis.json` contains exact anonymous endpoint/sequence boundaries and per-interval control-message counts.
+
+Next instrumentation must establish fixed-header coverage before another pause-classification claim. It must still avoid scanning opaque continuation bodies, retain no raw payload, and leave production transport policy unchanged.
