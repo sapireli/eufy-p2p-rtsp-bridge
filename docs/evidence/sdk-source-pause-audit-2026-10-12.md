@@ -621,3 +621,63 @@ rtk proxy python3 server/scripts/capture-udp-metadata.py \
   --interface eth0 --peer '<LAN peer>' --seconds 90 \
   --command-headers --out '<private metadata.jsonl>'
 ```
+
+## Passive fixed-header repeat: 18:42:52–18:44:52 UTC
+
+A separately coordinated 120-second interface-only capture ran
+18:42:52.225802–18:44:52.228083 UTC. It recorded 89,804 metadata rows with zero
+tap drops, truncations or missing timestamps. The temporary observer socket was
+closed at completion; no Inspector hooks, camera commands or production settings
+were changed by the observer. Running SDK bundle SHA was
+`4ddbf934ccab2ebee30832fdacb7a1874e308278f3db2f41aa98503b6e938cf4`.
+
+There were **zero outgoing DATA commands to HomeBase across all ports for the
+entire 120 seconds**. Its stable sessions had these largest VIDEO quiet gaps:
+
+| Local / peer port | Consecutive sequence boundary | Quiet | Final VIDEO ACK delay |
+| --- | --- | ---: | ---: |
+| 58455 / 19719 | 64517→64518 | 832.938643 ms | 1.351875 ms |
+| 49574 / 23094 | 16887→16888 | 333.479425 ms | 0.959075 ms |
+
+The 832.939-ms interval was 18:44:30.717160–18:44:31.550098 UTC.
+Host PING during it received a peer PONG 0.600850 ms later. Neither session had
+an outgoing DATA command within five seconds either side of its longest gap.
+Incoming VIDEO logical header channels were not retained; these ports are
+reported anonymously rather than inferred from byte volume. No three-second
+HomeBase pause occurred in this window, so this is not evidence it was cured.
+
+### Distinct standalone session-close case
+
+Across anonymous standalone peer-2's old and new ports, VIDEO was absent for
+**22,681.253485 ms**, from 18:42:56.113669 UTC (old port 43944, sequence 3431)
+to 18:43:18.794922 UTC (new port 39504, sequence 0). Per-port gap statistics
+alone would hide this replacement interval and must not represent the whole
+camera observation.
+
+The old session's last incoming packet of any kind was **F1F0 END** at
+18:42:56.151354 UTC, 37.685486 ms after its final VIDEO packet. No incoming
+PING/PONG/control traffic followed on that old session. The SDK continued
+sending 1139 keepalives and PING. STOP 1004 was physically emitted at
+18:43:12.122681 UTC, 16.009012 seconds after VIDEO ceased; the live bridge
+journal then reported stopped / feed ended / reopening. A new outer 1700 start
+was emitted at 18:43:18.671776, and the journal reported streaming at 18:43:19.
+The stop thus followed the silence; it cannot explain its initial onset.
+
+SDK `codec.ts` names F1F0 as `ResponseMessageType.END`. Current
+`p2p-session.ts:onMessage` has no incoming END branch and logs it as UNHANDLED,
+so prompt peer-close handling is a concrete candidate for improving recovery
+in this separate case. Connected-peer verification, wire semantics, observable
+UDP tests and deployed recovery evidence are still required before a fix.
+This does **not** explain the HomeBase quiet interval with heartbeat/control
+traffic still alive. No END-handling SDK change is claimed here.
+
+All 42 decoded fixed-header outbound commands were standalone: 38 keepalives
+1139, two gateway queries 1100, one stop 1004 and one outer start 1700. Inner
+encrypted command content was not retained or decrypted.
+
+Private files under `.evidence/bridge-network-audit-2026-10-12/`:
+`command-nic-120.jsonl` SHA-256
+`e479c547e2e2131008597994f5fd81be1496c697d5b736629810aaea15463292`;
+`command-nic-120-analysis.json` retains exact selected rows and the cross-port
+standalone boundary. Temporary script SHA-256 was
+`8e045fb69aa8994b8f913fd0fac877999c8d9b62c3eabf354ed703393904e2c0`.
