@@ -3,6 +3,7 @@ package com.eufywall.tv
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
+import android.util.Log
 import org.json.JSONObject
 
 data class NativeRendition(val rtsp: String, val codec: String, val width: Int, val height: Int,
@@ -26,8 +27,10 @@ internal fun nativeHardwareDecoder(rendition: NativeRendition): String? {
                 info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, true) } &&
                 runCatching {
                     val caps = info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_HEVC).videoCapabilities
-                    caps != null && caps.isSizeSupported(rendition.width, rendition.height) &&
-                        caps.areSizeAndRateSupported(rendition.width, rendition.height, 30.0)
+                    val size = caps != null && caps.isSizeSupported(rendition.width, rendition.height)
+                    val rate = size && caps!!.areSizeAndRateSupported(rendition.width, rendition.height, 30.0)
+                    Log.i("EufyWallTV", "Native HEVC candidate ${info.name}: ${rendition.width}x${rendition.height} size=$size rate30=$rate")
+                    rate
                 }.getOrDefault(false)
         }?.name
     } catch (_: Exception) { null }
