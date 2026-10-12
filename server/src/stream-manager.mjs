@@ -134,9 +134,9 @@ export function createStreamManager(ctx) {
   }
 
   function scheduleReopen(slot, why) {
-    // Solo per-camera recovery. The SDK opens an independent per-camera media session, so one camera's
-    // failure never needs to disturb a sibling. openFeedInto tears the station's session down before
-    // retrying (see there), so each attempt re-runs the lookup and picks up a fresh, live port.
+    // Per-camera recovery retires only the affected cached source (see openFeedInto).
+    // The SDK knows whether that source owns a dedicated connection or shares station/control;
+    // retrying one camera must not tear down its sibling's transport.
     if (slot.restartTimer) return;
     if (!wanted(slot.sn)) return; // nothing wants it any more: let it stay down
     const delay = cfg.stall.backoffMs[Math.min(slot.backoffIdx, cfg.stall.backoffMs.length - 1)];
@@ -199,12 +199,12 @@ export function createStreamManager(ctx) {
     }
     try {
       const stationSn = ctx.getCamera?.(sn)?.stationSn;
-      // Tear the station's P2P session down before retrying: a reused session keeps CHECK_CAM-ing the same
-      // stale looked-up port and never picks up a newer address, so a full teardown makes the next open
-      // re-run the lookup and target the station's current live port. Every Nth failure (default 1 = each).
+      // Retire this camera's cached SDK source before retrying. The SDK closes its dedicated media
+      // connection when present and preserves shared station/control and sibling streams.
+      // Every Nth failure (default 1 = each); a shared base connection is deliberately retained.
       if (cfg.stall.recreateClientAfter > 0 && slot.failures > 0 && slot.failures % cfg.stall.recreateClientAfter === 0) {
         const dropped = await ctx.sdk.dropStreamClient?.(sn, stationSn);
-        if (dropped) console.log(`[bridge] ${sn}: ${slot.failures} failure(s) — tore down station session; next open re-lookups a fresh port`);
+        if (dropped) console.log(`[bridge] ${sn}: ${slot.failures} failure(s) — retired camera source; sibling station streams preserved`);
       }
       const client = await ctx.sdk.streamClientFor(sn, stationSn);
       slot.client = client;

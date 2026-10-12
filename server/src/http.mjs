@@ -119,7 +119,7 @@ export function createHttpHandler(ctx) {
         // Tear down a station's P2P session(s) (control + media) so an experiment can run as the sole client.
         const sn = url.searchParams.get("sn");
         if (!sn) return json(res, 400, { error: "?sn=" });
-        const dropped = await ctx.sdk.dropStreamClient?.(sn, sn);
+        const dropped = await ctx.sdk.dropStationClient?.(sn);
         return json(res, 200, { sn, dropped });
       }
       if (arg === "motion") {

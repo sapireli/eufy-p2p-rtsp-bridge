@@ -22,7 +22,7 @@ function ctxWith({ streaming = [], starting = [], peer = "lan", windowMs = 1 } =
     state,
     listCameras: () => [{ sn: "CAM", stationSn: "STA", enabled: true }],
     restartCamera: (sn) => restarted.push(sn),
-    sdk: { dropStreamClient: async () => true },
+    sdk: { dropStationClient: async () => true },
   };
   const lu = createLanUpgrade(ctx);
   state.peerPath.set("STA", peer);

@@ -47,14 +47,22 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
      * silently breaks the DSK/cipher lookups a P2P connect needs. One client, one identity, no contention.
      */
     streamClientFor: async () => eufy,
-    /** Tear down the station's P2P session (control + its media sessions) so the next open re-lookups a
-     *  fresh port. Returns whether a session existed to close. */
-    async dropStreamClient(sn, stationSn) {
-      const key = stationSn ?? sn;
+    /** Reset only this camera's SDK-owned media source, preserving sibling station streams. */
+    async dropStreamClient(sn) {
+      if (typeof eufy.resetCameraStream !== "function") {
+        throw new Error("SDK resetCameraStream is required for camera-scoped recovery");
+      }
+      return eufy.resetCameraStream(sn);
+    },
+    /** Intentionally reset a whole station for an explicit peer-policy transition. */
+    async dropStationClient(stationSn) {
       const sessions = eufy.getP2pSessions?.() ?? new Map();
       let closed = false;
-      for (const [k, s] of sessions) {
-        if (k === key || String(k).startsWith(`${key}#`)) { await s.close?.().catch?.(() => {}); closed = true; }
+      for (const [key, session] of sessions) {
+        if (key === stationSn || String(key).startsWith(`${stationSn}#`)) {
+          await session.close?.();
+          closed = true;
+        }
       }
       return closed;
     },

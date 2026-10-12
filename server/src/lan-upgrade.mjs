@@ -79,7 +79,7 @@ export function createLanUpgrade(ctx) {
     console.log(`[lan-upgrade] ${station}: trying direct LAN (${initial ? "boot" : `attempt ${m.attempts + 1}`}, ${Math.round((m.deadline - now()) / 1000)}s window)`);
     // Tear the whole station session (control + media) so the reconnect re-runs the lookup under the
     // force/TURN-off flags, then reopen each camera.
-    void Promise.resolve(ctx.sdk.dropStreamClient?.(station, station)).catch(() => {}).then(() => {
+    void Promise.resolve(ctx.sdk.dropStationClient?.(station)).catch(() => {}).then(() => {
       for (const sn of cams) ctx.restartCamera?.(sn);
     });
   }
@@ -94,7 +94,7 @@ export function createLanUpgrade(ctx) {
     m.deadline = 0;
     setForce(station, false);
     console.log(`[lan-upgrade] ${station}: ${why} — relay fallback, next LAN attempt in ${Math.round(backoff / 1000)}s`);
-    void Promise.resolve(ctx.sdk.dropStreamClient?.(station, station)).catch(() => {}).then(() => {
+    void Promise.resolve(ctx.sdk.dropStationClient?.(station)).catch(() => {}).then(() => {
       for (const sn of cams) ctx.restartCamera?.(sn);
     });
   }
