@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Linux eth0 packet-tap metadata observer. Never stores packet payload bytes."""
+"""Linux eth0 packet-tap metadata observer. Never writes packet payload bytes."""
 import argparse
 import ctypes
 import ipaddress
@@ -10,7 +10,7 @@ import struct
 import time
 
 
-def parse_udp_metadata(packet, address, peers, command_headers=False):
+def parse_udp_metadata(packet, address, peers, command_headers=False, logical_tracker=None, observed_ns=0):
     """Parse only IPv4 UDP/protocol metadata; reject fragments and short headers.
 
     AF_PACKET SOCK_DGRAM removes the link header. ETH_P_ALL is required to
@@ -44,10 +44,14 @@ def parse_udp_metadata(packet, address, peers, command_headers=False):
            "bytes": len(body), "messageType": body[1]}
     if command_headers:
         row["declaredPayloadBytes"] = struct.unpack_from("!H", body, 2)[0]
+    if logical_tracker is not None:
+        logical_tracker.protocol(row, body)
     if body[1] == 0xd0:
         if len(body) < 8:
             return None
         row.update(dataType=body[5], sequence=struct.unpack_from("!H", body, 6)[0])
+        if logical_tracker is not None and not outgoing:
+            row["incomingLogical"] = logical_tracker.consume(row, body, observed_ns)
         # Inspect only the fixed 16-byte logical header at the packet start.
         # Never scan continuations, decrypt a body or retain header/raw bytes.
         if command_headers and outgoing and body[5] == 0 and len(body) >= 24:
@@ -66,6 +70,147 @@ def parse_udp_metadata(packet, address, peers, command_headers=False):
         row.update(dataType=body[5], ackCount=count, sequence=seq[0], ackSequences=seq)
     return row
 
+
+
+class IncomingLogicalTracker:
+    """Passive bounded diagnostics; never retains media/crypto bodies or reorders production traffic.
+
+    First valid packet-start header is tentative. A subsequent calculated valid
+    boundary confirms the chain. Reordered packets retain lengths/times only;
+    if later consumption would cross a boundary, synchronization is lost.
+    """
+    MAX_UNIT = 8 * 1024 * 1024
+    MAX_STREAMS = 64
+    MAX_REORDER = 64
+    COMMANDS = {1: {1300, 1301}, 0: {1000, 1003, 1004, 1100, 1103, 1139, 1306, 1308, 1350, 1351, 1700},
+                2: {1000, 1003, 1004, 1100, 1103, 1139, 1306, 1308, 1350, 1351, 1700}}
+
+    def __init__(self):
+        self.streams = {}
+
+    def protocol(self, row, body):
+        """Forget endpoint state on well-framed END or CAM_ID; never affect transport."""
+        if body[1] not in (0xf0, 0x42) or struct.unpack_from("!H", body, 2)[0] != len(body)-4:
+            return
+        endpoint = (row["peer"], row["localPort"], row["peerPort"])
+        for key in list(self.streams):
+            if key[:3] == endpoint:
+                del self.streams[key]
+
+    def _header(self, data, kind):
+        if len(data) < 16 or data[:4] != b"XZYH":
+            return None
+        command, length = struct.unpack_from("<HI", data, 4)
+        if (command not in self.COMMANDS.get(kind, set()) or length > self.MAX_UNIT
+                or data[10] not in (0, 1, 8) or data[11] != 0 or data[15] != 0
+                or (data[12] not in range(65) and data[12] != 255)
+                or data[13] not in (0, 1, 2, 8)):
+            return None
+        return {"commandId": command, "logicalPayloadBytes": length,
+                "channel": data[12], "signCode": data[13], "type": data[14]}
+
+    @staticmethod
+    def _lose(state):
+        state.update(unit=None, remaining=0, header=bytearray(), chain=False, candidate=False)
+
+    def _parse(self, state, data, kind, events):
+        offset = 0
+        for _ in range(128):
+            if state["unit"] is not None:
+                size = min(state["remaining"], len(data) - offset)
+                state["remaining"] -= size
+                offset += size
+                if state["remaining"]:
+                    return
+                events.append({"event": "unit-complete", "unitId": state["unitId"]})
+                state["unit"] = None
+                if offset == len(data):
+                    return
+            if offset == len(data):
+                return
+            if not state["candidate"] and not state["chain"]:
+                header = self._header(data[offset:offset+16], kind)
+                if header is None:
+                    return
+                state["candidate"] = True
+                offset += 16
+            else:
+                need = 16 - len(state["header"])
+                take = min(need, len(data) - offset)
+                state["header"].extend(data[offset:offset+take])
+                offset += take
+                if len(state["header"]) < 16:
+                    if state["header"][:min(4, len(state["header"]))] != b"XZYH"[:min(4, len(state["header"]))]:
+                        self._lose(state)
+                        events.append({"event": "invalid-header"})
+                    return
+                header = self._header(state["header"], kind)
+                state["header"].clear()
+                if header is None:
+                    self._lose(state)
+                    events.append({"event": "invalid-header"})
+                    return
+                state["chain"] = True
+            state["unitId"] += 1
+            state["unit"] = header
+            state["remaining"] = header["logicalPayloadBytes"]
+            events.append({"event": "unit-start", "unitId": state["unitId"],
+                           "confidence": "chain" if state["chain"] else "tentative", **header})
+        self._lose(state)
+        events.append({"event": "packed-unit-limit"})
+
+    def consume(self, row, body, observed_ns):
+        kind = row["dataType"]
+        if kind not in self.COMMANDS or body[4] != 0xd1 or struct.unpack_from("!H", body, 2)[0] != len(body)-4:
+            return {"sequenceState": "unsupported-or-malformed", "boundary": "unknown"}
+        key = (row["peer"], row["localPort"], row["peerPort"], kind)
+        if key not in self.streams:
+            if len(self.streams) >= self.MAX_STREAMS:
+                self.streams.pop(next(iter(self.streams)))
+            self.streams[key] = {"expected": row["sequence"], "pending": {}, "unit": None,
+                "remaining": 0, "header": bytearray(), "chain": False, "candidate": False, "unitId": 0}
+        state = self.streams[key]
+        sequence = row["sequence"]
+        distance = (sequence - state["expected"]) & 65535
+        events = []
+        if distance >= 32768:
+            sequence_state = "duplicate-or-old"
+        elif distance:
+            sequence_state = "out-of-order"
+            if distance > self.MAX_REORDER or len(state["pending"]) >= self.MAX_REORDER:
+                self._lose(state)
+                state["pending"].clear()
+                state["expected"] = (sequence + 1) & 65535
+                sequence_state = "reorder-limit-reset"
+            else:
+                state["pending"].setdefault(sequence, {"payloadBytes": len(body)-8, "observedNs": observed_ns})
+        else:
+            sequence_state = "ordered"
+            self._parse(state, body[8:], kind, events)
+            state["expected"] = (sequence + 1) & 65535
+            while state["expected"] in state["pending"]:
+                pending = state["pending"].pop(state["expected"])
+                length = pending["payloadBytes"]
+                if state["unit"] is not None and length <= state["remaining"]:
+                    state["remaining"] -= length
+                    if not state["remaining"]:
+                        events.append({"event": "unit-complete", "unitId": state["unitId"], "reorderedLengthOnly": True})
+                        state["unit"] = None
+                else:
+                    self._lose(state)
+                    events.append({"event": "reordered-boundary-unknown"})
+                state["expected"] = (state["expected"] + 1) & 65535
+        trusted = state["chain"] and not state["pending"]
+        result = {"sequenceState": sequence_state, "expectedSequence": state["expected"],
+                  "pendingPackets": len(state["pending"]), "boundary": "unit" if trusted and state["unit"] else "partial-header" if trusted and state["header"] else "header" if trusted else "unknown"}
+        if state["header"]:
+            result["partialHeaderBytes"] = len(state["header"])
+        if state["unit"] is not None:
+            result.update(unitId=state["unitId"], remainingPayloadBytes=state["remaining"],
+                          confidence="chain" if trusted else "tentative", **state["unit"])
+        if events:
+            result["events"] = events
+        return result
 
 def attach_udp_filter(sock):
     """Kernel classic-BPF filter, before receive-buffer allocation/userspace.
@@ -97,6 +242,7 @@ def main():
     parser.add_argument("--peer", action="append", required=True, help="IPv4 peer to observe; saved as an anonymous peer ID")
     parser.add_argument("--seconds", type=float, default=90)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--incoming-logical-headers", action="store_true", help="Track incoming fixed logical-header integer fields conservatively; never retain payloads")
     parser.add_argument("--command-headers", action="store_true", help="Record integer fields from outbound DATA fixed headers only; never encrypted bodies")
     args = parser.parse_args()
     if not 0 < args.seconds <= 600:
@@ -126,9 +272,10 @@ def main():
     sock.settimeout(.5)
     start_wall_ns,start_mono_ns = time.time_ns(),time.monotonic_ns()
     os.umask(0o077)
+    logical_tracker = IncomingLogicalTracker() if args.incoming_logical_headers else None
     captured,ignored,untimestamped,truncated = 0,0,0,0
     with sock,open(args.out,"w",encoding="utf8") as out:
-        out.write(json.dumps({"phase":"capture-start","scope":"kernel-interface-packet-tap","interface":args.interface,"startedUnixNs":str(start_wall_ns),"startedMonotonicNs":str(start_mono_ns),"receiveBufferBytes":sock.getsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF),"peerIds":list(peers.values()),"payloadStored":False,"kernelFilter":"IPv4 UDP","receiveBufferForced":receive_buffer_forced,"commandHeaders":args.command_headers,"commandHeaderInspectionBytes":16 if args.command_headers else 0})+"\n")
+        out.write(json.dumps({"phase":"capture-start","scope":"kernel-interface-packet-tap","interface":args.interface,"startedUnixNs":str(start_wall_ns),"startedMonotonicNs":str(start_mono_ns),"receiveBufferBytes":sock.getsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF),"peerIds":list(peers.values()),"payloadStored":False,"kernelFilter":"IPv4 UDP","receiveBufferForced":receive_buffer_forced,"commandHeaders":args.command_headers,"commandHeaderInspectionBytes":16 if args.command_headers else 0,"incomingLogicalHeaders":args.incoming_logical_headers,"logicalReorderMetadataOnly":True if logical_tracker else False})+"\n")
         while time.monotonic_ns()-start_mono_ns < args.seconds*1e9:
             try:
                 packet,ancillary,flags,address=sock.recvmsg(65535,socket.CMSG_SPACE(32))
@@ -155,6 +302,8 @@ def main():
             if wall_ns is None:
                 untimestamped += 1
                 continue
+            if logical_tracker is not None:
+                row = parse_udp_metadata(packet, address, peers, args.command_headers, logical_tracker, wall_ns)
             row.update(phase="udp", unixNs=str(wall_ns), unixMs=wall_ns/1000000)
             out.write(json.dumps(row,separators=(",",":"))+"\n")
             captured += 1
