@@ -57,6 +57,7 @@ type Background struct {
 	d         device
 	info      Info
 	handle    uint32
+	pitch     uint32
 	mapping   []byte
 	previous  []byte // exact legacy SETPLANE layout, reconstructed from plane properties
 	installed bool
@@ -123,6 +124,7 @@ func open(d device, connectorID uint32) (_ *Background, err error) {
 	}
 	b.handle = get32(dumb, 16)
 	pitch, size := get32(dumb, 20), get64(dumb, 24)
+	b.pitch = pitch
 	if b.handle == 0 || uint64(pitch) < uint64(w)*uint64(bits/8) || size < uint64(pitch)*uint64(h) || size > maxBufferBytes {
 		return nil, fmt.Errorf("DRM black image: invalid allocation handle=%d pitch=%d size=%d", b.handle, pitch, size)
 	}

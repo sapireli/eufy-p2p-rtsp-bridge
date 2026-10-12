@@ -23,6 +23,7 @@ import (
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/detect"
 	"eufy-wall/internal/drmbackground"
+	"eufy-wall/internal/freshness"
 	"eufy-wall/internal/layout"
 	"eufy-wall/internal/pipeline"
 	"eufy-wall/internal/supervisor"
@@ -91,6 +92,17 @@ func main() {
 	}
 	os.Setenv("GST_PLUGIN_PATH", pluginPath)
 	caps.DecodedPacing = detect.HasElement("eufypacing")
+	caps.StampReader = detect.HasElement("eufystamp")
+	caps.Freshness = discoverFreshness(c.RTSPBase)
+	{
+		f, e := os.CreateTemp("", "eufy-wall-clock-")
+		if e != nil {
+			log.Fatal(e)
+		}
+		caps.ClockFile = f.Name()
+		f.Close()
+		defer os.Remove(caps.ClockFile)
+	}
 	if !caps.DecodedPacing {
 		log.Printf("[wall] eufypacing plugin unavailable; using immediate display without stabilization")
 	}
@@ -105,6 +117,9 @@ func main() {
 		log.Fatalf("[wall] %v", err)
 	}
 	var sharedFiles []*os.File
+	if caps.Sink == "planes" && (*dryRun || *printLayout) {
+		caps.DRMFD = 3
+	} // Describe the inherited descriptor without opening DRM in preview mode.
 	if caps.Sink == "planes" && !*dryRun && !*printLayout {
 		device, err := detect.DRMDevice("/", c.Output)
 		if err != nil {
@@ -149,6 +164,14 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	for _, cap := range caps.Freshness {
+		if !cap.Enforced() {
+			continue
+		}
+		go freshness.Poll(ctx, cap.ClockURL, caps.ClockFile, func(line string) { log.Printf("[freshness] %s", line) })
+		log.Printf("[freshness] bridge advertises %dms ingress age for its matching RTSP resource; camera capture age unverified", cap.MaxAgeMs)
+		break
+	}
 	if caps.Sink == "planes" {
 		background, err := drmbackground.Open(sharedFiles[0], caps.ConnectorID)
 		if err != nil {
@@ -159,6 +182,21 @@ func main() {
 				log.Printf("[wall] release black background: %v", err)
 			}
 		}()
+		marked := false
+		caps.UnavailableMarker = func() {
+			if marked {
+				return
+			}
+			for _, t := range tiles {
+				if err := background.MarkUnavailable(t.X, t.Y, t.W, t.H); err != nil {
+					log.Printf("[freshness] unavailable caption: %v", err)
+				}
+			}
+			marked = true
+		}
+		if hasEnforcedFreshness(caps.Freshness) {
+			caps.UnavailableMarker()
+		}
 		info := background.Info()
 		caps.ConnectorID = int(info.ConnectorID)
 		// Pin the video sinks to the same connector chosen for the background, even for output=auto.
@@ -343,6 +381,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	// What each tile is rendering: live video, or the camera's last still while it wakes.
 	content := map[int]string{}
 	lastShown := ""
+	clockPolling := hasEnforcedFreshness(caps.Freshness)
 	// Cameras this wall is keeping awake. A hold is bounded on the server, so showing one means
 	// refreshing it; no longer showing one means releasing it, or a battery camera would be held awake
 	// by a tile that stopped looking at it.
@@ -354,9 +393,33 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		// against an empty store would blank every tile, so a display whose bridge is briefly
 		// unreachable would go dark rather than keep showing the always-on cameras it can still pull.
 		known := store.Known()
+		// A reconnect can advertise capabilities even when startup API discovery failed.
+		playbackCaps := caps
+		playbackCaps.Freshness = make(map[string]freshness.Capability, len(caps.Freshness)+len(known))
+		for sn, cap := range caps.Freshness {
+			playbackCaps.Freshness[sn] = cap
+		}
+		for _, cam := range known {
+			if cam.Freshness.Supported() {
+				playbackCaps.Freshness[cam.SN] = cam.Freshness
+				if cam.Freshness.Enforced() && !clockPolling {
+					clockPolling = true
+					go freshness.Poll(ctx, cam.Freshness.ClockURL, caps.ClockFile, func(line string) { log.Printf("[freshness] %s", line) })
+				}
+			}
+		}
+		caps = playbackCaps
+		if hasEnforcedFreshness(playbackCaps.Freshness) && playbackCaps.UnavailableMarker != nil {
+			playbackCaps.UnavailableMarker()
+		}
+
 		if len(known) == 0 {
 			mu.Unlock()
-			mgr.Update(ctx, static)
+			if len(playbackCaps.Freshness) > 0 {
+				mgr.Update(ctx, plansFor(c, playbackCaps, tiles, nil, nil, nil))
+			} else {
+				mgr.Update(ctx, static)
+			}
 			return
 		}
 		sels := store.Resolve(c.Tiles, showing, switchedAt)
@@ -422,7 +485,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			lastShown = line
 			log.Printf("[wall] showing %s", line)
 		}
-		mgr.Update(ctx, plansFor(playbackConfig, caps, tiles, snapshot, kinds, func(sn string) string {
+		mgr.Update(ctx, plansFor(playbackConfig, playbackCaps, tiles, snapshot, kinds, func(sn string) string {
 			if k, ok := keys[sn]; ok && k != "" {
 				return k
 			}
@@ -566,4 +629,45 @@ func planNames(plans []pipeline.Plan) string {
 		names = append(names, p.Name)
 	}
 	return strings.Join(names, ", ")
+}
+
+// Discovery is opt-in: explicit legacy RTSP feeds without advertised stamps remain usable.
+func discoverFreshness(rtspBase string) map[string]freshness.Capability {
+	out := map[string]freshness.Capability{}
+	base := wsclient.APIBase(rtspBase)
+	if base == "" {
+		return out
+	}
+	response, err := (&http.Client{Timeout: 4 * time.Second}).Get(base + "/api/cameras")
+	if err != nil {
+		return out
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		return out
+	}
+	var cams []struct {
+		SN        string               `json:"sn"`
+		RTSP      string               `json:"rtsp"`
+		Freshness freshness.Capability `json:"freshness"`
+	}
+	if json.NewDecoder(response.Body).Decode(&cams) != nil {
+		return out
+	}
+	for _, cam := range cams {
+		if cam.Freshness.Supported() {
+			cam.Freshness.StreamURL = cam.RTSP
+			out[cam.SN] = cam.Freshness
+		}
+	}
+	return out
+}
+
+func hasEnforcedFreshness(caps map[string]freshness.Capability) bool {
+	for _, cap := range caps {
+		if cap.Enforced() {
+			return true
+		}
+	}
+	return false
 }

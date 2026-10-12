@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/freshness"
 	"eufy-wall/internal/layout"
 )
 
@@ -19,9 +20,13 @@ type Caps struct {
 	// ConnectorID is the DRM connector this instance renders on (0 = let kmssink pick the first connected
 	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
 	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.
-	ConnectorID   int
-	DRMFD         int  // inherited shared DRM descriptor (0 = let kmssink open the device)
-	DecodedPacing bool // installed eufypacing raw-video clock mapper
+	ConnectorID       int
+	DRMFD             int // inherited shared DRM descriptor (0 = let kmssink open the device)
+	Freshness         map[string]freshness.Capability
+	ClockFile         string
+	UnavailableMarker func()
+	StampReader       bool
+	DecodedPacing     bool // installed eufypacing raw-video clock mapper
 }
 
 // kmssinkArgs is the sink plus the output it renders on, shared by every sink strategy.
@@ -107,6 +112,11 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		return nil, fmt.Errorf("pipeline: unknown decoder %q", caps.Decoder)
 	}
 	for _, t := range tiles {
+		if cap, strict := caps.Freshness[t.Camera]; strict && cap.Enforced() && cap.BoundTo(t.URL) && t.StillURL == "" {
+			if !caps.DecodedPacing || !caps.StampReader || caps.ClockFile == "" || caps.Sink != "planes" || caps.DRMFD <= 0 {
+				return nil, fmt.Errorf("pipeline: advertised strict freshness requires stamp reader, clock mapping and independent shared DRM planes")
+			}
+		}
 		if t.StillURL != "" {
 			continue // a JPEG needs no video decoder
 		}
@@ -147,12 +157,22 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 			// receive-time timestamping would turn delivery bursts into presentation jitter.
 			args = append(args, "buffer-mode=none")
 		}
-		args = append(args, "!", dp[0], "!", dp[1], "!", family[codec], "!", "watchdog", "timeout=15000")
+		args = append(args, "!", dp[0], "!", dp[1])
+		cap, strict := caps.Freshness[t.Camera]
+		strict = strict && cap.Enforced() && cap.BoundTo(t.URL)
+		if strict {
+			args = append(args, "!", "video/x-"+codec+",stream-format=byte-stream,alignment=au", "!", "eufystamp", fmt.Sprintf("channel=%d", t.Index+1))
+		}
+		args = append(args, "!", family[codec], "!", "watchdog", "timeout=15000")
 		if caps.DecodedPacing {
 			// Drop only decoded frames: every compressed reference still reaches the decoder.
 			args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream")
 			if caps.Sink == "planes" {
-				args = append(args, "!", "eufypacing", "!", "watchdog", "timeout=15000")
+				args = append(args, "!", "eufypacing")
+				if strict {
+					args = append(args, fmt.Sprintf("channel=%d", t.Index+1), "clock-file="+caps.ClockFile, fmt.Sprintf("max-age-ms=%d", cap.MaxAgeMs), fmt.Sprintf("drm-fd=%d", caps.DRMFD), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]))
+				}
+				args = append(args, "!", "watchdog", "timeout=15000")
 			}
 		}
 		return args
@@ -166,7 +186,11 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		for i, t := range tiles {
 			args = append(args, src(i, t)...)
 			args = append(args, "!")
-			args = append(args, caps.kmssinkArgs(append([]string{fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]), fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H)}, clockArgs...)...)...)
+			tileClockArgs := clockArgs
+			if cap, strict := caps.Freshness[t.Camera]; strict && cap.Enforced() && cap.BoundTo(t.URL) && t.StillURL == "" {
+				tileClockArgs = []string{"sync=false", "processing-deadline=0"}
+			} // Strict pacer owns wait and synchronized plane updates.
+			args = append(args, caps.kmssinkArgs(append([]string{fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]), fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H)}, tileClockArgs...)...)...)
 		}
 	case "compositor", "window":
 		for i, t := range tiles {

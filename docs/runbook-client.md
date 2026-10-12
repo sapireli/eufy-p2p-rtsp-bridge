@@ -183,3 +183,10 @@ and [queue limits](https://gstreamer.freedesktop.org/documentation/coreelements/
 - Too slow (dropped frames, CPU > 80 %) → lower the secondaries' streaming quality to 720p in the eufy
   app (camera → Settings → Video → Streaming quality; the bridge cannot set it — see the server runbook)
   or use a smaller layout.
+
+
+## Advertised bridge-ingress freshness
+
+A compatible bridge can advertise per-camera SEI freshness stamps. `mode: observe` keeps the existing Linux playback chain unchanged; it does not activate deadline drops, blanking or freshness-triggered restarts. `mode: enforce` activates the guards below. Version 2 requires an explicit `observe` or `enforce` mode; older clients ignore version 2. Older v1 capabilities without a mode retain enforce compatibility. The binary SEI stamp format remains version 1. The Linux client reads stamps before decoding and checks their original PTS association after decoding; a late or unverified picture is suppressed. Expired independent DRM video planes are cleared to the existing black backdrop even when no frames arrive, while compressed decoding continues. Fresh pictures resume without a reconnect; actual transport/decoder failures still restart.
+
+This bounds age since bridge ingress only. Camera capture age remains unverified. Strict freshness requires the native `eufystamp`/`eufypacing` plugin pair, monotonic clock polling and independent shared DRM overlay planes. Missing required components fail closed for advertised strict feeds. Legacy unadvertised RTSP feeds continue to work. See [implementation and verification boundaries](evidence/linux-ingress-freshness-2026-10-12.md).

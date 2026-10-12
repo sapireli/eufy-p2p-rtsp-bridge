@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/freshness"
 	"eufy-wall/internal/layout"
 )
 
@@ -278,5 +279,62 @@ func TestCompositorPacesOutputExactlyOnce(t *testing.T) {
 	got := String(args)
 	if strings.Count(got, "eufypacing") != 1 || strings.Index(got, "eufypacing") < strings.Index(got, "compositor name=mix") {
 		t.Fatalf("output clock must be rebased once: %s", got)
+	}
+}
+
+func TestStrictFreshnessPairsEncodedStampWithRawPacer(t *testing.T) {
+	c, tiles := two()
+	caps := Caps{Decoder: "v4l2", Sink: "planes", DRMFD: 3, DecodedPacing: true, StampReader: true, ClockFile: "/tmp/clock", Freshness: map[string]freshness.Capability{"A": {Version: 1, Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://host/api/clock", StreamURL: "rtsp://s/A"}}}
+	args, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := String(args)
+	for _, want := range []string{"h264parse ! video/x-h264,stream-format=byte-stream,alignment=au ! eufystamp channel=1 ! v4l2h264dec", "eufypacing channel=1 clock-file=/tmp/clock max-age-ms=500 drm-fd=3 plane-id=31", "kmssink name=sink0 plane-id=31 render-rectangle=<0,0,960,1080> sync=false"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %s in %s", want, s)
+		}
+	}
+	if strings.Count(s, "eufystamp") != 1 {
+		t.Fatal("legacy unadvertised feed opted into strict mode")
+	}
+	caps.StampReader = false
+	if _, err = Build(c, tiles, caps); err == nil {
+		t.Fatal("advertised strict feed silently downgraded")
+	}
+	caps.StampReader = true
+	caps.Sink = "compositor"
+	if _, err = Build(c, tiles, caps); err == nil {
+		t.Fatal("compositor incorrectly claimed stale-picture expiration support")
+	}
+}
+
+func TestSameCameraSerialCannotOptLegacyURLIntoFreshness(t *testing.T) {
+	c, tiles := two()
+	tiles[0].URL = "rtsp://legacy/A"
+	caps := Caps{Decoder: "v4l2", Sink: "planes", Freshness: map[string]freshness.Capability{"A": {Version: 1, Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://bridge/api/clock", StreamURL: "rtsp://s/A"}}}
+	args, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(String(args), "eufystamp") {
+		t.Fatal("same serial incorrectly bound a legacy media resource")
+	}
+}
+
+func TestObserveRetainsLegacyPlaybackWithoutStrictPlugin(t *testing.T) {
+	c, tiles := two()
+	caps := Caps{Decoder: "v4l2", Sink: "planes", DecodedPacing: true, Freshness: map[string]freshness.Capability{"A": {Version: 2, Mode: "observe", Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://bridge/api/clock", StreamURL: "rtsp://s/A"}}}
+	observe, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps.Freshness = nil
+	legacy, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if String(observe) != String(legacy) {
+		t.Fatal("observe changed legacy pipeline")
 	}
 }

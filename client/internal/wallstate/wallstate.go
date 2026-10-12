@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/freshness"
 )
 
 // Camera is what we know about one camera.
 type Camera struct {
+	Freshness         freshness.Capability
 	SN                string
 	Name              string
 	Mode              string // always | on_motion | on_demand
@@ -50,13 +52,15 @@ func (s *Store) get(sn string) *Camera {
 
 // HelloCamera is one camera in the server's hello snapshot.
 type HelloCamera struct {
-	SN                string `json:"sn"`
-	Name              string `json:"name"`
-	Mode              string `json:"mode"`
-	State             string `json:"state"`
-	Still             bool   `json:"still"`
-	StreamKey         string `json:"streamKey"`
-	RTSPTCPPacketSize int    `json:"rtspTcpPacketSize"`
+	RTSP              string               `json:"rtsp"`
+	Freshness         freshness.Capability `json:"freshness"`
+	SN                string               `json:"sn"`
+	Name              string               `json:"name"`
+	Mode              string               `json:"mode"`
+	State             string               `json:"state"`
+	Still             bool                 `json:"still"`
+	StreamKey         string               `json:"streamKey"`
+	RTSPTCPPacketSize int                  `json:"rtspTcpPacketSize"`
 }
 
 // Message is one /ws frame. Only the fields the wall acts on are decoded.
@@ -80,7 +84,8 @@ func (s *Store) Apply(m Message) bool {
 		// happening rather than waiting for the next event.
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
-			s.cams[c.SN] = &Camera{SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, RTSPTCPPacketSize: c.RTSPTCPPacketSize}
+			c.Freshness.StreamURL = c.RTSP
+			s.cams[c.SN] = &Camera{Freshness: c.Freshness, SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, RTSPTCPPacketSize: c.RTSPTCPPacketSize}
 		}
 		return true
 	case "motion":

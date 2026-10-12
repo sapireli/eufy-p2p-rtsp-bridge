@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"eufy-wall/internal/config"
+	"eufy-wall/internal/freshness"
 )
 
 // The wall is driven by pushed events. These cover what a viewer actually experiences: a screen that
@@ -289,5 +290,15 @@ func TestStreamKeyComesFromTheBridge(t *testing.T) {
 	}
 	if got := s.StreamKeyFor("UNKNOWN"); got != "UNKNOWN" {
 		t.Errorf("a camera we know nothing about falls back to its serial, got %q", got)
+	}
+}
+
+func TestHelloPreservesAdvertisedIngressFreshness(t *testing.T) {
+	s := New()
+	cap := freshness.Capability{Version: 1, Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://bridge/api/clock"}
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "fixture", State: "live", Freshness: cap, RTSP: "rtsp://bridge:8554/fixture"}}})
+	cam, ok := s.Camera("fixture")
+	if !ok || !cam.Freshness.BoundTo("rtsp://bridge:8554/fixture?pkt_size=8192") {
+		t.Fatal("lost strict capability across hello")
 	}
 }

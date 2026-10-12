@@ -330,3 +330,52 @@ func TestLinuxUAPIRequestSizes(t *testing.T) {
 		}
 	}
 }
+
+func TestUnavailableCaptionOnlyTouchesOwnedTilePixels(t *testing.T) {
+	for _, format := range []uint32{rgb565, xrgb8888} {
+		f := fake()
+		f.formats = []uint32{format}
+		b, err := open(f, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		beforeIOCTL := len(f.calls)
+		if err = b.MarkUnavailable(100, 100, 400, 300); err != nil {
+			t.Fatal(err)
+		}
+		touched := 0
+		bytesPerPixel := int(b.info.BitsPerPixel / 8)
+		for y := 0; y < int(b.info.Height); y++ {
+			for x := 0; x < int(b.info.Width); x++ {
+				offset := y*int(b.pitch) + x*bytesPerPixel
+				nonzero := false
+				for _, v := range b.mapping[offset : offset+bytesPerPixel] {
+					nonzero = nonzero || v != 0
+				}
+				if nonzero {
+					touched++
+					if x < 100 || x >= 500 || y < 100 || y >= 400 {
+						t.Fatalf("caption wrote outside owned tile %d,%d", x, y)
+					}
+				}
+			}
+		}
+		if touched == 0 || len(f.calls) != beforeIOCTL {
+			t.Fatal("caption did not paint statically into existing buffer")
+		}
+		b.Close()
+	}
+}
+func TestUnavailableCaptionRejectsInvalidRectangles(t *testing.T) {
+	f := fake()
+	b, err := open(f, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	for _, rect := range [][4]int{{-1, 0, 400, 300}, {0, 0, 2000, 1080}, {0, 0, 10, 10}} {
+		if b.MarkUnavailable(rect[0], rect[1], rect[2], rect[3]) == nil {
+			t.Fatalf("accepted invalid rect %v", rect)
+		}
+	}
+}
