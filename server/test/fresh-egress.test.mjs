@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { freshTranscodeArgs, createFreshEgress } from "../src/fresh-egress.mjs";
+import { freshTranscodeArgs, createFreshEgress, TIMED_OUTPUT_MAX_QUEUED_BYTES } from "../src/fresh-egress.mjs";
 import { transcodeAttempts } from "../src/ffmpeg-hardware.mjs";
 import { EncodedFrameReader } from "../src/encoded-frame-reader.mjs";
 import { parseFrameStamp } from "../src/frame-stamp.mjs";
@@ -97,11 +98,11 @@ test("direct copy retains expired reference stamps so a fresh inter frame recove
   h.stop();
   assert.equal(h.detached(),1);
 });
-test("direct consumer fails closed for absent receipt metadata and stopped downstream drain", () => {
+test("direct consumer fails closed for absent receipt metadata and actual bounded downstream backlog", () => {
   const missing = harness(); missing.feed(idr,1000,10,false);
   assert.equal(missing.res.destroyed,true);
   assert.equal(missing.res.writes.length,0);
-  const blocked = harness(); blocked.res.writableNeedDrain=true; blocked.feed();
+  const blocked = harness(); blocked.res.writableNeedDrain=true; blocked.res.writableLength=TIMED_OUTPUT_MAX_QUEUED_BYTES; blocked.feed();
   assert.equal(blocked.res.destroyed,true);
   assert.equal(blocked.res.writes.length,0);
 });
@@ -295,4 +296,98 @@ test("native HEVC copy delivers real source pictures and exact stamps under glob
     assert.equal(original.status,0,original.stderr);assert.equal(copied.status,0,copied.stderr);
     assert.equal(copied.stdout,original.stdout,"coded native pictures preserve decoded pixels/timing");
   } finally {h?.stop();rmSync(dir,{recursive:true,force:true});}
+});
+
+
+test("output high-water hint accepts consecutive references until the explicit byte bound", () => {
+  const h=harness();h.res.writableNeedDrain=true;h.res.writableLength=200000;
+  h.feed();h.feed(inter,1067);
+  assert.equal(h.res.destroyed,false);assert.equal(h.res.writes.length,2);
+  h.res.writableLength=TIMED_OUTPUT_MAX_QUEUED_BYTES;
+  h.feed(inter,1134);
+  assert.equal(h.res.destroyed,true);assert.equal(h.res.writes.length,2);
+  h.stop();
+});
+
+test("real Node HTTP delivers a large keyframe and synchronous next AU before future input or EOF", {timeout:5000}, async () => {
+  let onFrame,source,stop,serverResponse;
+  const writes=[];
+  const ctx={cfg:{go2rtcTranscode:"always"},state:{slots:new Map([["camera",{codec:"h264"}]])},getCamera:()=>({}),freshness:{nowUs:()=>2000000n},
+    spawn:()=>{throw Error("native profile must bypass encoder");},
+    attachConsumer:(_sn,consumer,options)=>{source=consumer;onFrame=options.onFrame;return ()=>{};}};
+  const api=createFreshEgress(ctx);
+  const server=http.createServer((_req,res)=>{
+    serverResponse=res;res.writeHead(200,{"content-type":"video/x-flv"});
+    const write=res.write.bind(res);res.write=bytes=>{writes.push(bytes);return write(bytes);};
+    stop=api.attachFreshConsumer("camera",res,{rendition:"native"});
+    const filler=Buffer.alloc(150000,0x55),length=[5];let remaining=filler.length;
+    while(remaining>=255){length.push(255);remaining-=255;}length.push(remaining);
+    const large=Buffer.concat([Buffer.from([0,0,0,1,6,...length]),filler,Buffer.from([128]),idr]);
+    const stamp=(frameId,sourceTimestamp)=>({serverEpoch:Buffer.alloc(8,0x44),sourceTimestamp,ingressMonoUs:1900000n,frameId,maxAgeMs:500});
+    onFrame({data:large,codec:"h264",sourceTimestamp:1000},stamp(1n,1000));
+    assert.equal(res.writableNeedDrain,true,"real first write exceeds Node response high-water mark");
+    assert.ok(res.writableLength>0 && res.writableLength<TIMED_OUTPUT_MAX_QUEUED_BYTES);
+    onFrame({data:inter,codec:"h264",sourceTimestamp:1067},stamp(2n,1067));
+  });
+  let request,response;
+  try{
+    await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+    const delivered=await new Promise((resolve,reject)=>{
+      request=http.get(`http://127.0.0.1:${server.address().port}`,res=>{
+        response=res;const chunks=[];let total=0;
+        res.on("error",reject);res.on("data",chunk=>{
+          chunks.push(chunk);total+=chunk.length;
+          if(writes.length===2 && total===writes.reduce((n,b)=>n+b.length,0))resolve(Buffer.concat(chunks));
+        });res.on("end",()=>reject(Error("response ended before both AUs arrived")));
+      });request.on("error",reject);
+    });
+    assert.equal(source.destroyed,false);assert.equal(serverResponse.writableEnded,false);
+    assert.deepEqual(delivered,Buffer.concat(writes));
+    assert.deepEqual(writes.map(bytes=>parseFrameStamp(payload(bytes),"h264").frameId),[1n,2n]);
+    assert.deepEqual(writes.map(bytes=>parseFrameStamp(payload(bytes),"h264").sourceTimestamp),[1000,1067]);
+  }finally{stop?.();response?.destroy();request?.destroy();await new Promise(resolve=>server.close(resolve));}
+});
+
+
+test("real blocked HTTP consumer is closed at the byte bound rather than retaining unbounded pictures", {timeout:5000}, async () => {
+  let onFrame,stop,response,request,serverResponse;
+  const ctx={cfg:{go2rtcTranscode:"never"},state:{slots:new Map([["camera",{codec:"h264"}]])},getCamera:()=>({}),freshness:{nowUs:()=>2000000n},
+    attachConsumer:(_sn,_consumer,options)=>{onFrame=options.onFrame;return ()=>{};}};
+  const api=createFreshEgress(ctx),written=[];
+  const large=Buffer.concat([idr,Buffer.alloc(150000,0x55)]);
+  const feed=i=>onFrame({data:large,codec:"h264",sourceTimestamp:1000+i*67},{serverEpoch:Buffer.alloc(8),sourceTimestamp:1000+i*67,ingressMonoUs:1900000n,frameId:BigInt(i),maxAgeMs:500});
+  const server=http.createServer((_req,res)=>{
+    serverResponse=res;res.writeHead(200,{"content-type":"video/x-flv"});
+    const write=res.write.bind(res);res.write=bytes=>{written.push(bytes.length);return write(bytes);};
+    stop=api.attachFreshConsumer("camera",res);feed(0);
+  });
+  try{
+    await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+    await new Promise((resolve,reject)=>{
+      request=http.get(`http://127.0.0.1:${server.address().port}`,res=>{response=res;res.pause();resolve();});
+      request.on("error",reject);
+    });
+    let lastAccepted=0;
+    for(let i=1;i<100&&!serverResponse.destroyed;i++){
+      lastAccepted=serverResponse.writableLength;feed(i);
+      if(!serverResponse.destroyed)assert.ok(serverResponse.writableLength<=TIMED_OUTPUT_MAX_QUEUED_BYTES);
+    }
+    assert.equal(serverResponse.destroyed,true);
+    assert.ok(written.length>2 && written.length<100,"accepted multiple pictures then bounded actual response queue");
+    assert.ok(lastAccepted>7*1024*1024);
+  }finally{stop?.();response?.destroy();request?.destroy();await new Promise(resolve=>server.close(resolve));}
+});
+
+
+test("compatible encoder drains multiple complete output AUs without treating HTTP high water as loss", () => {
+  let child;
+  const h=harness({mode:"always",spawnFn:()=>child=fakeProcess()});
+  const original=h.res.write;
+  h.res.write=bytes=>{original(bytes);h.res.writableLength=(h.res.writableLength??0)+bytes.length;h.res.writableNeedDrain=true;return false;};
+  const first=h.feed(idr,1000),second=h.feed(inter,1067);
+  child.stdout.write(Buffer.concat([idr,inter]));
+  child.stdio[3].write(`0 0 1/90000 ${idr.length}\n1 6030 1/90000 ${inter.length}\n`);
+  assert.equal(h.res.destroyed,false);assert.equal(h.res.writes.length,2);
+  assert.deepEqual(h.res.writes.map(bytes=>parseFrameStamp(payload(bytes),"h264").frameId),[first.frameId,second.frameId]);
+  h.stop();
 });

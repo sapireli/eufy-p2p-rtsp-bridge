@@ -5,6 +5,10 @@ import { newVideoMatroskaMuxer } from "./video-matroska.mjs";
 import { stampVideoFrame, firstVclNal } from "./frame-stamp.mjs";
 import { EncodedFrameReader } from "./encoded-frame-reader.mjs";
 
+// Two maximum-sized AUs may arrive in one callback. Bound accepted HTTP bytes,
+// not the writable high-water hint, without dropping compressed references.
+export const TIMED_OUTPUT_MAX_QUEUED_BYTES = 8 * 1024 * 1024;
+
 /** One input, one final encoded packet, one original receipt stamp. No inferred RTP phase. */
 export function freshTranscodeArgs(cfg) {
   return ["-hide_banner", "-v", "error", "-copyts", "--eufy-vaapi", cfg.go2rtcVaapiDevice || "auto", String(cfg.go2rtcMaxHeight || 0), cfg.go2rtcVaapiDecode === false ? "encode" : "auto",
@@ -50,11 +54,13 @@ export function createFreshEgress(ctx) {
       const keyframe = firstVclNal(data, codec)?.keyframe === true;
       if (ageMs < 0) return stop(new Error("receipt clock is ahead of bridge clock"));
       const expired = ageMs >= stamp.maxAgeMs;
-      if (res.writableNeedDrain) return stop(new Error("timed media consumer stopped draining"));
       if (needKeyframe && !keyframe) return;
       needKeyframe = false;
       outputMux ??= newVideoFlvMuxer({ codec });
       const bytes = outputMux.push({ data: stampVideoFrame(data, codec, stamp), sourceTimestamp: stamp.sourceTimestamp, codec, keyframe });
+      if ((res.writableLength ?? 0) + bytes.length > TIMED_OUTPUT_MAX_QUEUED_BYTES) {
+        return stop(new Error("timed media output byte backlog exceeded bound"));
+      }
       statistics.outputFrames++;
       // Retain compressed reference pictures, with their original EXPIRED stamp.
       // Strict clients decode dependencies but suppress expired decoded output.
