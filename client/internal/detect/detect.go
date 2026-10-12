@@ -185,3 +185,21 @@ func SinkTemplate(inspect string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// HasElementProperty guards optional plugin upgrades: an older pacing plugin
+// stays usable, but cannot claim observe-mode ingress age telemetry.
+func HasElementProperty(element, property string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "gst-inspect-1.0", element).Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		key, _, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if ok && strings.TrimSpace(key) == property {
+			return true
+		}
+	}
+	return false
+}

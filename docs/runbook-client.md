@@ -187,7 +187,7 @@ and [queue limits](https://gstreamer.freedesktop.org/documentation/coreelements/
 
 ## Advertised bridge-ingress freshness
 
-A compatible bridge can advertise per-camera SEI freshness stamps. `mode: observe` keeps the existing Linux playback chain unchanged; it does not activate deadline drops, blanking or freshness-triggered restarts. `mode: enforce` activates the guards below. Version 2 requires an explicit `observe` or `enforce` mode; older clients ignore version 2. Older v1 capabilities without a mode retain enforce compatibility. The binary SEI stamp format remains version 1. The Linux client reads stamps before decoding and checks their original PTS association after decoding; a late or unverified picture is suppressed. Expired independent DRM video planes are cleared to the existing black backdrop even when no frames arrive, while compressed decoding continues. Fresh pictures resume without a reconnect; actual transport/decoder failures still restart.
+A compatible bridge can advertise per-camera SEI freshness stamps. `mode: observe` preserves existing pacing and presentation policy; it does not activate deadline drops, blanking or freshness-triggered restarts. With the updated native plugin and independent planes, it associates the exact encoded stamp with decoded PTS and emits cumulative `eufy-observe` statistics every five seconds. An older plugin, a non-planes sink, or a manually overridden resource retains legacy playback and reports presentation age as unmeasured. `mode: enforce` activates the guards below. Version 2 requires an explicit `observe` or `enforce` mode; older clients ignore version 2. Older v1 capabilities without a mode retain enforce compatibility. The binary SEI stamp format remains version 1. In enforce mode, the Linux client reads stamps before decoding and checks their original PTS association after decoding; a late or unverified picture is suppressed. Expired independent DRM video planes are cleared to the existing black backdrop even when no frames arrive, while compressed decoding continues. Fresh pictures resume without a reconnect; actual transport/decoder failures still restart.
 
 This bounds age since bridge ingress only. Camera capture age remains unverified. Strict freshness requires the native `eufystamp`/`eufypacing` plugin pair, monotonic clock polling and independent shared DRM overlay planes. Missing required components fail closed for advertised strict feeds. Legacy unadvertised RTSP feeds continue to work. See [implementation and verification boundaries](evidence/linux-ingress-freshness-2026-10-12.md).
 
@@ -233,3 +233,38 @@ disabled. The native GStreamer plugin was not replaced by this client feature.
 No active playback or physical native-HEVC test was performed. Transport packet
 size hints/overrides are retained when selecting a native URI; other URI selector
 parameters belong to that native resource and are not copied from its sibling.
+
+
+### Observe-only Linux measurements
+
+`eufy-observe` reports matched/missing metadata, unknown clock mappings, frame-ID
+order, age upper-bound histograms and maximums after the one-buffer decoded
+queue, and again after the synchronous KMS sink call returns. Clock uncertainty
+includes the clock request round trip and a conservative 1000 ppm projection
+allowance. Pictures above the advertised age budget are counted, not rejected.
+Missing stamps or an invalid clock also continue displaying. The plugin never
+starts its expiry thread or clears DRM planes in observe mode.
+
+These are bridge-ingress-to-software-presentation measurements, **not camera
+capture age or confirmed physical scanout**. `sinkPushMaxNs` measures the sink
+call; `longestDecodedGapNs` measures raw-buffer arrival after the decoded queue;
+`quietNowNs` records the current no-buffer tail when a report is emitted.
+Neither identifies the stage that caused a pause. `scanoutVerified=false` is
+always explicit. DRM plane framebuffer IDs can confirm driver-state progression,
+but repeated IDs are reused pool buffers and do not prove a frozen image.
+
+Native integration verification (with the rebuilt plugin on its library path):
+
+```sh
+cc -std=c99 -O2 -Wall -Wextra -Werror $(pkg-config --cflags gstreamer-1.0) \
+  client/gst/freshness_probe.c -o /tmp/eufy-freshness-probe \
+  $(pkg-config --libs gstreamer-1.0)
+/tmp/eufy-freshness-probe --observe
+/tmp/eufy-freshness-probe
+```
+
+The observe probe deliberately submits expired, absent, and unknown-clock
+metadata and verifies all four raw buffers reach its sink without an expiry
+message. The separate default probe retains strict suppression, expiry and
+same-pipeline recovery coverage. Neither synthetic probe establishes hardware
+scanout; sustained target-device measurements are required separately.

@@ -56,6 +56,7 @@ static void push_raw(GstElement *s, guint64 pts) {
   g_assert(r == GST_FLOW_OK);
 }
 int main(int argc, char **argv) {
+  gboolean observe = argc > 1 && !strcmp(argv[1], "--observe");
   gst_init(&argc, &argv);
   uint64_t now = (uint64_t)g_get_monotonic_time() * 1000;
   uint8_t clock[48] = {0};
@@ -67,15 +68,16 @@ int main(int argc, char **argv) {
   const char *path = "/tmp/eufy-freshness-probe-clock";
   g_assert(g_file_set_contents(path, (char *)clock, 48, NULL));
   GError *err = NULL;
-  GstElement *pipe = gst_parse_launch(
+  gchar *description = g_strdup_printf(
       "appsrc name=encoded is-live=true format=time "
       "caps=video/x-h264,stream-format=byte-stream,alignment=au ! eufystamp "
       "channel=7 ! fakesink name=encoded_sink sync=false async=false "
       "signal-handoffs=true appsrc name=raw is-live=true format=time "
       "caps=video/x-raw,format=RGB,width=1,height=1,framerate=15/1 ! "
-      "eufypacing channel=7 clock-file=/tmp/eufy-freshness-probe-clock ! "
-      "fakesink name=raw_sink sync=false async=false signal-handoffs=true",
-      &err);
+      "eufypacing channel=7 clock-file=/tmp/eufy-freshness-probe-clock observe-only=%s ! "
+      "fakesink name=raw_sink sync=false async=false signal-handoffs=true", observe ? "true" : "false");
+  GstElement *pipe = gst_parse_launch(description, &err);
+  g_free(description);
   g_assert_no_error(err);
   GstElement *encoded = gst_bin_get_by_name(GST_BIN(pipe), "encoded"),
              *raw = gst_bin_get_by_name(GST_BIN(pipe), "raw"),
@@ -98,28 +100,39 @@ int main(int argc, char **argv) {
   push_raw(raw, 67000000);
   push_raw(raw, 134000000);
   g_usleep(30000);
-  g_assert(g_atomic_int_get(&raw_count) == 1);
-  /* No more buffers: clear/expire without terminating the decoder pipeline. */
   GstBus *bus = gst_element_get_bus(pipe);
-  GstMessage *m = gst_bus_timed_pop_filtered(
-      bus, GST_SECOND, GST_MESSAGE_ELEMENT | GST_MESSAGE_ERROR);
-  g_assert(m != NULL);
-  g_assert(GST_MESSAGE_TYPE(m) == GST_MESSAGE_ELEMENT);
-  g_assert(gst_structure_has_name(gst_message_get_structure(m),
-                                  "freshness-expired"));
-  gst_message_unref(m);
-  /* A new fresh picture resumes in the same pipeline/reference state. */
-  uint64_t recovered = (uint64_t)g_get_monotonic_time() * 1000;
-  push_encoded(encoded, 200000000, recovered / 1000, 3);
-  for (int i = 0; i < 100 && g_atomic_int_get(&encoded_count) < 3; i++)
-    g_usleep(1000);
-  push_raw(raw, 200000000);
-  g_usleep(100000);
-  g_assert(g_atomic_int_get(&raw_count) == 2);
-  m = gst_bus_timed_pop_filtered(bus, 0, GST_MESSAGE_ERROR);
-  g_assert(m == NULL);
-  g_print("freshness integration: fresh=1 stale/missing=2 suppressed; no-input "
-          "expiry fired; recovered without restart\n");
+  GstMessage *m;
+  if (observe) {
+    /* Old and missing stamps must still reach the sink; no no-input expiry. */
+    g_usleep(700000);
+    g_assert(g_atomic_int_get(&raw_count) == 3);
+    m = gst_bus_timed_pop_filtered(bus, 0, GST_MESSAGE_ELEMENT | GST_MESSAGE_ERROR);
+    g_assert(m == NULL);
+    /* Invalid clock cannot turn observation into enforcement. */
+    remove(path);
+    push_encoded(encoded, 200000000, now / 1000, 3);
+    for (int i=0;i<100 && g_atomic_int_get(&encoded_count)<3;i++) g_usleep(1000);
+    push_raw(raw,200000000);
+    g_usleep(100000);
+    g_assert(g_atomic_int_get(&raw_count)==4);
+    g_print("observe integration: expired/missing/unknown-clock pictures forwarded; no expiry event\n");
+  } else {
+    g_assert(g_atomic_int_get(&raw_count) == 1);
+    m = gst_bus_timed_pop_filtered(bus, GST_SECOND, GST_MESSAGE_ELEMENT | GST_MESSAGE_ERROR);
+    g_assert(m != NULL);
+    g_assert(GST_MESSAGE_TYPE(m) == GST_MESSAGE_ELEMENT);
+    g_assert(gst_structure_has_name(gst_message_get_structure(m), "freshness-expired"));
+    gst_message_unref(m);
+    uint64_t recovered = (uint64_t)g_get_monotonic_time() * 1000;
+    push_encoded(encoded, 200000000, recovered / 1000, 3);
+    for (int i=0;i<100 && g_atomic_int_get(&encoded_count)<3;i++) g_usleep(1000);
+    push_raw(raw,200000000);
+    g_usleep(100000);
+    g_assert(g_atomic_int_get(&raw_count)==2);
+    m = gst_bus_timed_pop_filtered(bus,0,GST_MESSAGE_ERROR);
+    g_assert(m==NULL);
+    g_print("strict integration: stale/missing suppressed; expiry and recovery verified\n");
+  }
   gst_object_unref(bus);
   gst_element_set_state(pipe, GST_STATE_NULL);
   gst_object_unref(encoded);

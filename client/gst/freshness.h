@@ -120,4 +120,32 @@ static int fresh_deadline(const FreshStamp *s, const uint8_t c[48],
     *deadline = valid_until;
   return now < *deadline;
 }
+/* Observe-only age interval. Unlike fresh_deadline(), this remains valid for an
+ * expired picture and never clamps the age to its presentation budget. */
+static int fresh_age_bounds(const FreshStamp *s, const uint8_t c[48],
+                            uint64_t now, uint64_t *lower,
+                            uint64_t *upper, uint64_t *uncertainty) {
+  if (memcmp(c, "EWCLK001", 8) || memcmp(c + 8, s->epoch, 8) ||
+      now > fresh_be(c + 40, 8)) return 0;
+  uint64_t server = fresh_be(c + 16, 8), t0 = fresh_be(c + 24, 8),
+           t1 = fresh_be(c + 32, 8), earliest, latest;
+  if (t1 < t0 || t1 - t0 > 1000000000ULL) return 0;
+  uint64_t delta = s->ingress_us >= server ? s->ingress_us - server : server - s->ingress_us;
+  if (delta > UINT64_MAX / 1000) return 0;
+  if (s->ingress_us >= server) {
+    if (UINT64_MAX - t1 < delta * 1000) return 0;
+    earliest = t0 + delta * 1000; latest = t1 + delta * 1000;
+  } else {
+    if (delta * 1000 > t0) return 0;
+    earliest = t0 - delta * 1000; latest = t1 - delta * 1000;
+  }
+  /* Same conservative relative-clock slew allowance as enforcement. */
+  if (earliest < delta || UINT64_MAX - latest < delta) return 0;
+  earliest -= delta; latest += delta;
+  if (earliest > now) return 0;
+  *upper = now - earliest;
+  *lower = now > latest ? now - latest : 0;
+  *uncertainty = latest - earliest;
+  return 1;
+}
 #endif

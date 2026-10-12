@@ -94,6 +94,7 @@ func main() {
 	os.Setenv("GST_PLUGIN_PATH", pluginPath)
 	caps.DecodedPacing = detect.HasElement("eufypacing")
 	caps.StampReader = detect.HasElement("eufystamp")
+	caps.ObservePacing = detect.HasElementProperty("eufypacing", "observe-only")
 	caps.NativeDecoder = detect.HardwareHEVCFactory(c.Decoder, caps.Decoder, detect.HasElement)
 	caps.NativeHEVCSinkCaps = detect.HardwareHEVCSinkCaps(caps.NativeDecoder)
 	caps.Freshness, caps.NativeRenditions = discoverRenditions(c.RTSPBase)
@@ -171,11 +172,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	for _, cap := range allFreshness(caps) {
-		if !cap.Enforced() {
+		if !cap.Supported() {
 			continue
 		}
 		go freshness.Poll(ctx, cap.ClockURL, caps.ClockFile, func(line string) { log.Printf("[freshness] %s", line) })
-		log.Printf("[freshness] bridge advertises %dms ingress age for its matching RTSP resource; camera capture age unverified", cap.MaxAgeMs)
+		if cap.Enforced() {
+			log.Printf("[freshness] matching RTSP resource advertises an enforced %dms bridge-ingress deadline; camera capture age unverified", cap.MaxAgeMs)
+		} else if caps.ObservePacing && caps.StampReader && caps.DecodedPacing && caps.Sink == "planes" {
+			log.Printf("[freshness] observe-only bridge-ingress ages at decoded output and KMS sink return; no deadline enforcement or verified scanout; camera capture age unverified")
+		} else {
+			log.Printf("[freshness] observe metadata available but local presentation ages are unmeasured (observation plugin or planes sink unavailable)")
+		}
 		break
 	}
 	if caps.Sink == "planes" {
@@ -387,7 +394,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	// What each tile is rendering: live video, or the camera's last still while it wakes.
 	content := map[int]string{}
 	lastShown := ""
-	clockPolling := hasEnforcedFreshness(allFreshness(caps))
+	clockPolling := hasSupportedFreshness(allFreshness(caps))
 	// Cameras this wall is keeping awake. A hold is bounded on the server, so showing one means
 	// refreshing it; no longer showing one means releasing it, or a battery camera would be held awake
 	// by a tile that stopped looking at it.
@@ -412,7 +419,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		for _, cam := range known {
 			if cam.NativeRendition != nil {
 				playbackCaps.NativeRenditions[cam.SN] = *cam.NativeRendition
-				if cam.NativeRendition.Freshness.Enforced() && caps.NativeDecoder != "" && !clockPolling {
+				if cam.NativeRendition.Freshness.Supported() && caps.NativeDecoder != "" && !clockPolling {
 					clockPolling = true
 					go freshness.Poll(ctx, cam.NativeRendition.Freshness.ClockURL, caps.ClockFile, func(line string) { log.Printf("[freshness] %s", line) })
 				}
@@ -421,7 +428,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			}
 			if cam.Freshness.Supported() {
 				playbackCaps.Freshness[cam.SN] = cam.Freshness
-				if cam.Freshness.Enforced() && !clockPolling {
+				if cam.Freshness.Supported() && !clockPolling {
 					clockPolling = true
 					go freshness.Poll(ctx, cam.Freshness.ClockURL, caps.ClockFile, func(line string) { log.Printf("[freshness] %s", line) })
 				}
@@ -718,4 +725,13 @@ func allFreshness(caps pipeline.Caps) map[string]freshness.Capability {
 		}
 	}
 	return out
+}
+
+func hasSupportedFreshness(caps map[string]freshness.Capability) bool {
+	for _, c := range caps {
+		if c.Supported() {
+			return true
+		}
+	}
+	return false
 }

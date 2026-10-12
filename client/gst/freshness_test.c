@@ -56,7 +56,15 @@ int main(void) {
   assert(fresh_deadline(&s, clock, 80100000000ULL, &deadline));
   assert(deadline == 80110000000ULL);
   assert(!fresh_deadline(&s, clock, 80110000000ULL, &deadline));
+  uint64_t lower, upper, uncertainty;
+  be(clock + 40, 85010000000ULL, 8);
+  assert(fresh_age_bounds(&s, clock, 80600000000ULL, &lower, &upper, &uncertainty));
+  assert(lower == 589899900ULL && upper == 599900100ULL && uncertainty == 10000200ULL);
+  /* Observe reports expired ages rather than enforcing or clamping to 500ms. */
+  assert(upper > 500000000ULL);
+  assert(!fresh_age_bounds(&s, clock, 86000000000ULL, &lower, &upper, &uncertainty));
   clock[8] ^= 1;
   assert(!fresh_deadline(&s, clock, 80100000000ULL, &deadline));
+  assert(!fresh_age_bounds(&s, clock, 80100000000ULL, &lower, &upper, &uncertainty));
   return 0;
 }

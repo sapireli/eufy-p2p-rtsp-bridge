@@ -11,6 +11,17 @@ typedef struct {
   GstBaseTransform parent;
   PacingClock clock;
   guint64 rendered, dropped;
+  gboolean observe_only;
+  guint64 observed, matched, missing, unknown_clock, late_observed, reordered;
+  guint64 submit_matched;
+  guint64 age_max, submit_age_max, uncertainty_max, sink_push_max, longest_gap;
+  guint64 last_observed, stats_at, previous_frame;
+  guint64 age_buckets[101], submit_buckets[101];
+  guint8 observed_epoch[8];
+  gboolean have_observed_epoch;
+  guint8 observed_clock[48];
+  guint64 clock_read_at;
+  gboolean observed_clock_valid;
   guint channel, plane, max_age_ms;
   guint64 last_frame;
   guint8 last_epoch[8];
@@ -40,13 +51,15 @@ static void remember(guint channel, guint64 pts, const FreshStamp *stamp) {
 static gboolean lookup(guint channel, guint64 pts, FreshStamp *stamp) {
   gboolean found = FALSE;
   g_mutex_lock(&registry_lock);
-  for (guint i = 0; i < 256; i++)
+  for (guint offset = 0; offset < 256; offset++) {
+    guint i=(registry_next+255-offset)%256;
     if (registry[i].channel == channel && registry[i].pts == pts) {
       *stamp = registry[i].stamp;
       registry[i].channel = 0;
       found = TRUE;
       break;
     }
+  }
   g_mutex_unlock(&registry_lock);
   return found;
 }
@@ -147,6 +160,68 @@ static gboolean frame_deadline(GstEufyPacing *self, guint64 pts, guint64 now,
   return TRUE;
 }
 
+/* Observation never clears planes, rejects a deadline, or changes pacing. */
+static gboolean observation_age(GstEufyPacing *self, const FreshStamp *stamp,
+                                guint64 now, guint64 *upper) {
+  if (!self->observed_clock_valid || now-self->clock_read_at >= 100000000 ||
+      memcmp(self->observed_clock+8, stamp->epoch, 8)) {
+    FILE *file = fopen(self->clock_file, "rb");
+    self->observed_clock_valid = file && fread(self->observed_clock, 1, 48, file)==48;
+    if (file) fclose(file);
+    self->clock_read_at = now;
+  }
+  guint64 lower, uncertainty;
+  gboolean valid = self->observed_clock_valid &&
+      fresh_age_bounds(stamp, self->observed_clock, now, &lower, upper, &uncertainty);
+  if (valid) self->uncertainty_max=MAX(self->uncertainty_max,uncertainty);
+  return valid;
+}
+static guint64 histogram_percentile(guint64 *values, guint64 count, guint numerator, guint64 maximum) {
+  guint64 target=(count*numerator+99)/100, seen=0;
+  if (!count) return 0;
+  for (guint i=0;i<101;i++) {seen+=values[i];if(seen>=target)return i==100?maximum:(guint64)(i+1)*25000000;}
+  return 0;
+}
+static void observation_report(GstEufyPacing *self, guint64 now, gboolean force) {
+  if (!self->observe_only) return;
+  if (!self->stats_at) self->stats_at=now;
+  if (!force && now-self->stats_at<5000000000ULL) return;
+  g_printerr("eufy-observe channel=%u scope=decoded-after-queue-and-kms-return"
+      " observed=%"G_GUINT64_FORMAT" matched=%"G_GUINT64_FORMAT
+      " submitMatched=%"G_GUINT64_FORMAT" missing=%"G_GUINT64_FORMAT" unknownClock=%"G_GUINT64_FORMAT
+      " expiredUpper=%"G_GUINT64_FORMAT" reordered=%"G_GUINT64_FORMAT
+      " frameId=%"G_GUINT64_FORMAT" ageUpperP50Ns=%"G_GUINT64_FORMAT
+      " ageUpperP95Ns=%"G_GUINT64_FORMAT" ageUpperMaxNs=%"G_GUINT64_FORMAT
+      " submitUpperP95Ns=%"G_GUINT64_FORMAT" submitUpperMaxNs=%"G_GUINT64_FORMAT
+      " clockUncertaintyMaxNs=%"G_GUINT64_FORMAT" sinkPushMaxNs=%"G_GUINT64_FORMAT
+      " longestDecodedGapNs=%"G_GUINT64_FORMAT" quietNowNs=%"G_GUINT64_FORMAT" accepted=%"G_GUINT64_FORMAT
+      " pacingDropped=%"G_GUINT64_FORMAT" scanoutVerified=false\n",
+      self->channel,self->observed,self->matched,self->submit_matched,self->missing,self->unknown_clock,
+      self->late_observed,self->reordered,self->previous_frame,
+      histogram_percentile(self->age_buckets,self->matched,50,self->age_max),
+      histogram_percentile(self->age_buckets,self->matched,95,self->age_max),self->age_max,
+      histogram_percentile(self->submit_buckets,self->submit_matched,95,self->submit_age_max),self->submit_age_max,
+      self->uncertainty_max,self->sink_push_max,self->longest_gap,
+      self->last_observed ? now-self->last_observed : 0,self->rendered,self->dropped);
+  self->stats_at=now;
+}
+static gboolean observe_frame(GstEufyPacing *self, guint64 pts, guint64 now, FreshStamp *stamp) {
+  self->observed++;
+  if (self->last_observed) self->longest_gap=MAX(self->longest_gap,now-self->last_observed);
+  self->last_observed=now;
+  if (!lookup(self->channel,pts,stamp)) {self->missing++;return FALSE;}
+  if (self->have_observed_epoch && !memcmp(self->observed_epoch,stamp->epoch,8) &&
+      stamp->frame<=self->previous_frame) self->reordered++;
+  self->have_observed_epoch=TRUE;self->previous_frame=stamp->frame;
+  memcpy(self->observed_epoch,stamp->epoch,8);
+  guint64 upper;
+  if (!observation_age(self,stamp,now,&upper)) {self->unknown_clock++;return FALSE;}
+  self->matched++;self->age_max=MAX(self->age_max,upper);
+  self->age_buckets[MIN(upper/25000000,100)]++;
+  if (upper>(guint64)MIN(stamp->max_age_ms,self->max_age_ms)*1000000) self->late_observed++;
+  return TRUE;
+}
+
 typedef struct {
   GstBaseTransformClass parent;
 } GstEufyPacingClass;
@@ -164,7 +239,9 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
       &base->segment, GST_FORMAT_TIME, GST_BUFFER_PTS(buffer));
   FreshStamp stamp;
   guint64 deadline = 0, mono = (guint64)g_get_monotonic_time() * 1000;
-  if (self->clock_file &&
+  gboolean observed_stamp = self->observe_only && self->clock_file &&
+      observe_frame(self,raw_pts,mono,&stamp);
+  if (self->clock_file && !self->observe_only &&
       !frame_deadline(self, raw_pts, mono, &deadline, &stamp)) {
     self->dropped++;
     return GST_BASE_TRANSFORM_FLOW_DROPPED;
@@ -176,7 +253,7 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
     self->dropped++;
     return GST_BASE_TRANSFORM_FLOW_DROPPED;
   }
-  if (self->clock_file) {
+  if (self->clock_file && !self->observe_only) {
     guint64 wait = target > (int64_t)now ? (guint64)target - now : 0;
     /* Keep scanout margin; never spend the freshness budget merely pacing. */
     if (deadline <= mono + wait + 20000000) {
@@ -231,6 +308,23 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
                    " now=%" G_GUINT64_FORMAT " target=%" G_GINT64_FORMAT
                    " future=%" G_GINT64_FORMAT,
                    raw_pts, pts, now, target, target - (int64_t)now);
+  if (self->observe_only) {
+    guint64 push_start=(guint64)g_get_monotonic_time()*1000;
+    GstFlowReturn flow=gst_pad_push(GST_BASE_TRANSFORM_SRC_PAD(base),gst_buffer_ref(buffer));
+    guint64 push_end=(guint64)g_get_monotonic_time()*1000;
+    self->sink_push_max=MAX(self->sink_push_max,push_end-push_start);
+    if (flow==GST_FLOW_OK) {
+      self->rendered++;
+      guint64 upper;
+      if (observed_stamp && observation_age(self,&stamp,push_end,&upper)) {
+        self->submit_matched++;
+        self->submit_age_max=MAX(self->submit_age_max,upper);
+        self->submit_buckets[MIN(upper/25000000,100)]++;
+      }
+    }
+    observation_report(self,push_end,FALSE);
+    return flow==GST_FLOW_OK?GST_BASE_TRANSFORM_FLOW_DROPPED:flow;
+  }
   self->rendered++;
   return GST_FLOW_OK;
 }
@@ -262,7 +356,15 @@ static gboolean start(GstBaseTransform *base) {
   GstEufyPacing *self = (GstEufyPacing *)base;
   memset(&self->clock, 0, sizeof(self->clock));
   self->rendered = self->dropped = 0;
-  if (self->clock_file) {
+  self->observed = self->matched = self->missing = self->unknown_clock = 0;
+  self->late_observed = self->reordered = self->submit_matched = 0;
+  self->age_max = self->submit_age_max = self->uncertainty_max = 0;
+  self->sink_push_max = self->longest_gap = self->last_observed = 0;
+  self->stats_at = self->previous_frame = self->clock_read_at = 0;
+  self->have_observed_epoch = self->observed_clock_valid = FALSE;
+  memset(self->age_buckets, 0, sizeof(self->age_buckets));
+  memset(self->submit_buckets, 0, sizeof(self->submit_buckets));
+  if (self->clock_file && !self->observe_only) {
     self->stopping = FALSE;
     self->expired_count = 0;
     self->have_frame = FALSE;
@@ -282,8 +384,9 @@ static gboolean stop(GstBaseTransform *base) {
     g_thread_join(self->timer);
     self->timer = NULL;
   }
-  if (self->clock_file)
+  if (self->clock_file && !self->observe_only)
     clear_plane(self);
+  observation_report(self,(guint64)g_get_monotonic_time()*1000,TRUE);
   GST_INFO_OBJECT(base,
                   "pacing accepted=%" G_GUINT64_FORMAT
                   " dropped=%" G_GUINT64_FORMAT " expiries=%" G_GUINT64_FORMAT,
@@ -296,7 +399,8 @@ enum {
   PROP_CLOCK_FILE,
   PROP_DRM_FD,
   PROP_PLANE,
-  PROP_MAX_AGE
+  PROP_MAX_AGE,
+  PROP_OBSERVE_ONLY
 };
 static void set_prop(GObject *object, guint prop, const GValue *value,
                      GParamSpec *spec) {
@@ -314,6 +418,9 @@ static void set_prop(GObject *object, guint prop, const GValue *value,
     break;
   case PROP_PLANE:
     s->plane = g_value_get_uint(value);
+    break;
+  case PROP_OBSERVE_ONLY:
+    s->observe_only=g_value_get_boolean(value);
     break;
   case PROP_MAX_AGE:
     s->max_age_ms = g_value_get_uint(value);
@@ -357,6 +464,9 @@ static void gst_eufy_pacing_class_init(GstEufyPacingClass *klass) {
       g_param_spec_uint("max-age-ms", "max-age-ms",
                         "Advertised ingress-age ceiling", 1, 65535, 500,
                         G_PARAM_WRITABLE));
+  g_object_class_install_property(object,PROP_OBSERVE_ONLY,
+      g_param_spec_boolean("observe-only","observe-only",
+          "Report ingress age without deadlines, plane clearing or extra pacing",FALSE,G_PARAM_WRITABLE));
   GstElementClass *element = GST_ELEMENT_CLASS(klass);
   GstBaseTransformClass *transform = GST_BASE_TRANSFORM_CLASS(klass);
   GstCaps *caps = gst_caps_from_string("video/x-raw(ANY)");

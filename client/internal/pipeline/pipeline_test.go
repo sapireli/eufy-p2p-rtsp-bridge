@@ -338,3 +338,39 @@ func TestObserveRetainsLegacyPlaybackWithoutStrictPlugin(t *testing.T) {
 		t.Fatal("observe changed legacy pipeline")
 	}
 }
+
+func TestObserveModeMeasuresMatchedResourceWithoutEnforcement(t *testing.T) {
+	c := &config.Config{Planes: []int{98}, Latency: 0}
+	tiles := []layout.Placed{{Index: 0, Camera: "A", URL: "rtsp://bridge/A", W: 960, H: 1080}}
+	caps := Caps{Decoder: "v4l2", Sink: "planes", DRMFD: 3, DecodedPacing: true, StampReader: true, ObservePacing: true, ClockFile: "/tmp/clock", Freshness: map[string]freshness.Capability{"A": {Version: 2, Mode: "observe", Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://bridge/api/clock", StreamURL: "rtsp://bridge/A"}}}
+	args, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	for _, want := range []string{"eufystamp channel=1", "eufypacing channel=1 clock-file=/tmp/clock max-age-ms=500 observe-only=true", "sync=true"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observe telemetry missing %s: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "eufypacing channel=1 clock-file=/tmp/clock max-age-ms=500 drm-fd=") {
+		t.Fatal("observe enabled deadline plane control")
+	}
+	caps.ObservePacing = false
+	args, err = Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(String(args), "eufystamp") || strings.Contains(String(args), "observe-only") {
+		t.Fatal("old plugin no longer usable")
+	}
+	caps.ObservePacing = true
+	tiles[0].URL = "rtsp://manual/A"
+	args, err = Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(String(args), "clock-file") {
+		t.Fatal("observation bound to unrelated manual URI")
+	}
+}

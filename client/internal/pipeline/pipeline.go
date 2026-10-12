@@ -31,6 +31,7 @@ type Caps struct {
 	ClockFile         string
 	UnavailableMarker func()
 	StampReader       bool
+	ObservePacing     bool // installed pacing plugin accepts observe-only telemetry
 	DecodedPacing     bool // installed eufypacing raw-video clock mapper
 }
 
@@ -173,9 +174,10 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 			args = append(args, "buffer-mode=none")
 		}
 		args = append(args, "!", dp[0], "!", dp[1])
-		cap, strict := caps.Freshness[t.Camera]
-		strict = strict && cap.Enforced() && cap.BoundTo(t.URL)
-		if strict {
+		cap, advertised := caps.Freshness[t.Camera]
+		strict := advertised && cap.Enforced() && cap.BoundTo(t.URL)
+		observe := advertised && cap.Supported() && !cap.Enforced() && cap.BoundTo(t.URL) && caps.ObservePacing && caps.DecodedPacing && caps.StampReader && caps.ClockFile != "" && caps.Sink == "planes"
+		if strict || observe {
 			args = append(args, "!", "video/x-"+codec+",stream-format=byte-stream,alignment=au", "!", "eufystamp", fmt.Sprintf("channel=%d", t.Index+1))
 		}
 		decoder := family[codec]
@@ -188,8 +190,13 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 			args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream")
 			if caps.Sink == "planes" {
 				args = append(args, "!", "eufypacing")
-				if strict {
-					args = append(args, fmt.Sprintf("channel=%d", t.Index+1), "clock-file="+caps.ClockFile, fmt.Sprintf("max-age-ms=%d", cap.MaxAgeMs), fmt.Sprintf("drm-fd=%d", caps.DRMFD), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]))
+				if strict || observe {
+					args = append(args, fmt.Sprintf("channel=%d", t.Index+1), "clock-file="+caps.ClockFile, fmt.Sprintf("max-age-ms=%d", cap.MaxAgeMs))
+					if strict {
+						args = append(args, fmt.Sprintf("drm-fd=%d", caps.DRMFD), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]))
+					} else {
+						args = append(args, "observe-only=true")
+					}
 				}
 				args = append(args, "!", "watchdog", "timeout=15000")
 			}
