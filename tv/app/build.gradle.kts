@@ -17,6 +17,6 @@ android {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     implementation("androidx.media3:media3-exoplayer:1.11.1")
-    implementation("com.github.alexeyvasilyev:rtsp-client-android:5.6.3")
+    implementation(project(":rtsp-client"))
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

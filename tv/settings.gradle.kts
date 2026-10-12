@@ -10,4 +10,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "EufyWallTV"
-include(":app")
+include(":app", ":rtsp-client")
