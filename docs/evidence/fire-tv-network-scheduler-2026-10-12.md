@@ -35,10 +35,20 @@ retransmitted bytes are a fraction of all sent bytes, not packet-loss probabilit
 | .58:60744 Door | 599.501 | 232.755 | 0.145 | 0.062 | 410651 | 610112 |
 
 The old .85 sockets disappeared at20:07:43.254, so their counters are **not** a
-full600-second continuous connection observation. New .85 IO threads8950/8951
-were present before the subsequent trace. The cause of that particular player
-recreation was not established by this subagent; it was outside its INFO capture.
-The .58 socket identities remained throughout this TCP window.
+full600-second continuous connection observation. Retained system logs subsequently
+showed FireTVKeyPolicyManager `handleShortPressOnHome` at43.867/43.879 and launcher
+HOME start at43.895. Network settings opened20:07:54.584, Amazon NSA network
+diagnostics at58.223/58.473, advanced diagnostics20:08:02.344, and Eufy Wall's
+LEANBACK activity resumed20:08:16.004. Who initiated navigation was not established.
+The app's normal `onStop` releases players and `onStart` restores the wall; this
+sequence explains foreground departure/resume rather than an SDK restart or a
+proven automatic player failure. The precise app lifecycle callbacks were not
+retained in the main log buffer; system navigation and socket boundaries were.
+New IO threads8950/8951 were present before tracing. The .58 socket identities
+remained throughout the TCP window and it had no corresponding HOME event.
+The bounded private logs are `tv-recreation-200743/`; bridge journal20:07:25–20:08:00
+contained no entries. This navigation interval is excluded from uninterrupted
+playback conclusions.
 
 The actual19:58:16–17 retransmission/send-queue episode and matching late frame
 receipt are documented separately in `fire-tv-rtp-read-stage-2026-10-12.md`.
@@ -108,3 +118,14 @@ Private artifacts are in
 inventory and parsed parent TCP summary. Parent TCP files are
 `tcp-receiver-joint-600s.jsonl` and `tcp-sched-overlap-180s.jsonl` under
 `.evidence/frame-freshness-2026-10-12/`. No camera image payload is committed.
+
+
+For a future rare-event trace, bounded asynchronous circular scheduling-only
+capture could retain prehistory until the first real sparse late record, then
+stop/dump after a short post-event interval, with a600-second hard timeout and
+normal cleanup. This was only proposed, not started. To avoid direct BOOT/MONO
+subtraction, a diagnostic-only sparse bracket of BOOT-before, MONO, BOOT-after
+would supply an explicit clock-offset interval for the triggering frame. The
+concrete purpose is distinguishing a late frame's blocked read from runnable
+unscheduled IO on a retained all-CPU interval. A no-outlier timeout cannot establish
+that the problem is fixed; buffer wrap and tracing overhead remain reported limits.
