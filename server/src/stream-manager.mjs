@@ -22,6 +22,9 @@ export function createStreamManager(ctx) {
   const stationChains = new Map(); // parentStationSn -> Promise: serialises P2P opens per HomeBase
 
   function onChunk(slot, event) {
+    // Diagnostic clocks are opt-in on the timed consumer, never on the normal path.
+    let bridgeEntryUs;
+    for (const c of slot.consumers) if (c._ewbTimingEnabled) { bridgeEntryUs = ctx.freshness.nowUs(); break; }
     const frame = event?.frame ?? event;
     const sourceReceipt = event?.frame ? event.receipt : undefined;
     if (event?.frame && !sourceReceipt) throw new Error("SDK frame envelope has no source receipt");
@@ -98,7 +101,7 @@ export function createStreamManager(ctx) {
       if (c._ewbDropping && !sets) continue;
       c._ewbDropping = false;
       if (c._ewbOnFrame) {
-        try { c._ewbOnFrame(frame, receipt); }
+        try { c._ewbOnFrame(frame, receipt, bridgeEntryUs === undefined || !c._ewbTimingEnabled ? undefined : { bridgeEntryUs, consumerDispatchUs: ctx.freshness.nowUs(), sourceId: sourceReceipt?.sourceId, sourceSequence: sourceReceipt?.sequence }); }
         catch (e) { console.warn(`[bridge] ${slot.sn}: timed consumer failed: ${e.message}`); c.end(); }
         continue;
       }

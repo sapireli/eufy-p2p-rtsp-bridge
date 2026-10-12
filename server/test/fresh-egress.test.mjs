@@ -45,29 +45,29 @@ function fakeProcess() {
   child.kill = (signal) => { child.killed = signal; };
   return child;
 }
-function harness({ mode = "never", spawnFn, rendition, codec = "h264" } = {}) {
+function harness({ mode = "never", spawnFn, rendition, codec = "h264", timingHook, timingLimit, timingActive } = {}) {
   const res = new EventEmitter();
   res.writes = []; res.writableNeedDrain = false; res.destroyed = false;
   res.write = (data) => { res.writes.push(data); return true; };
   res.destroy = () => { if (!res.destroyed) { res.destroyed = true; res.emit("close"); } };
   const slot = { codec };
-  let source, onFrame, detached = 0, nowUs = 2000000n;
+  let source, onFrame, detached = 0, nowUs = 2000000n, clockReads = 0;
   const cfg = { go2rtcTranscode: mode, go2rtcVaapiDevice: "/dev/dri/renderD128", go2rtcMaxHeight: 0 };
-  const ctx = { cfg, state: { slots: new Map([["camera", slot]]) }, getCamera: () => ({}), sdk: { extractParamSets: paramSets }, freshness: { nowUs: () => nowUs },
-    attachConsumer: (_sn, consumer, options) => { source = consumer; onFrame = options.onFrame; return () => { detached++; }; }, spawn: spawnFn };
+  const ctx = { cfg, state: { slots: new Map([["camera", slot]]) }, getCamera: () => ({}), sdk: { extractParamSets: paramSets }, freshness: { nowUs: () => { clockReads++; return nowUs; } },
+    attachConsumer: (_sn, consumer, options) => { source = consumer; onFrame = options.onFrame; return () => { detached++; }; }, spawn: spawnFn, onFreshEgressTiming: timingHook, maxFreshEgressTimingRecords: timingLimit, freshEgressTimingActive: timingActive };
   const api = createFreshEgress(ctx);
   const stop = api.attachFreshConsumer("camera", res, { rendition });
   let frameId = 0n;
-  function feed(data = idr, ts = 1000, ageMs = 100, metadata = true) {
+  function feed(data = idr, ts = 1000, ageMs = 100, metadata = true, dispatchTiming) {
     if (source.destroyed) return;
     if (source._ewbDropping && codec === "h264" && !paramSets(data)) return;
     source._ewbDropping = false;
     const frame = { data, sourceTimestamp: ts, codec, width:128,height:96,keyframe: Boolean(paramSets(data)) };
     const stamp = { serverEpoch: Buffer.alloc(8, 0x44), sourceTimestamp: ts, ingressMonoUs: nowUs - BigInt(ageMs)*1000n, frameId: frameId++, maxAgeMs: 500 };
-    onFrame(frame, metadata ? stamp : undefined);
+    onFrame(frame, metadata ? stamp : undefined, dispatchTiming);
     return stamp;
   }
-  return { api, stop, res, slot, feed, source: () => source, detached: () => detached, setNow: (value) => { nowUs = value; } };
+  return { ctx, api, stop, res, slot, feed, source: () => source, detached: () => detached, clockReads: () => clockReads, setNow: (value) => { nowUs = value; } };
 }
 
 test("fresh encoder arguments retain hardware-first software fallback, copyts and passthrough packet association", () => {
@@ -390,4 +390,66 @@ test("compatible encoder drains multiple complete output AUs without treating HT
   assert.equal(h.res.destroyed,false);assert.equal(h.res.writes.length,2);
   assert.deepEqual(h.res.writes.map(bytes=>parseFrameStamp(payload(bytes),"h264").frameId),[first.frameId,second.frameId]);
   h.stop();
+});
+
+
+test("late source dispatch diagnostic preserves identity and exposes separate bridge/consumer boundaries", () => {
+  const records=[];
+  const h=harness({timingHook:r=>records.push(r)});
+  const stamp=h.feed(idr,1000,650,true,{bridgeEntryUs:1900000n,consumerDispatchUs:1990000n});
+  assert.equal(records.length,1);
+  const r=records[0];
+  assert.equal(r.ingressMonoUs,"1350000");
+  assert.equal(r.bridgeEntryUs,"1900000");
+  assert.equal(r.consumerDispatchUs,"1990000");
+  assert.equal(r.consumerEntryUs,"2000000");
+  assert.equal(r.stdinQueuedUs,undefined);
+  assert.equal(r.encodedJoinedUs,undefined);
+  assert.equal(parseFrameStamp(payload(h.res.writes[0]),"h264").frameId,stamp.frameId);
+  assert.equal(parseFrameStamp(payload(h.res.writes[0]),"h264").ingressMonoUs,stamp.ingressMonoUs);
+  h.stop();
+});
+test("late encoder diagnostic separates timely delivery from enqueue-to-packet-join hold", () => {
+  const records=[]; let child;
+  const h=harness({mode:"always",spawnFn:()=>child=fakeProcess(),timingHook:r=>records.push(r)});
+  const stamp=h.feed(idr,1000,10,true,{bridgeEntryUs:2000000n,consumerDispatchUs:2000000n});
+  h.setNow(2700000n);
+  child.stdio[3].write(`0 0 1/90000 ${idr.length}\n`);
+  child.stdout.write(idr);
+  assert.equal(records.length,1);
+  assert.equal(records[0].consumerEntryUs,"2000000");
+  assert.equal(records[0].stdinQueuedUs,"2000000");
+  assert.equal(records[0].encodedJoinedUs,"2700000");
+  assert.equal(records[0].httpWriteUs,"2700000");
+  assert.equal(records[0].pendingFrames,1);
+  assert.equal(parseFrameStamp(payload(h.res.writes[0]),"h264").ingressMonoUs,stamp.ingressMonoUs);
+  h.stop();
+});
+test("late diagnostic is row-bounded and exceptions cannot change reference delivery", () => {
+  let calls=0;
+  const h=harness({timingLimit:1,timingHook:()=>{calls++;throw Error("observer failure");}});
+  h.feed(idr,1000,600);
+  const afterFirst=h.clockReads();
+  h.feed(inter,1067,600);
+  assert.equal(calls,1);
+  assert.equal(h.res.writes.length,2);
+  assert.equal(h.res.destroyed,false);
+  assert.equal(h.clockReads()-afterFirst,1,"after row bound only existing output-age clock is read");
+  h.stop();
+});
+test("disabled diagnostic adds no clocks, records, or encoded-byte changes", () => {
+  const plain=harness(); const rows=[]; const observed=harness({timingHook:r=>rows.push(r)});
+  plain.feed(idr,1000,10); observed.feed(idr,1000,10);
+  assert.equal(plain.clockReads(),1,"existing output-age read only");
+  assert.equal(rows.length,0,"fresh frames produce no diagnostic records");
+  assert.deepEqual(plain.res.writes,observed.res.writes);
+  plain.stop();observed.stop();
+});
+
+test("expiring an installed timing hook stops all extra clocks without changing delivery",()=>{
+  const rows=[];const h=harness({timingHook:r=>rows.push(r),timingActive:false});
+  h.feed(idr,1000,600);assert.equal(h.clockReads(),1);assert.equal(rows.length,0);
+  h.ctx.freshEgressTimingActive=true;h.feed(inter,1067,600);assert.equal(rows.length,1);
+  const after=h.clockReads();h.ctx.freshEgressTimingActive=false;h.feed(inter,1134,600);
+  assert.equal(h.clockReads()-after,1);assert.equal(rows.length,1);assert.equal(h.res.writes.length,3);h.stop();
 });

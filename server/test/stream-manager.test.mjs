@@ -513,3 +513,37 @@ test("learned HEVC PTL is cached and metadata changes refresh clients without op
     assert.equal(ctx.state.slots.get("A").nativeCodecInfo,undefined,"malformed replacement clears stale capability");
   } finally {await sm.stopAll();}
 });
+
+
+test("opt-in consumer clocks separate bridge arrival from synchronous parameter processing without receipt rebirth", async () => {
+  const feed=new PassThrough({objectMode:true});
+  const ctx=ctxWith({feeds:[()=>feed]});
+  let now=2000000n, extraClockReads=0;
+  ctx.freshness=createFreshness(ctx,{epoch:Buffer.alloc(8,3),clock:()=>now});
+  const realNow=ctx.freshness.nowUs;
+  ctx.freshness.nowUs=()=>{extraClockReads++;return realNow();};
+  const extract=ctx.sdk.extractParamSets;
+  ctx.sdk.extractParamSets=b=>{now+=90000n;return extract(b);};
+  const sm=createStreamManager(ctx);const res=fakeRes();res._ewbTimingEnabled=true;
+  const calls=[];
+  try {
+    sm.attachConsumer("A",res,{onFrame:(...args)=>calls.push(args)});
+    await sm.ensureWarm("A");
+    const sourceReceipt={sourceId:"sdk-source",sequence:1n,monotonicUs:1500000n};
+    feed.write({frame:{data:KEY,codec:"h264",sourceTimestamp:1000},receipt:sourceReceipt});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(calls.length,1);
+    const [,stamp,timing]=calls[0];
+    assert.equal(stamp.ingressMonoUs,1500000n);
+    assert.equal(timing.bridgeEntryUs,2000000n);
+    assert.equal(timing.consumerDispatchUs,2090000n);
+    assert.equal(timing.sourceId,"sdk-source");
+    assert.equal(timing.sourceSequence,1n);
+    assert.equal(extraClockReads,2);
+    res._ewbTimingEnabled=false;
+    feed.write({frame:{data:DELTA,codec:"h264",sourceTimestamp:1067},receipt:{...sourceReceipt,sequence:2n,monotonicUs:2000000n}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(calls[1][2],undefined);
+    assert.equal(extraClockReads,2,"disabled diagnostics add no bridge clock reads");
+  } finally {await sm.stopAll();}
+});

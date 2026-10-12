@@ -23,6 +23,7 @@ import { createWsHub } from "./src/ws-hub.mjs";
 import { createGo2rtc } from "./src/go2rtc.mjs";
 import { createFreshness } from "./src/freshness.mjs";
 import { createFreshEgress } from "./src/fresh-egress.mjs";
+import { initializeEgressTiming } from "./src/egress-timing-diagnostic.mjs";
 import { createHttpHandler } from "./src/http.mjs";
 import { installRecoveryRepin } from "./src/recovery.mjs";
 import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
@@ -43,6 +44,7 @@ ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);
 
 ctx.lanUpgrade = createLanUpgrade(ctx);
 Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), createStreamManager(ctx), createGo2rtc(ctx), createAuth(ctx), createWatchdog(ctx));
+const stopEgressTiming = initializeEgressTiming(ctx);
 Object.assign(ctx, createFreshEgress(ctx));
 ctx.holds = createHolds(ctx);
 // The wall's event channel. Created before anything can emit, so an event during boot is not dropped on
@@ -146,6 +148,7 @@ async function main() {
 }
 
 async function shutdown() {
+  stopEgressTiming();
   for (const t of Object.values(state.timers)) if (t) clearInterval(t);
   ctx.ws?.close();
   ctx.stopGo2rtc();

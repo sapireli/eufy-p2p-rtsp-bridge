@@ -19,6 +19,11 @@ export function freshTranscodeArgs(cfg) {
 
 export function createFreshEgress(ctx) {
   const active = new Set();
+  const timingHook = typeof ctx.onFreshEgressTiming === "function" ? ctx.onFreshEgressTiming : undefined;
+  const timingLimit = ctx.maxFreshEgressTimingRecords ?? 256;
+  if (timingHook && (!Number.isSafeInteger(timingLimit) || timingLimit < 1 || timingLimit > 4096)) throw new RangeError("fresh egress timing record bound must be 1..4096");
+  let timingRecords = 0;
+  const timingEnabled = () => !!timingHook && ctx.freshEgressTimingActive !== false && timingRecords < timingLimit;
   function attachFreshConsumer(sn, res, { rendition = "compatible" } = {}) {
     if (!["compatible", "native"].includes(rendition)) throw new Error("unknown video rendition");
     const cam = ctx.getCamera(sn);
@@ -31,6 +36,7 @@ export function createFreshEgress(ctx) {
     if (slot) slot[statusKey] = statistics;
     const source = {
       destroyed: false, _ewbDropping: true,
+      get _ewbTimingEnabled() { return timingEnabled(); },
       // A pipe's high-water mark is a flow-control hint, not transport loss.
       // Large camera IDRs routinely exceed it. Dropping their following input
       // frames here would break decoder references and starve startup probing.
@@ -48,7 +54,7 @@ export function createFreshEgress(ctx) {
       if (error) console.warn(`[bridge-freshness] ${sn}: ${error.message ?? error}`);
       res.destroy();
     }
-    function writeFrame(data, stamp, codec) {
+    function writeFrame(data, stamp, codec, timing) {
       if (stopped) return;
       const ageMs = Number(ctx.freshness.nowUs() - stamp.ingressMonoUs) / 1000;
       const keyframe = firstVclNal(data, codec)?.keyframe === true;
@@ -68,7 +74,23 @@ export function createFreshEgress(ctx) {
       if (expired) { statistics.staleFrames++; statistics.expiredReferenceFrames++; }
       else statistics.freshOutputFrames++;
       statistics.maximumEgressAgeMs = Math.max(statistics.maximumEgressAgeMs, ageMs);
+      const httpWriteUs = timing && timingEnabled() ? ctx.freshness.nowUs() : undefined;
       res.write(bytes);
+      if (httpWriteUs !== undefined && httpWriteUs - stamp.ingressMonoUs >= BigInt(stamp.maxAgeMs) * 1000n) {
+        timingRecords++;
+        // Node pipe arrival/join and write timestamps are not GPU or socket delivery times.
+        const record = { sn, rendition, serverEpoch: stamp.serverEpoch.toString("hex"), frameId: String(stamp.frameId),
+          ingressMonoUs: String(stamp.ingressMonoUs), sourceTimestamp: stamp.sourceTimestamp,
+          encodedPts90k: timing.encodedPts90k, sourceId: timing.sourceId, sourceSequence: timing.sourceSequence === undefined ? undefined : String(timing.sourceSequence),
+          bridgeEntryUs: timing.bridgeEntryUs === undefined ? undefined : String(timing.bridgeEntryUs),
+          consumerDispatchUs: timing.consumerDispatchUs === undefined ? undefined : String(timing.consumerDispatchUs),
+          consumerEntryUs: String(timing.consumerEntryUs), stdinQueuedUs: timing.stdinQueuedUs === undefined ? undefined : String(timing.stdinQueuedUs),
+          encodedJoinedUs: timing.encodedJoinedUs === undefined ? undefined : String(timing.encodedJoinedUs),
+          httpWriteUs: String(httpWriteUs), httpWriteReturnedUs: String(ctx.freshness.nowUs()),
+          stdinQueuedBytes: timing.stdinQueuedBytes, pendingFrames: timing.pendingFrames,
+          httpQueuedBytes: res.writableLength ?? 0, encoderAttempt: timing.encoderAttempt };
+        try { timingHook(record); } catch { /* Diagnostics cannot break reference delivery. */ }
+      }
     }
     function startAttempt(codec) {
       sourceCodec = codec;
@@ -80,11 +102,12 @@ export function createFreshEgress(ctx) {
       const process = (ctx.spawn ?? spawn)(ctx.cfg.ffmpegBin || "ffmpeg", attempt.args, { stdio: ["pipe", "pipe", "pipe", "pipe"] });
       child = process;
       reader = new EncodedFrameReader({ onFrame: ({ data, pts90k }) => {
-        const stamp = pending.get(pts90k.toString());
-        if (!stamp) { statistics.unmappedFrames++; return stop(new Error(`encoded PTS ${pts90k} has no source frame`)); }
+        const entry = pending.get(pts90k.toString());
+        if (!entry) { statistics.unmappedFrames++; return stop(new Error(`encoded PTS ${pts90k} has no source frame`)); }
         pending.delete(pts90k.toString());
         for (const key of pending.keys()) if (BigInt(key) < pts90k) pending.delete(key);
-        writeFrame(data, stamp, "h264");
+        if (entry.timing && timingEnabled()) entry.timing.encodedJoinedUs = ctx.freshness.nowUs();
+        writeFrame(data, entry.stamp ?? entry, "h264", entry.timing);
       }});
       const read = (fn) => (chunk) => { if (child !== process || stopped) return; try { fn(chunk); } catch (e) { stop(e); } };
       process.stdout.on("data", read((chunk) => reader.pushData(chunk)));
@@ -104,8 +127,9 @@ export function createFreshEgress(ctx) {
         stop(new Error(`encoder ended (${code}): ${stderr.slice(-1200)}`));
       });
     }
-    function onFrame(frame, stamp) {
+    function onFrame(frame, stamp, dispatchTiming) {
       if (stopped) return;
+      const timing = timingEnabled() ? { ...dispatchTiming, consumerEntryUs: ctx.freshness.nowUs() } : undefined;
       if (!stamp || !Buffer.isBuffer(frame?.data)) return stop(new Error("source receipt metadata unavailable"));
       const currentSlot = ctx.state.slots.get(sn);
       if (currentSlot) currentSlot[statusKey] = statistics;
@@ -113,17 +137,24 @@ export function createFreshEgress(ctx) {
       const codec = frame.codec ?? ctx.state.slots.get(sn)?.codec;
       const mode = rendition === "native" ? "never" : cam.transcode ?? ctx.cfg.go2rtcTranscode;
       const transcode = mode === "always" || (mode === "auto" && codec === "h265");
-      if (!transcode) return writeFrame(frame.data, stamp, codec);
+      if (!transcode) return writeFrame(frame.data, stamp, codec, timing);
       if (!child) startAttempt(codec);
       if (sourceCodec !== codec) return stop(new Error("source codec changed"));
       let bytes;
       try { bytes = inputMux.push(frame); } catch (error) { return stop(error); }
       const key = BigInt(inputMux.pts90k).toString();
       if (pending.has(key)) return stop(new Error("duplicate source PTS cannot establish frame identity"));
-      pending.set(key, stamp);
+      pending.set(key, timing ? { stamp, timing } : stamp);
       if (pending.size > 120) return stop(new Error("encoder frame backlog exceeded bound"));
       if (child.stdin.writableLength + bytes.length > 4 * 1024 * 1024) {
         return stop(new Error("encoder input byte backlog exceeded bound"));
+      }
+      if (timing) {
+        timing.encodedPts90k = key;
+        timing.stdinQueuedUs = ctx.freshness.nowUs();
+        timing.stdinQueuedBytes = child.stdin.writableLength + bytes.length;
+        timing.pendingFrames = pending.size;
+        timing.encoderAttempt = attempts[attemptIndex].name;
       }
       child.stdin.write(bytes);
     }
