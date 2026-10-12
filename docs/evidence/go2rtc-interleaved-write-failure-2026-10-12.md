@@ -171,3 +171,21 @@ journals are under `.evidence/bridge-network-audit-2026-10-12/`. The exact full
 binary hashes and upstream source hashes are recorded above. A future upstream
 PR should include both the synthetic base-failing regression and this bounded
 controlled witness, with the spontaneous-cause limitation intact.
+
+## Ordinary disconnected-viewer ownership regression
+
+A focused offline regression exercises the real `Stream.AddConsumer`,
+`Stream.RemoveConsumer`, `Producer.GetTrack`, `core.Receiver`, and sender fan-out
+paths with one synthetic internal producer and three viewers. Removing the
+disconnected viewer leaves the two healthy viewers receiving the next nine
+sequence-identified frames from the same producer. Removing one of those still
+leaves the final viewer receiving the next frame; the producer stops exactly
+once only after the final viewer is removed. The removed viewer receives no
+later frame. **The regression passes with race checking.**
+
+The fixture is `consumer_lifecycle_test.go`; copy it into `internal/streams`
+and run `go test -race ./internal/streams -run TestRemoveDisconnectedViewer -count=1`.
+It verifies ordinary cleanup ownership, not the exact chronology or cause of
+the later21:47 real-camera interruption. No lifecycle source fix was needed or
+claimed. No live intervention, new capture, or network-fault experiment was
+performed for this test.
