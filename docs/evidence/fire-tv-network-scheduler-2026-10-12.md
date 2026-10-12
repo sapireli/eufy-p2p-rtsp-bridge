@@ -129,3 +129,45 @@ would supply an explicit clock-offset interval for the triggering frame. The
 concrete purpose is distinguishing a late frame's blocked read from runnable
 unscheduled IO on a retained all-CPU interval. A no-outlier timeout cannot establish
 that the problem is fixed; buffer wrap and tracing overhead remain reported limits.
+
+
+## Sparse clock link and shortened event trial
+
+Source commit`d1fc390` adds BOOT-before/MONO/BOOT-after clock reads **only on sparse
+late-frame diagnostics**. The BOOT-minus-MONO offset is bracketed at that sampled
+instant. It is not used for freshness admission, pacing, buffering or display.
+Tests cover the true offset lying within the interval, invalid/reversed readings,
+and explicit clock fields only on a real sparse outlier. All53 existing tests plus
+three clock tests passed (44 app+12 library). Installed APK SHA:
+`77ca7494ca1506176838854dc5f32301e8222ce542a7fcc83ec29bea8a9fb30a`.
+Both TVs were installed sequentially; exact full preferences, hardware AVC and
+binary hashes were verified. PIDs11401/10531.
+
+The user requested shorter diagnostic iterations, so the previously proposed600s
+trial was reduced to a90s cap. An asynchronous SCHED-only controller started at
+20:30:55.200 UTC, targeting the first new .85 outlier with lower age >700 ms and
+receive→decode <50 ms, then five seconds of posthistory, or a quiet90s deadline.
+Original Mac receipt, INFO and local RX observers were separately bounded90s;
+no parser fork was required. Root's TCP120 began20:31:17, missing the trial's first
+approximately23 seconds. Pi observers/CPU fixtures were inactive before this trial.
+
+No sparse outlier occurred on either TV, so the trigger did not fire and the new
+clock link was **not yet exercised live**. The trace stopped at its quiet deadline;
+dump/cleanup ended20:32:47.409 UTC. INFO ended20:32:23.354, local RX20:32:25.820;
+Mac exited successfully. `tracing_on=0` and the previous LOCAL trace clock were
+verified/restored. All owned observers closed. No SDK reset, quality, priority,
+Wi-Fi lock or transport-policy change was made during this trial.
+
+Trace header retained1097477/1104160 events (6683 overwritten), with common all-CPU
+BOOT coverage146231.446261–146319.196804,87.751 seconds. It produced180.8 MB of
+private decompressed metadata; tracing/observer overhead is not assumed zero.
+The Mac received1310 Door/1325 Garage stable stamped frames, no missing/invalid
+transport or upper500 ms misses, with all-frame maximum upper receipt ages
+254.133/296.533 ms. INFO decoder mean rates were approximately14.9–15.2 fps;
+minimum five-second windows11.8–12.8 fps, input queues at most one, no warnings,
+missing stamps, unknown clocks, observation blanks or pacing drops.
+
+This short quiet trial establishes bounded cleanup and an installed diagnostic
+candidate. It does not establish that earlier network stalls are fixed or decide
+blocked read versus descheduling during a late event. Future long runs are reserved
+for final candidate validation rather than repeated diagnostic attempts.
