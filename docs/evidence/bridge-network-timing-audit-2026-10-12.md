@@ -209,3 +209,12 @@ The loopback observer was explicitly stopped to close its additional consumers. 
 A later bounded read-only audit of the actual native Balcony URL confirmed RTSP SDP `H265/90000`, profile-id 1, and complete VPS/SPS/PPS of 24/45/7 bytes with NAL types 32/33/34. Native `ffprobe` reported HEVC Main, 1920×1080, 8-bit 4:2:0 full range, level 150 (5.0), 25 fps and 88-byte extradata. These observations establish advertised codec configuration; they do not prove successful hardware output on Fire TV. No camera quality, default transcode policy, decoder default or SDK behavior was changed to bypass the failed gate.
 
 Raw artifacts: `native-fourconsumers-kernel.jsonl`, `native-balcony-sdp.json`, and `native-balcony-ffprobe.json`. The empty aborted `native-fourconsumers-loopback.jsonl` must not be treated as accepted output evidence.
+
+
+## HEVC device capability boundary
+
+The corrected Android single `csd-0` configuration subsequently produced some native Balcony output, but the actual device remained too slow: output began after about 11.5 seconds and then ran about 3 fps with multi-second pending age. This is not successful low-latency HEVC playback. The device advertised HEVC Main profile only through level 4.1; accepting its 1920×1080 size declaration alone was insufficient.
+
+The actual captured SPS starts `42 01 01 21`. After removing the two-byte NAL header and the one-byte SPS header, PTL byte `0x21` gives profile 1 and **high tier (bit 0x20 set)**; its general_level_idc is 150 (level 5.0). The earlier main-tier assumption was wrong. The server now reads a bounded SPS RBSP prefix on parameter-set discovery and advertises numeric `profile`, `level` and `tier` with the native rendition. It never forks ffprobe for frames or scans picture payloads. Unknown/malformed values remain absent so clients can decline native selection. The exact SDP fixture, emulation-prevention cases and malformed prefix cases are tested.
+
+Production remains the original two-camera compatible view with freshness observation, while native selection requires actual profile/level/tier capability. The three-camera native device gate and combined capacity gate remain unpassed; no buffers, source-quality changes or decoder defaults conceal that limit.
