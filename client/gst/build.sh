@@ -8,6 +8,9 @@ cc=${CC:-cc}
 "$cc" -std=c99 -O2 -Wall -Wextra -Werror -o "$dest/pacing-test" "$src/pacing_test.c"
 "$dest/pacing-test"
 rm "$dest/pacing-test"
+"$cc" -std=c99 -O2 -Wall -Wextra -Werror -o "$dest/freshness-test" "$src/freshness_test.c"
+"$dest/freshness-test"
+rm "$dest/freshness-test"
 # pkg-config emits compiler options, intentionally word split.
 "$cc" -std=c99 -O2 -Wall -Wextra -Werror -shared -fPIC \
   $(pkg-config --cflags gstreamer-base-1.0) \
