@@ -5,6 +5,7 @@ import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.Process
 import android.util.Log
+import java.nio.ByteBuffer
 import com.alexvas.rtsp.codec.FrameQueue
 import com.alexvas.rtsp.codec.VideoDecodeThread
 import com.alexvas.rtsp.codec.VideoFrameQueue
@@ -26,6 +27,7 @@ internal abstract class DrainingVideoDecoder(
     private var codedWidth = width
     private var codedHeight = height
     private var hasCodedSize = requiredHardwareName != null
+    private var hevcCodecSpecificData: ByteArray? = null
     protected open fun beforeInputFrame(frame: FrameQueue.VideoFrame) {}
     private fun createDecoder(type: DecoderType): MediaCodec {
         val candidates = if (type == DecoderType.HARDWARE) MediaCodecUtils.getHardwareDecoders(mimeType)
@@ -47,6 +49,7 @@ internal abstract class DrainingVideoDecoder(
             val h = if (hasCodedSize || supported) alignedHeight else caps!!.supportedHeights.upper
             val format = MediaFormat.createVideoFormat(mimeType, w, h).apply {
                 setInteger(MediaFormat.KEY_ROTATION, rotation)
+                hevcCodecSpecificData?.let { setByteBuffer("csd-0", ByteBuffer.wrap(it)) }
             }
             MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder.codecInfo, 1)
             decoderCreated(decoder, format)
@@ -79,6 +82,15 @@ internal abstract class DrainingVideoDecoder(
                     codedWidth = size.first
                     codedHeight = size.second
                     hasCodedSize = true
+                }
+            }
+            if (mimeType == MediaFormat.MIMETYPE_VIDEO_HEVC) pending?.let { frame ->
+                hevcInitialization(frame.data, frame.offset, frame.length)?.let { initialization ->
+                    hevcCodecSpecificData = initialization.codecSpecificData
+                    Log.i("EufyWallTV", "HEVC initialization: ordered VPS/SPS/PPS csd-0=${initialization.codecSpecificData.size} bytes configOnly=${initialization.configOnly}")
+                    // MediaCodec automatically submits csd-0 on start. Preserve a first
+                    // access unit containing VCL; only consume pure SDP configuration.
+                    if (initialization.configOnly) pending = null
                 }
             }
             decoder = try { createDecoder(videoDecoderType) } catch (error: Exception) {
