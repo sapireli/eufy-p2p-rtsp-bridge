@@ -4,6 +4,7 @@ import (
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/freshness"
 	"eufy-wall/internal/layout"
+	"eufy-wall/internal/rendition"
 	"net/url"
 	"strconv"
 )
@@ -44,6 +45,9 @@ func selectNative(c *config.Config, tiles []layout.Placed, caps Caps) ([]layout.
 		n, ok := caps.NativeRenditions[t.Camera]
 		u, err := url.Parse(n.RTSP)
 		if !ok || n.Codec != "h265" || n.Width <= 0 || n.Height <= 0 || err != nil || u.Host == "" || (u.Scheme != "rtsp" && u.Scheme != "rtsps") {
+			continue
+		}
+		if !rendition.ExplicitSinkSupport(n, caps.NativeHEVCSinkCaps) {
 			continue
 		}
 		if n.Freshness.Enforced() && (!caps.DecodedPacing || !caps.StampReader || caps.ClockFile == "" || caps.Sink != "planes" || caps.DRMFD <= 0) {

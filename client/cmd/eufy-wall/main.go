@@ -95,9 +95,10 @@ func main() {
 	caps.DecodedPacing = detect.HasElement("eufypacing")
 	caps.StampReader = detect.HasElement("eufystamp")
 	caps.NativeDecoder = detect.HardwareHEVCFactory(c.Decoder, caps.Decoder, detect.HasElement)
+	caps.NativeHEVCSinkCaps = detect.HardwareHEVCSinkCaps(caps.NativeDecoder)
 	caps.Freshness, caps.NativeRenditions = discoverRenditions(c.RTSPBase)
 	if caps.NativeDecoder != "" {
-		log.Printf("[wall] native HEVC factory %s available; geometry/profile accepted only by runtime negotiation", caps.NativeDecoder)
+		log.Printf("[wall] native HEVC factory %s found; automatic selection also requires explicit sink profile/level/tier support", caps.NativeDecoder)
 	}
 	{
 		f, e := os.CreateTemp("", "eufy-wall-clock-")

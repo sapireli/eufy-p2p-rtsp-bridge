@@ -4,11 +4,13 @@ package detect
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/pipeline"
@@ -141,4 +143,45 @@ func HardwareHEVCFactory(configured, resolved string, has func(string) bool) str
 		}
 	}
 	return ""
+}
+
+// HardwareHEVCSinkCaps obtains only the selected factory's real sink template.
+// Most drivers omit HEVC level/tier information; callers must conservatively
+// decline automatic native selection rather than infer support from geometry.
+func HardwareHEVCSinkCaps(factory string) string {
+	switch factory {
+	case "v4l2h265dec", "v4l2slh265dec", "vah265dec":
+	default:
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	bytes, err := exec.CommandContext(ctx, "gst-inspect-1.0", factory).Output()
+	if err != nil {
+		return ""
+	}
+	return SinkTemplate(string(bytes))
+}
+
+func SinkTemplate(inspect string) string {
+	lines := strings.Split(inspect, "\n")
+	var out []string
+	inSink := false
+	for _, line := range lines {
+		trim := strings.TrimSpace(line)
+		if strings.Contains(trim, "template:") {
+			if inSink {
+				break
+			}
+			inSink = strings.HasPrefix(trim, "SINK template:")
+			continue
+		}
+		if inSink {
+			if strings.HasPrefix(trim, "Element ") || strings.HasPrefix(trim, "Pad Properties:") {
+				break
+			}
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
 }

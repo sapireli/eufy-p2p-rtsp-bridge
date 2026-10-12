@@ -197,12 +197,15 @@ This bounds age since bridge ingress only. Camera capture age remains unverified
 The bridge can advertise `nativeRendition` alongside its compatible H.264 URL.
 A tile with omitted `codec` or `codec: auto` may select native H.265 when an actual
 GStreamer hardware factory is installed (`v4l2h265dec`, `v4l2slh265dec` or
-`vah265dec`). `decoder: software`, explicit tile codecs, explicit URLs and still
+`vah265dec`) **and its actual sink capability structure explicitly lists the
+advertised HEVC profile, level and tier tuple**. Missing source metadata or
+missing decoder level/tier fields declines automatic native selection. A merely
+higher nominal level does not establish high-tier support. `decoder: software`, explicit tile codecs, explicit URLs and still
 images retain their configured paths. Merely installing `avdec_h265` does not
 qualify as hardware support.
 
-Factory discovery does not prove that a particular resolution, profile or bit
-depth can initialize that hardware. If the native gst process fails—including
+Factory discovery and the explicit capability tuple still do not prove that a
+particular resolution or bit depth successfully initializes that hardware. If the native gst process fails—including
 negotiation failure or its existing watchdog—the supervisor selects its compatible
 plan once and retries that plan thereafter. Repeated unchanged event updates do
 not retry the failed native plan. A materially changed plan or client restart may

@@ -3,6 +3,7 @@ package detect
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"eufy-wall/internal/config"
@@ -135,5 +136,13 @@ func TestHardwareHEVCFactoryRequiresRealHardwareElement(t *testing.T) {
 	}
 	if HardwareHEVCFactory("software", "software", has) != "" {
 		t.Fatal("explicit software overridden")
+	}
+}
+
+func TestSinkTemplateDoesNotBorrowSourceOrProperties(t *testing.T) {
+	text := "Pad Templates:\n SINK template: sink\n  Capabilities:\n   video/x-h265\n    profile: main\n SRC template: src\n  Capabilities:\n   video/x-h265\n    level: 5\n    tier: high\nElement Properties:\n tier: high"
+	got := SinkTemplate(text)
+	if !strings.Contains(got, "profile: main") || strings.Contains(got, "level:") || strings.Contains(got, "tier:") {
+		t.Fatalf("cross-template capability: %s", got)
 	}
 }

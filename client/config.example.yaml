@@ -49,10 +49,11 @@ latency_ms: 0                           # TCP; eufypacing supplies one bounded 6
 # retained yet (a camera that has never reported motion) means a dark tile until there is.
 #
 # codec: auto/unset selects an advertised native HEVC rendition only when a
-# hardware HEVC factory exists. Its pipeline falls back once to the compatible
+# hardware HEVC factory explicitly lists the source profile/level/tier tuple. Its pipeline falls back once to the compatible
 # URL if negotiation/playback fails. Explicit h264/h265 and manual URLs win.
 # decoder: software disables automatic native preference. Factory presence
-# cannot prove resolution/profile support; runtime negotiation decides.
+# alone is insufficient; missing level/tier caps retain compatible H.264.
+# Resolution and successful initialization still require runtime negotiation.
 # codec: an explicit value says what the configured URL actually sends.
 #   h264 pins the compatible bridge URL. auto/omitted may use its optional native URL.
 #   h265 is for an explicit URL known to carry HEVC or a separately configured

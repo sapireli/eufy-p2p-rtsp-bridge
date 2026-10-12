@@ -9,10 +9,12 @@ import (
 	"testing"
 )
 
+func intRef(n int) *int { return &n }
+
 func nativeFixture() (*config.Config, []layout.Placed, Caps) {
 	c := &config.Config{Tiles: []config.Tile{{Camera: "A"}}, Latency: 0, Planes: []int{31}}
 	tiles := []layout.Placed{{Index: 0, Camera: "A", URL: "rtsp://bridge/A", W: 1920, H: 1080}}
-	caps := Caps{Decoder: "v4l2", Sink: "planes", NativeDecoder: "v4l2slh265dec", NativeRenditions: map[string]rendition.Native{"A": {RTSP: "rtsp://bridge/A_native", Codec: "h265", Width: 2560, Height: 1440, Freshness: freshness.Capability{Version: 2, Mode: "observe", Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://bridge/api/clock", StreamURL: "rtsp://bridge/A_native"}}}}
+	caps := Caps{Decoder: "v4l2", Sink: "planes", NativeDecoder: "v4l2slh265dec", NativeHEVCSinkCaps: "video/x-h265\n profile: main\n level: 5\n tier: high", NativeRenditions: map[string]rendition.Native{"A": {RTSP: "rtsp://bridge/A_native", Codec: "h265", Profile: intRef(1), Level: intRef(150), Tier: intRef(1), Width: 2560, Height: 1440, Freshness: freshness.Capability{Version: 2, Mode: "observe", Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://bridge/api/clock", StreamURL: "rtsp://bridge/A_native"}}}}
 	return c, tiles, caps
 }
 func TestNativeHardwarePlanAndCompatibleFallback(t *testing.T) {
@@ -124,5 +126,30 @@ func TestNativeRetainsPacketSizeWithoutCopyingResourceSelector(t *testing.T) {
 	selected, _, _ = selectNative(c, tiles, caps)
 	if selected[0].URL != "rtsp://bridge/A_native?pkt_size=4096&video=native" {
 		t.Fatalf("explicit packet override lost: %s", selected[0].URL)
+	}
+}
+
+func TestNativeFactoryWithoutExplicitTupleStaysCompatible(t *testing.T) {
+	for _, which := range []string{"missing-metadata", "missing-caps", "main-tier-only"} {
+		t.Run(which, func(t *testing.T) {
+			c, tiles, caps := nativeFixture()
+			switch which {
+			case "missing-metadata":
+				n := caps.NativeRenditions["A"]
+				n.Tier = nil
+				caps.NativeRenditions["A"] = n
+			case "missing-caps":
+				caps.NativeHEVCSinkCaps = "video/x-h265\n profile: main"
+			case "main-tier-only":
+				caps.NativeHEVCSinkCaps = "video/x-h265\n profile: main\n level: 5\n tier: main"
+			}
+			plans, err := Plans(c, tiles, caps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(String(plans[0].Args), "A_native") || len(plans[0].FallbackArgs) > 0 {
+				t.Fatal("unknown/unsupported tuple selected")
+			}
+		})
 	}
 }

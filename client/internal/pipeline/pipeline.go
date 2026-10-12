@@ -15,12 +15,13 @@ import (
 )
 
 type Caps struct {
-	NativeDecoder    string // actual probed hardware HEVC factory, empty disables selection
-	NativeRenditions map[string]rendition.Native
-	decoderOverrides map[string]string
-	Decoder          string // v4l2 | va | software
-	Sink             string // planes | compositor | window
-	Screen           config.Screen
+	NativeHEVCSinkCaps string
+	NativeDecoder      string // actual probed hardware HEVC factory, empty disables selection
+	NativeRenditions   map[string]rendition.Native
+	decoderOverrides   map[string]string
+	Decoder            string // v4l2 | va | software
+	Sink               string // planes | compositor | window
+	Screen             config.Screen
 	// ConnectorID is the DRM connector this instance renders on (0 = let kmssink pick the first connected
 	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
 	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.
