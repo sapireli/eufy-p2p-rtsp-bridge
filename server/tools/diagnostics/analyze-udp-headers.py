@@ -2,11 +2,12 @@ import collections,datetime,json,pathlib,struct,sys
 base=pathlib.Path(sys.argv[1]) if len(sys.argv)==2 else None
 if base is None: raise SystemExit("usage: analyze-udp-headers.py CAPTURE_DIRECTORY")
 data=(base/'capture.bin').read_bytes()
-assert len(data)%40==0
+width=json.loads((base/'capture-stats.json').read_text())['recordBytes']
+assert width in (40,56) and len(data)%width==0
 groups=collections.defaultdict(list)
 headers=collections.Counter()
-for at in range(0,len(data),40):
- r=data[at:at+40]
+for at in range(0,len(data),width):
+ r=data[at:at+width]
  wall,processed=struct.unpack_from('<QQ',r)
  local,peer,size,seq,cmd=struct.unpack_from('<HHHHH',r,16)
  direction,msg,kind,channel,sign,header=r[26:32]

@@ -23,10 +23,10 @@ def classify(records):
             if lastOrdinal is not None and ordinal!=lastOrdinal+1:
                 state=None;missing+=1
             lastOrdinal=ordinal;body=r['bytes']-8
-            if r['header']:
+            if r['header'] and (state is None or state['remaining']==0):
                 remaining=r['declared']-(body-16)
                 state=dict(command=r['command'],channel=r['channel'],declared=r['declared'],remaining=remaining,
-                           headerSeq=r['seq'],maxArrivalNs=r['wall'],boundaryReason='explicit-header')
+                           video=r.get('video'),headerSeq=r['seq'],maxArrivalNs=r['wall'],boundaryReason='explicit-header')
             elif state is not None:
                 state={**state,'remaining':state['remaining']-body,'maxArrivalNs':max(state['maxArrivalNs'],r['wall'])}
             if state is not None and state['remaining']<0:
@@ -42,9 +42,16 @@ def classify(records):
             elif state['maxArrivalNs']>before['wall']:label='unknown-future-reorder-dependency'
             elif state['remaining']>0:label='within-video-unit' if state['command']==1300 else 'within-other-unit'
             else:label='after-complete-video-unit' if state['command']==1300 else 'after-complete-other-unit'
+            picture='unknown'
+            following=states.get(after['seq'])
+            if label=='within-video-unit':picture='within-coded-chunk'
+            elif label=='after-complete-video-unit' and state.get('video') and following and following.get('video') and following['headerSeq']==after['seq']:
+                old=state['video'];new=following['video']
+                identity=lambda v:(v['sourceWord'],v['pictureSequence'],v['width'],v['height'])
+                picture='between-chunks-of-same-picture' if identity(old)==identity(new) else 'between-distinct-picture-labels'
             gaps.append(dict(gapMs=gap/1e6,startWallNs=before['wall'],endWallNs=after['wall'],
                              beforeSeq=before['seq'],afterSeq=after['seq'],sequenceAdvance=(after['seq']-before['seq'])&65535,
-                             classification=label,previousUnit=state,nextExplicitCommand=after['command'] if after['header'] else None))
+                             classification=label,pictureClassification=picture,previousUnit=state,nextExplicitCommand=after['command'] if after['header'] else None))
         output.append(dict(localPort=port,records=len(arrivals),duplicates=duplicates,missingSequenceIntervals=missing,
                            unobservedInteriorHeaderIntervals=interior,gaps=gaps))
     return output
@@ -64,6 +71,18 @@ def selftest():
     # An early-arriving tail depends on a middle fragment arriving after the boundary.
     x=r(1,0,26,declared=30,header=True);tail=r(3,1,10);middle=r(2,700_000_001,10)
     assert classify([x,tail,middle])[0]['gaps'][0]['classification']=='unknown-future-reorder-dependency'
+    # Two complete logical chunks with the same SDK picture identity remain one picture.
+    meta=dict(sourceWord=99,pictureSequence=0,width=1280,height=720)
+    x={**r(1,0,26,declared=10,header=True),'video':meta}
+    y={**r(2,600_000_001,26,declared=10,header=True),'video':meta}
+    assert classify([x,y])[0]['gaps'][0]['pictureClassification']=='between-chunks-of-same-picture'
+    y['video']={**meta,'sourceWord':100}
+    assert classify([x,y])[0]['gaps'][0]['pictureClassification']=='between-distinct-picture-labels'
+    # Header-like bytes inside a pending logical body cannot establish a picture start.
+    x=r(1,0,26,declared=36,header=True)
+    y={**r(2,1,26,declared=10,header=True),'video':meta}
+    z=r(3,600_000_002,26,declared=10,header=True)
+    assert classify([x,y,z])[0]['gaps'][0]['previousUnit']['headerSeq']==1
     print('offline declared-size/retransmission/missing/interior/reorder boundary tests passed')
 
 if __name__=='__main__':
@@ -75,5 +94,6 @@ if __name__=='__main__':
     for at in range(0,len(raw),width):
         r=raw[at:at+width];records.append(dict(wall=struct.unpack_from('<Q',r)[0],port=struct.unpack_from('<H',r,16)[0],
             bytes=struct.unpack_from('<H',r,20)[0],seq=struct.unpack_from('<H',r,22)[0],command=struct.unpack_from('<H',r,24)[0],
-            out=bool(r[26]),message=r[27],type=r[28],channel=r[29],header=bool(r[31]),declared=struct.unpack_from('<I',r,32)[0]))
+            out=bool(r[26]),message=r[27],type=r[28],channel=r[29],header=bool(r[31]),declared=struct.unpack_from('<I',r,32)[0],
+            video=dict(codedChunkBytes=struct.unpack_from('<I',r,40)[0],sourceWord=struct.unpack_from('<I',r,44)[0],pictureSequence=struct.unpack_from('<H',r,48)[0],width=struct.unpack_from('<h',r,50)[0],height=struct.unpack_from('<h',r,52)[0],flags=r[54]) if width==56 and r[55] else None))
     output=classify(records);(base/'logical-boundaries.json').write_text(json.dumps(output,indent=2));print(json.dumps(output,indent=2))
