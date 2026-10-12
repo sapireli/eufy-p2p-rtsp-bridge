@@ -46,3 +46,27 @@ test("assembly records are bounded and an already-partial first frame is identif
     assert.equal(globalThis.__ewbGapCapture.rows[0].partialAtCaptureStart,true);
   }finally{globalThis.__ewbReassemblyCleanup?.();discardCache()}
 });
+
+
+test("assembly observer accounts for one final chunk-list copy and excludes incomplete append bytes", async()=>{
+ let ns=0n;
+ class Session {
+  pendingByDataType=new Map();lastSeqByType=new Map();
+  reassemble(type,body){
+   ns+=10n;
+   const p=this.pendingByDataType.get(type)??{header:{commandId:1300,channel:1,bytesToRead:8},chunks:[],byteLength:0};
+   p.chunks.push(body);p.byteLength+=body.length;
+   if(p.byteLength<8){this.pendingByDataType.set(type,p);return;}
+   this.pendingByDataType.delete(type);this.handleFrame(p.header,Buffer.concat(p.chunks,p.byteLength),type);
+  }
+  handleFrame(){ns+=1000n;}
+ }
+ const session=new Session();
+ try{
+  const done=captureReassembly({P2PSession:Session},.01,"linear-copy",10,()=>ns);
+  session.reassemble(1,Buffer.alloc(2));session.reassemble(1,Buffer.alloc(2));session.reassemble(1,Buffer.alloc(4));
+  await done;const row=globalThis.__ewbGapCapture.rows[0];
+  assert.equal(row.datagramsObserved,3);assert.equal(row.estimatedCopiedBytes,8);assert.equal(row.copyAccountingMode,"chunk-list");
+  assert.equal(row.assemblySyncMs,30/1e6);
+ }finally{globalThis.__ewbReassemblyCleanup?.();discardCache();}
+});

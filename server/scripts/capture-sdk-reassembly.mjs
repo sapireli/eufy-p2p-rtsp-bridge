@@ -19,18 +19,31 @@ export async function captureReassembly(sdk, seconds, id, maxRows = 6000, clock 
   const limits=[5000,10000,25000,50000,100000,250000,500000,1000000,2000000,5000000,10000000,20000000,50000000,100000000,Infinity];
   const pool=Array.from({length:8},()=>({}));let depth=0,overflow=0,cleaned=false;
   const now=()=>Number(clock()-mono);
-  const metric=()=>({cpuNs:0,fragments:0,copies:0,partial:false});
+  const metric=()=>({cpuNs:0,fragments:0,copies:0,partial:false,copyMode:"none"});
+  function copiedBytes(pending,body) {
+    if(Buffer.isBuffer(pending?.buf))return pending.buf.length+body.length;
+    if(!Array.isArray(pending?.chunks) || !Number.isInteger(pending.byteLength))return 0;
+    if(pending.header)return body.length>=pending.header.bytesToRead-pending.byteLength ? pending.header.bytesToRead : 0;
+    const needed=16-pending.byteLength;
+    if(body.length<needed)return 0;
+    const header=Buffer.allocUnsafe(16);let at=0;
+    for(const chunk of pending.chunks){chunk.copy(header,at);at+=chunk.length;}
+    body.copy(header,at,0,needed);
+    const payloadBytes=header.readUInt32LE(6);
+    return 16+(body.length-needed>=payloadBytes ? payloadBytes : 0);
+  }
   function session(owner) {
     let state=owners.get(owner);
     if(!state){state={id:"session-"+(sessions.length+1),traceId:owner.traceId,types:Array.from({length:4},metric),calls:0,totalNs:0,maxNs:0,histogram:new Array(limits.length).fill(0)};owners.set(owner,state);sessions.push(state)}
     return state;
   }
-  function reset(m){m.cpuNs=0;m.fragments=0;m.copies=0;m.partial=false}
+  function reset(m){m.cpuNs=0;m.fragments=0;m.copies=0;m.partial=false;m.copyMode="none"}
   const wrappedReassemble=function(dataType,body) {
     if(depth>=pool.length)return originalReassemble.call(this,dataType,body);
     const state=session(this),m=state.types[dataType]??(state.types[dataType]=metric()),pending=this.pendingByDataType?.get(dataType);
     if(m.fragments===0 && pending)m.partial=true;
-    m.fragments++;if(pending)m.copies+=pending.buf.length+body.length;
+    m.fragments++;
+    if(pending){m.copies+=copiedBytes(pending,body);m.copyMode=Buffer.isBuffer(pending.buf)?"growing-buffer":"chunk-list";}
     const q=pool[depth++];q.owner=this;q.state=state;q.metric=m;q.type=dataType;q.bodyBytes=body.length;q.sequence=this.lastSeqByType?.get(dataType);q.assemblyNs=0;q.segmentStarted=now();
     try{return originalReassemble.call(this,dataType,body)}finally{
       const tail=now()-q.segmentStarted;m.cpuNs+=tail;
@@ -48,7 +61,7 @@ export async function captureReassembly(sdk, seconds, id, maxRows = 6000, clock 
     if(header.commandId===1300){
       if(rows.length>=maxRows)overflow++;
       else {
-        row={session:q.state.id,traceId:q.state.traceId,monoMs:at/1e6,channel:header.channel,logicalBytes:header.bytesToRead,declaredVideoBytes:payload.length>=4?payload.readUInt32LE(0):null,keyframe:payload.length>=5?Boolean(payload[4]&1):null,datagramsObserved:m.fragments,estimatedCopiedBytes:m.copies,partialAtCaptureStart:m.partial,assemblySyncMs:m.cpuNs/1e6,finalDatagramBeforeDispatchMs:segment/1e6,finalDatagramBytes:q.bodyBytes,finalSequence:q.sequence};
+        row={session:q.state.id,traceId:q.state.traceId,monoMs:at/1e6,channel:header.channel,logicalBytes:header.bytesToRead,declaredVideoBytes:payload.length>=4?payload.readUInt32LE(0):null,keyframe:payload.length>=5?Boolean(payload[4]&1):null,datagramsObserved:m.fragments,estimatedCopiedBytes:m.copies,copyAccountingMode:m.copyMode,partialAtCaptureStart:m.partial,assemblySyncMs:m.cpuNs/1e6,finalDatagramBeforeDispatchMs:segment/1e6,finalDatagramBytes:q.bodyBytes,finalSequence:q.sequence};
         rows.push(row);
       }
     }
