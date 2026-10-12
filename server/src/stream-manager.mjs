@@ -1,3 +1,4 @@
+import { hevcProfileTierLevel } from "./codec-capability.mjs";
 // Always-on media core. One Slot per enabled camera holds the SDK's Annex-B Readable ("feed"), fans its
 // chunks out to HTTP consumers (go2rtc), and is watched for stalls. Watchdog thresholds are ported from
 // eufy-frigate-bridge (12 s stall / 45 s gap / 300 s exit), which were calibrated over a 19 h run.
@@ -39,6 +40,8 @@ export function createStreamManager(ctx) {
     const sets = ctx.sdk.extractParamSets(chunk); // non-undefined ⇒ this chunk carries SPS/PPS (keyframe AU)
     if (sets) {
       const g = ctx.sdk.codedGeometry(sets);
+      const nativeCodecInfo = sets.codec === "h265" ? hevcProfileTierLevel(sets.sps?.[0]) : undefined;
+      const codecInfoChanged = JSON.stringify(nativeCodecInfo) !== JSON.stringify(slot.nativeCodecInfo);
       // Compare GEOMETRY as well as codec. Live-view quality is "Auto" on these cameras (streamingQuality
       // tier 0) and the station re-picks a resolution on its own, so a stream can change size mid-session.
       // A copy consumer needs a fresh SDP when geometry changes. The Linux VA-API transcoder can keep
@@ -65,6 +68,7 @@ export function createStreamManager(ctx) {
         const outputUnchanged = stableVaapiOutput(ctx, slot.sn, slot.codec, slot.width, slot.height, sets.codec, g?.width, g?.height);
         const from = slot.codec ? `${slot.codec} ${slot.width ?? "?"}x${slot.height ?? "?"} → ` : "";
         slot.codec = sets.codec;
+        slot.nativeCodecInfo = nativeCodecInfo;
         slot.width = g?.width;
         slot.height = g?.height;
         console.log(`[bridge] ${slot.sn}: codec ${from}${sets.codec} ${slot.width ?? "?"}x${slot.height ?? "?"}`);
@@ -76,6 +80,9 @@ export function createStreamManager(ctx) {
           slot.consumers.clear();
         }
         void ctx.syncGo2rtc?.().catch(() => {}); // codec just became known: go2rtc may need a different egress
+      } else if (!differs && codecInfoChanged) {
+        slot.nativeCodecInfo = nativeCodecInfo;
+        void ctx.ws?.broadcastSnapshot?.().catch(() => {});
       }
     }
     for (const c of slot.consumers) {

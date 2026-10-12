@@ -90,7 +90,7 @@ export function nativeRenditionFor(ctx, cam, host) {
   const freshness = ctx.freshness?.capability({ ...cam, transcode: "never" }, host);
   if (!freshness) return undefined;
   const key = nativeStreamKeys(ctx.listCameras().filter((c) => c.enabled)).get(cam.sn);
-  return { rtsp: `rtsp://${host}:${ctx.cfg.rtspPort ?? 8554}/${key}`, codec: "h265", width: slot.width, height: slot.height, freshness };
+  return { rtsp: `rtsp://${host}:${ctx.cfg.rtspPort ?? 8554}/${key}`, codec: "h265", width: slot.width, height: slot.height, ...slot.nativeCodecInfo, freshness };
 }
 
 /** Rewrite the generated config's serial-keyed streams to {@link streamKeys}, in place and one for one. */

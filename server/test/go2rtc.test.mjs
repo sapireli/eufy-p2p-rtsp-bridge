@@ -164,8 +164,8 @@ test("native capability retains actual geometry and per-client addresses, absent
   assert.equal(nativeRenditionFor(ctx,cam,"tv-host"),undefined);
   ctx.state.slots.set("A",{codec:"h264",width:1600,height:2200});
   assert.equal(nativeRenditionFor(ctx,cam,"tv-host"),undefined);
-  ctx.state.slots.set("A",{codec:"h265",width:1920,height:1080});
-  assert.deepEqual(nativeRenditionFor(ctx,cam,"tv-host"),{rtsp:"rtsp://tv-host:8560/garage_native",codec:"h265",width:1920,height:1080,freshness:{version:2,mode:"observe",clockUrl:"http://tv-host:3030/api/clock"}});
+  ctx.state.slots.set("A",{codec:"h265",width:1920,height:1080,nativeCodecInfo:{profile:1,level:150,tier:1}});
+  assert.deepEqual(nativeRenditionFor(ctx,cam,"tv-host"),{rtsp:"rtsp://tv-host:8560/garage_native",codec:"h265",width:1920,height:1080,profile:1,level:150,tier:1,freshness:{version:2,mode:"observe",clockUrl:"http://tv-host:3030/api/clock"}});
 });
 
 

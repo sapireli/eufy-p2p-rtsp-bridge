@@ -449,3 +449,26 @@ test("passthrough still reconnects on a confirmed input size change", async () =
     await sm.stopAll();
   }
 });
+
+
+test("learned HEVC PTL is cached and metadata changes refresh clients without opening another source", async () => {
+  const feed=new PassThrough(),ctx=ctxWith({feeds:[()=>feed]});
+  let sps=Buffer.from("QgEBIUAAAAMAkAAAAwAAAwCWoAKAgC0WeluRKFzcBAQEEAAAAwAQAAADAZCA","base64"),refreshes=0;
+  ctx.sdk.extractParamSets=()=>({codec:"h265",sps:[sps],pps:[],vps:[]});
+  ctx.sdk.codedGeometry=()=>({width:1920,height:1080});
+  ctx.syncGo2rtc=async()=>{};
+  ctx.ws={broadcastSnapshot:async()=>{refreshes++;}};
+  const sm=createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");feed.write(KEY);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(ctx.state.slots.get("A").nativeCodecInfo,{profile:1,level:150,tier:1});
+    feed.write(KEY);assert.equal(refreshes,0,"unchanged SPS does not repeatedly broadcast");
+    sps=Buffer.from(sps);sps[3]&=~32;feed.write(KEY);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(ctx.state.slots.get("A").nativeCodecInfo,{profile:1,level:150,tier:0});
+    assert.equal(refreshes,1);assert.equal(ctx.opens(),1);
+    sps=Buffer.from([0x42,1]);feed.write(KEY);
+    assert.equal(ctx.state.slots.get("A").nativeCodecInfo,undefined,"malformed replacement clears stale capability");
+  } finally {await sm.stopAll();}
+});
