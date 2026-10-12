@@ -19,5 +19,5 @@ test("openFeed delegates warm timing to the pinned SDK", async () => {
 
   await sdk.openFeed(client, "T8000P0000000000");
 
-  assert.deepEqual(calls, [[{ objectMode: true, streamType: 2 }]]);
+  assert.deepEqual(calls, [[{ objectMode: true, receiptMetadata: true, streamType: 2 }]]);
 });

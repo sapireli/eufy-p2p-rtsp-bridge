@@ -118,6 +118,7 @@ export function createCameras(ctx) {
       ...(freshness ? { freshness } : {}),
       ...(nativeRenditionFor(ctx, cam, host) ? { nativeRendition: nativeRenditionFor(ctx, cam, host) } : {}),
       ...(st.freshness ? { freshnessStatus: st.freshness } : {}),
+      ...(st.sourceReceipt ? { sourceReceipt: st.sourceReceipt } : {}),
       stream: `/stream/${cam.sn}`,
     };
   }

@@ -21,11 +21,18 @@ export function createStreamManager(ctx) {
   const slotFor = (sn) => state.slots.get(sn) ?? state.slots.set(sn, newSlot(sn)).get(sn);
   const stationChains = new Map(); // parentStationSn -> Promise: serialises P2P opens per HomeBase
 
-  function onChunk(slot, frame) {
+  function onChunk(slot, event) {
+    const frame = event?.frame ?? event;
+    const sourceReceipt = event?.frame ? event.receipt : undefined;
+    if (event?.frame && !sourceReceipt) throw new Error("SDK frame envelope has no source receipt");
     // Preserve VideoEvent metadata internally; the legacy raw endpoint still receives only data.
     const chunk = Buffer.isBuffer(frame) ? frame : frame.data;
     const now = Date.now();
-    const receipt = ctx.freshness && !Buffer.isBuffer(frame) ? ctx.freshness.record(frame) : undefined;
+    const receipt = ctx.freshness && !Buffer.isBuffer(frame) ? ctx.freshness.record(frame, sourceReceipt) : undefined;
+    if (sourceReceipt && receipt) {
+      slot.lastSourceReceipt = sourceReceipt;
+      slot.lastReceipt = receipt;
+    }
     slot.lastBytesAt = now;
     slot.firstFailureAt = 0;
     slot.failures = 0;
@@ -209,7 +216,9 @@ export function createStreamManager(ctx) {
       }
       slot.feed = feed;
       slot.startedAt = Date.now();
-      feed.on("data", (chunk) => onChunk(slot, chunk));
+      feed.on("data", (chunk) => {
+        try { onChunk(slot, chunk); } catch (error) { feed.destroy(error); }
+      });
       const onEnd = (why) => () => {
         if (slot.feed !== feed) return;
         closeFeed(slot);
@@ -259,6 +268,13 @@ export function createStreamManager(ctx) {
       consumers: s.consumers.size,
       failures: s.failures,
       ...(s.freshness ? { freshness: s.freshness } : {}),
+      ...(s.lastSourceReceipt ? { sourceReceipt: {
+        sourceId: s.lastSourceReceipt.sourceId,
+        sequence: String(s.lastSourceReceipt.sequence),
+        monotonicUs: String(s.lastSourceReceipt.monotonicUs),
+        frameId: String(s.lastReceipt.frameId),
+        ageMs: Number(ctx.freshness.nowUs() - s.lastReceipt.ingressMonoUs) / 1000,
+      } } : {}),
     };
   }
 

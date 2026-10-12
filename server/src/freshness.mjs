@@ -3,6 +3,9 @@ import { randomBytes } from "node:crypto";
 /** Clock domain for receipt at this bridge, independent of host wall-clock corrections. */
 export function createFreshness(ctx, { epoch = randomBytes(8), clock = () => process.hrtime.bigint() / 1000n } = {}) {
   let sequence = 0n;
+  // The SDK retains this immutable receipt through queues and keyframe replay.
+  // Weak keys retain no completed frame once the SDK releases it.
+  const sourceReceipts = new WeakMap();
   const enabled = ctx.cfg.freshness?.enabled !== false;
   const maxAgeMs = ctx.cfg.freshness?.maxAgeMs ?? 500;
   const mode = ctx.cfg.freshness?.mode ?? "observe";
@@ -23,6 +26,20 @@ export function createFreshness(ctx, { epoch = randomBytes(8), clock = () => pro
       version: 2, mode, scope: "bridge-ingress", maxAgeMs, captureClockValidated: false,
       clockUrl: `http://${host}:${ctx.cfg.port}/api/clock`,
     } : undefined,
-    record: (frame) => ({ serverEpoch, sourceTimestamp: frame.sourceTimestamp, ingressMonoUs: clock(), frameId: ++sequence, maxAgeMs, scope: 1 }),
+    record: (frame, receipt) => {
+      if (receipt !== undefined) {
+        if (!receipt || typeof receipt.sourceId !== "string" || !receipt.sourceId ||
+            typeof receipt.sequence !== "bigint" || receipt.sequence <= 0n ||
+            typeof receipt.monotonicUs !== "bigint" || receipt.monotonicUs < 0n || receipt.monotonicUs > clock()) {
+          throw new Error("invalid SDK monotonic source receipt");
+        }
+        const retained = sourceReceipts.get(receipt);
+        if (retained) return retained;
+      }
+      const stamped = Object.freeze({ serverEpoch, sourceTimestamp: frame.sourceTimestamp,
+        ingressMonoUs: receipt?.monotonicUs ?? clock(), frameId: ++sequence, maxAgeMs, scope: 1 });
+      if (receipt) sourceReceipts.set(receipt, stamped);
+      return stamped;
+    },
   };
 }

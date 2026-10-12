@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import { createStreamManager } from "../src/stream-manager.mjs";
 import { createState } from "../src/state.mjs";
+import { createFreshness } from "../src/freshness.mjs";
 
 // Keep test output pristine: capture the manager's console.log/warn/error for the whole file.
 const originals = {};
@@ -117,6 +118,46 @@ test("object-mode feeds preserve the source clock for TS while raw consumers rec
     assert.equal(ts.destroyed, true, "a backwards source clock closes only its timestamped consumer");
     assert.equal(raw.destroyed, false);
     assert.equal(raw.chunks.length, 4);
+  } finally { await sm.stopAll(); }
+});
+
+test("SDK envelopes preserve receipt age and replay identity through consumer fanout", async () => {
+  const feed = new PassThrough({ objectMode: true });
+  const ctx = ctxWith({ feeds: [() => feed] });
+  let now = 1_000_000n;
+  ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => now });
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    const raw = fakeRes(), timed = fakeRes(), stamps = [];
+    sm.attachConsumer("A", raw);
+    sm.attachConsumer("A", timed, { onFrame: (frame, stamp) => stamps.push({ frame, stamp }) });
+    const frame = { data: KEY, sourceTimestamp: 1000, keyframe: true, codec: "h264" };
+    const receipt = Object.freeze({ sourceId: "pull-A", sequence: 1n, monotonicUs: now });
+    feed.write(Object.freeze({ frame, receipt }));
+    now = 6_000_000n;
+    feed.write(Object.freeze({ frame, receipt }));
+    assert.deepEqual(raw.chunks, [KEY, KEY]);
+    assert.equal(stamps.length, 2);
+    assert.equal(stamps[0].frame, frame);
+    assert.equal(stamps[1].stamp, stamps[0].stamp);
+    assert.equal(stamps[1].stamp.ingressMonoUs, 1_000_000n);
+    assert.equal(sm.streamStatus("A").sourceReceipt.ageMs, 5000);
+    assert.equal(sm.streamStatus("A").sourceReceipt.frameId, String(stamps[0].stamp.frameId));
+  } finally { await sm.stopAll(); }
+});
+
+test("invalid SDK envelopes close their feed without escaping its error handler", async () => {
+  const feed = new PassThrough({ objectMode: true });
+  const ctx = ctxWith({ feeds: [() => feed] });
+  ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => 100n });
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    feed.write({ frame: { data: KEY, sourceTimestamp: 1 }, receipt: { sourceId: "A", sequence: 1n, monotonicUs: 101n } });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(feed.destroyed, true);
+    assert.equal(ctx.state.streaming.has("A"), false);
   } finally { await sm.stopAll(); }
 });
 

@@ -33,3 +33,29 @@ test("receipt IDs and monotonic clocks preserve source words without inventing c
   assert.equal(second.frameId, first.frameId + 1n);
   assert.equal(fresh.clock().captureClockValidated, false);
 });
+
+test("retained and queued SDK pictures keep their first receipt and bridge identity", () => {
+  let now = 1_000_000n;
+  const fresh = createFreshness(ctx(), { clock: () => now });
+  const receipt = Object.freeze({ sourceId: "pull-A", sequence: 1n, monotonicUs: now });
+  const frame = { sourceTimestamp: 1234 };
+  const first = fresh.record(frame, receipt);
+  now = 6_000_000n;
+  const replayed = fresh.record(frame, receipt);
+  assert.equal(replayed, first);
+  assert.equal(now - replayed.ingressMonoUs, 5_000_000n);
+  const queued = fresh.record({ sourceTimestamp: 1301 }, Object.freeze({ sourceId: "pull-A", sequence: 2n, monotonicUs: 2_000_000n }));
+  assert.equal(queued.ingressMonoUs, 2_000_000n);
+  assert.equal(queued.frameId, first.frameId + 1n);
+  const rebuilt = fresh.record(frame, Object.freeze({ sourceId: "pull-B", sequence: 1n, monotonicUs: now }));
+  assert.notEqual(rebuilt.frameId, first.frameId);
+});
+
+test("invalid source receipts cannot mint trusted freshness", () => {
+  const fresh = createFreshness(ctx(), { clock: () => 100n });
+  const valid = { sourceId: "pull-A", sequence: 1n, monotonicUs: 90n };
+  for (const receipt of [null, {}, { ...valid, sourceId: "" }, { ...valid, sequence: 0n },
+    { ...valid, monotonicUs: -1n }, { ...valid, monotonicUs: 101n }, { ...valid, monotonicUs: 90 }]) {
+    assert.throws(() => fresh.record({ sourceTimestamp: 1 }, receipt), /invalid SDK/);
+  }
+});
