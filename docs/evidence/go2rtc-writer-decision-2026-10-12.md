@@ -114,11 +114,12 @@ or quantified disconnect-rate attribution to this guard. The decision rests on
 the real framing defect, isolated base-failing proofs, and the bounded healthy
 sibling/redial gate—not a claim to explain all past disconnects.
 
-The production owner will perform one protected atomic go2rtc-child replacement,
-preserving the SDK/Node process, source policies, client preferences, and hardware
-paths. Until that gate is recorded, this document establishes the default source
-decision and isolated live behavior, not final production deployment or sustained
-physical smoothness.
+The production owner subsequently performed one protected atomic go2rtc-child
+replacement, preserving the SDK/Node process, source policies, client preferences,
+and hardware paths. Both TVs and the parallel source API passed the short
+post-recovery gate; the repair was retained and the rollback guard canceled.
+See the [production gate](go2rtc-writer-production-gate-2026-10-12.md). This does
+not establish sustained physical smoothness or resolve independent source pauses.
 
 Reproducer: `server/tools/diagnostics/verify-rtsp-writer.py URL ROLE CLOCK_URL`.
 Use the `paused` role only on an isolated sidecar. Private artifacts are under
