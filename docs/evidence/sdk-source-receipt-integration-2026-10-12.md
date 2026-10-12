@@ -96,6 +96,11 @@ the synthetic SDK regression; the live probe proves original receipt metadata
 on the existing-source API path. No payload was serialized. Inspector and SSH
 forwarding were closed, restoring their prior disabled state.
 
+The private probe's `sourceTimestamp: null` diagnostic read the obsolete field
+`frame.timestamp`, not `frame.sourceTimestamp`. It is not evidence of missing
+source timing; this field was not used for the receipt-age or identity results.
+The original artifact is retained unchanged.
+
 ## Outstanding requirements
 
 This fixes a freshness-observation defect. It does not repair the independent
