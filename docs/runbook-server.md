@@ -86,7 +86,16 @@ output; slice-only threading removed that hold while retaining hardware accelera
 Software decoder fallback retains its normal threading. Encoder processing depth
 and client buffering are unchanged. See [the stage measurements and limits](evidence/firetv-latency-investigation-2026-10-09.md).
 
-The SDK frame clock is retained in MPEG-TS and preserved through H.264 encoding and
+With freshness enabled, complete source access units enter FFmpeg as Matroska
+SimpleBlocks. Final stamped packets enter go2rtc as finite FLV video tags; this
+avoids large length-zero MPEG-TS PES packets waiting for the next picture.
+Observation is the default; strict display expiry is opt-in and has not passed
+the live smoothness gate. Camera capture age remains unverified. External RTSP
+URLs, configured output dimensions and hardware-first/software-fallback policy
+are unchanged. See [the protocol](frame-freshness.md) and
+[native one-frame verification](evidence/go2rtc-flv-access-unit-boundary-2026-10-12.md).
+
+With freshness disabled, the SDK frame clock is retained in MPEG-TS and preserved through H.264 encoding and
 RTSP. Internal FFmpeg inputs use `/stream/<serial>?format=mpegts&pes=fragmented`: finite
 PES fragments prevent large pictures from adding a next-frame delimiter wait. Copy
 streams also use FFmpeg remuxing with `-codec:v copy`, without decoding or re-encoding.

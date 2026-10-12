@@ -73,7 +73,8 @@ frame heartbeat. FFmpeg now receives one complete access unit per finite
 Matroska SimpleBlock, with proper `avcC`/`hvcC` configuration and four-byte
 length-prefixed NALs. The one-millisecond container timebase preserves the
 validated source increments exactly. Only the encoder input changed: outgoing
-timestamped MPEG-TS/go2rtc/RTSP remains unchanged. FFmpeg output uses `-copyts`, no B frames, passthrough frame
+final encoded packets now enter go2rtc in finite FLV video tags; external RTSP
+remains unchanged. FFmpeg output uses `-copyts`, no B frames, passthrough frame
 timing and `-enc_time_base:v 1:90000`. Its encoded packet data is joined with
 `-stats_mux_pre_fmt '{n} {pts} {tb} {size}'` packet records. Every output packet
 must have the expected sequential record, exact integral 90 kHz PTS and complete

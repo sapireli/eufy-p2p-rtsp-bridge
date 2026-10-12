@@ -21,16 +21,21 @@ function paramSets(data) {
   }
   return sps && pps ? {} : undefined;
 }
-function payload(ts) {
-  const parts = [];
-  for (let at = 0; at < ts.length; at += 188) {
-    const p = ts.subarray(at, at+188);
-    if ((((p[1]&31)<<8)|p[2]) !== 0x100) continue;
-    const start = (p[3]&32) ? 5+p[4] : 4;
-    parts.push(p.subarray(start));
+function payload(flv) {
+  let at = flv.subarray(0,3).toString() === "FLV" ? 13 : 0;
+  while (at + 15 <= flv.length) {
+    const size = flv.readUIntBE(at+1,3), body = flv.subarray(at+11,at+11+size);
+    if (flv[at] === 9 && body[1] === 1) {
+      const nals=[];
+      for(let p=5;p<body.length;) {
+        const length=body.readUInt32BE(p);p+=4;
+        nals.push(Buffer.from([0,0,0,1]),body.subarray(p,p+length));p+=length;
+      }
+      return Buffer.concat(nals);
+    }
+    at += 11 + size + 4;
   }
-  const pes = Buffer.concat(parts);
-  return pes.subarray(9 + pes[8]);
+  throw new Error("FLV write contains no coded video picture");
 }
 function fakeProcess() {
   const child = new EventEmitter();

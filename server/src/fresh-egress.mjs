@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { transcodeAttempts, hardwareFailure } from "./ffmpeg-hardware.mjs";
-import { newVideoMpegTsMuxer } from "./video-mpegts.mjs";
+import { newVideoFlvMuxer } from "./video-flv.mjs";
 import { newVideoMatroskaMuxer } from "./video-matroska.mjs";
-import { stampVideoFrame } from "./frame-stamp.mjs";
+import { stampVideoFrame, firstVclNal } from "./frame-stamp.mjs";
 import { EncodedFrameReader } from "./encoded-frame-reader.mjs";
 
 /** One input, one final encoded packet, one original receipt stamp. No inferred RTP phase. */
@@ -45,13 +45,13 @@ export function createFreshEgress(ctx) {
     function writeFrame(data, stamp, codec) {
       if (stopped) return;
       const ageMs = Number(ctx.freshness.nowUs() - stamp.ingressMonoUs) / 1000;
-      const keyframe = Boolean(ctx.sdk.extractParamSets(data));
+      const keyframe = firstVclNal(data, codec)?.keyframe === true;
       if (ageMs < 0) return stop(new Error("receipt clock is ahead of bridge clock"));
       const expired = ageMs >= stamp.maxAgeMs;
       if (res.writableNeedDrain) return stop(new Error("timed media consumer stopped draining"));
       if (needKeyframe && !keyframe) return;
       needKeyframe = false;
-      outputMux ??= newVideoMpegTsMuxer({ codec });
+      outputMux ??= newVideoFlvMuxer({ codec });
       const bytes = outputMux.push({ data: stampVideoFrame(data, codec, stamp), sourceTimestamp: stamp.sourceTimestamp, codec, keyframe });
       statistics.outputFrames++;
       // Retain compressed reference pictures, with their original EXPIRED stamp.

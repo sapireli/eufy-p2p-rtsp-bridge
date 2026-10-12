@@ -61,6 +61,13 @@ there is no nearest-frame or latest-heartbeat substitution. Hardware decoding
 and encoding are attempted first, with software fallback for hardware failures.
 Source dimensions follow the existing configured decoder ceiling.
 
+Complete frame boundaries survive both bridge container transitions: finite
+Matroska SimpleBlocks feed FFmpeg, and finite FLV video tags feed go2rtc after
+final encoding/stamping. Large MPEG-TS PES packets have no finite length and
+made go2rtc wait for a following picture. FLV removes that dependency without
+filler frames, another encoder or an added buffer. The external RTSP URLs and
+picture bytes remain unchanged. See the [native one-frame proof](evidence/go2rtc-flv-access-unit-boundary-2026-10-12.md).
+
 `GET /api/clock` returns `serverEpoch`, `monotonicUs`, scope and the unverified
 capture flag. Clients time the request and complete response with their own
 monotonic clock. If request start is `t0`, server time is `s`, and frame receipt

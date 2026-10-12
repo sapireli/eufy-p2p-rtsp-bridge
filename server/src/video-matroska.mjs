@@ -1,6 +1,7 @@
 // Complete encoded AUs in finite Matroska SimpleBlocks. Unlike MPEG-TS's full
 // Annex-B parser, the decoder receives an explicit packet boundary immediately.
 import { TimestampDiscontinuityError } from "./video-mpegts.mjs";
+const ANNEX_B_START_CODE = Buffer.from([0, 0, 1]);
 const AVC_EXTENDED_PROFILES = new Set([100,110,122,144,244,44,83,86,118,128,138,139,134,135]);
 
 function size(value) {
@@ -30,8 +31,8 @@ const u16 = (value) => { const b = Buffer.alloc(2); b.writeUInt16BE(value); retu
 
 export function annexBNals(data) {
   const starts = [];
-  for (let at = 0; at < data.length - 2; at++) if (data[at] === 0 && data[at + 1] === 0 && data[at + 2] === 1) {
-    starts.push({ from: at > 0 && data[at - 1] === 0 ? at - 1 : at, body: at + 3 }); at += 2;
+  for (let at = data.indexOf(ANNEX_B_START_CODE); at >= 0; at = data.indexOf(ANNEX_B_START_CODE, at + 3)) {
+    starts.push({ from: at > 0 && data[at - 1] === 0 ? at - 1 : at, body: at + 3 });
     if (starts.length > 1024) throw new RangeError("Too many video NAL units");
   }
   if (!starts.length || data.subarray(0, starts[0].from).some((byte) => byte !== 0)) throw new TypeError("Video packet must be Annex-B");
@@ -64,7 +65,8 @@ class Bits {
     return 2 ** zeros - 1 + this.read(zeros);
   }
 }
-function configuration(nals, codec) {
+export function videoCodecConfiguration(nals, codec) {
+  if (codec !== "h264" && codec !== "h265") throw new TypeError("Codec configuration must be h264 or h265");
   const type = (nal) => codec === "h264" ? nal[0] & 31 : (nal[0] >> 1) & 63;
   const sets = codec === "h264" ? [7, 8] : [32, 33, 34];
   const grouped = sets.map((t) => nals.filter((nal) => type(nal) === t));
@@ -135,11 +137,11 @@ export function newVideoMatroskaMuxer({ codec, maxFrameBytes = 4 * 1024 * 1024 }
     let setsPresent = false;
     for (const type of types) {
       const found = nals.filter((nal) => (codec === "h264" ? nal[0]&31 : (nal[0]>>1)&63) === type);
-      if (found.length) { latestSets.set(type,found); setsPresent=true; }
+      if (found.length) { latestSets.set(type,found.map((nal) => Buffer.from(nal))); setsPresent=true; }
     }
     let prefix = Buffer.alloc(0);
     if (!privateData || setsPresent) {
-      const config = configuration([...latestSets.values()].flat(), codec);
+      const config = videoCodecConfiguration([...latestSets.values()].flat(), codec);
       const nextFormat = codec === "h265" ? config.subarray(16,19).toString("hex") : AVC_EXTENDED_PROFILES.has(config[1]) ? config.subarray(-4,-1).toString("hex") : "fdf8f8";
       if (format !== undefined && format !== nextFormat) throw new TypeError("Source chroma/bit depth changed; start a new Matroska stream");
       if (!privateData) {

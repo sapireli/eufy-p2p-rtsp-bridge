@@ -60,7 +60,7 @@ test("timed stream preserves disabled and blocked-camera boundaries", async () =
   const ctx = ctxWith({ freshness: { enabledFor: () => true }, attachFreshConsumer: (sn, res) => { attached.push(sn); res.end(Buffer.from([0x47])); } });
   await withServer(ctx, async (base) => {
     const response = await fetch(`${base}/timed-stream/A`);
-    assert.equal(response.headers.get("content-type"), "video/mp2t");
+    assert.equal(response.headers.get("content-type"), "video/x-flv");
     await response.arrayBuffer();
     assert.deepEqual(attached, ["A"]);
     assert.equal((await fetch(`${base}/timed-stream/B`)).status, 404);

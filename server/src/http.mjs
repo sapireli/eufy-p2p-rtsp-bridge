@@ -155,7 +155,7 @@ export function createHttpHandler(ctx) {
       const cam = ctx.getCamera(arg);
       if (!cam?.enabled || !ctx.freshness?.enabledFor(cam)) return json(res, 404, { error: "timed stream unavailable" });
       if (ctx.isBlocked(arg)) return json(res, 423, { error: "camera peer blocked" });
-      res.writeHead(200, { "content-type": "video/mp2t", "cache-control": "no-store", connection: "close" });
+      res.writeHead(200, { "content-type": "video/x-flv", "cache-control": "no-store", connection: "close" });
       ctx.attachFreshConsumer(arg, res);
       return;
     }
