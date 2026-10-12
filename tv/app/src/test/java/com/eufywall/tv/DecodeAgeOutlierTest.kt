@@ -23,4 +23,16 @@ class DecodeAgeOutlierTest {
         assertTrue(record.contains("auReceivedNs=-1 decoderInputSubmitNs=-1"))
         assertTrue(record.contains("receiveToDecodeNs=-1"))
     }
+    @Test fun rtpStagesAttachToExactOutlierWithoutChangingAdmission() {
+        val a = com.alexvas.rtsp.parser.RtpReadObservation.Accumulator(456)
+        a.packet(99, 100, 120, 150)
+        val rtp = a.snapshot(170)
+        a.listenerCompleted(rtp, 180)
+        val record = decodeAgeOutlier(stamp, 42, DecodeFrameStages(170, 190, rtp), 1_000_000_000,
+            600_000_000, 610_000_000, 10_000_000, 0)!!
+        for (field in listOf("rtpTimestamp=99", "networkThreadId=456", "rtpPacketCount=1",
+            "firstHeaderStartNs=100", "lastPayloadEndNs=150", "auCallbackNs=170",
+            "headerReadElapsedNs=20", "payloadReadElapsedNs=30", "parserBeforeCallbackElapsedNs=20",
+            "listenerElapsedNs=10", "listenerCompletedNs=180")) assertTrue(field, record.contains(field))
+    }
 }

@@ -39,7 +39,8 @@ open class FrameQueue<T>(private val frameQueueCapacity: Int) {
         /** Captured (received) video frame timestamp (msec). If -1, not supported. */
         val capturedTimestampMs: Long = -1,
         /** Monotonic time at complete parsed AU callback entry, before queue insertion. */
-        val receivedMonoNs: Long = 0
+        val receivedMonoNs: Long = 0,
+        val rtpReadObservation: com.alexvas.rtsp.parser.RtpReadObservation? = null
     ) : Frame
 
     data class AudioFrame(

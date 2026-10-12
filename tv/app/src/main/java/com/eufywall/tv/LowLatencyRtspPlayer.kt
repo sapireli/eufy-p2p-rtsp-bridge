@@ -135,7 +135,7 @@ internal class LowLatencyRtspPlayer(
                 FrameStampReader.read(frame.data, frame.offset, frame.length, mime == MediaFormat.MIMETYPE_VIDEO_HEVC)?.let { stamp ->
                     synchronized(stampLock) {
                         stamps[frame.timestampMs] = stamp
-                        frameStages[frame.timestampMs] = DecodeFrameStages(frame.receivedMonoNs, System.nanoTime())
+                        frameStages[frame.timestampMs] = DecodeFrameStages(frame.receivedMonoNs, System.nanoTime(), frame.rtpReadObservation)
                         while (stamps.size > 256) {
                             val oldest = stamps.keys.first()
                             stamps.remove(oldest)

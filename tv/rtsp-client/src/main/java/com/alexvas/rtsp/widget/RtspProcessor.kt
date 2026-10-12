@@ -218,6 +218,16 @@ class RtspProcessor(
         private var framesPerGop = 0
 
         override fun onRtspVideoNalUnitReceived(data: ByteArray, offset: Int, length: Int, timestamp: Long) {
+            receiveVideo(data, offset, length, timestamp, null)
+        }
+
+        override fun onRtspVideoNalUnitReceived(data: ByteArray, offset: Int, length: Int, timestamp: Long,
+            observation: com.alexvas.rtsp.parser.RtpReadObservation) {
+            receiveVideo(data, offset, length, timestamp, observation)
+        }
+
+        private fun receiveVideo(data: ByteArray, offset: Int, length: Int, timestamp: Long,
+            observation: com.alexvas.rtsp.parser.RtpReadObservation?) {
             val receivedMonoNs = System.nanoTime()
             if (DEBUG) Log.v(TAG, "onRtspVideoNalUnitReceived(data.size=${data.size}, length=$length, timestamp=$timestamp)")
 
@@ -233,7 +243,8 @@ class RtspProcessor(
                 length,
                 timestamp,
                 capturedTimestampMs = System.currentTimeMillis(),
-                receivedMonoNs = receivedMonoNs
+                receivedMonoNs = receivedMonoNs,
+                rtpReadObservation = observation
             )
             if (isKeyframe && experimentalUpdateSpsFrameWithLowLatencyParams) {
                 videoFrame = getNewLowLatencyFrameFromKeyFrame(videoFrame)

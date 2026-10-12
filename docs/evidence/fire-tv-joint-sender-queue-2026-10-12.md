@@ -162,3 +162,25 @@ window; uneven five-second delivery remained. No smoothness acceptance claim is
 made. Private `tv-exact-outliers-180s/` contains manifest, INFO logs, summaries,
 sparse records, and exact Mac joins. The parent observer is
 `compat-mac-sdk-end-exact-180s.jsonl`. No camera image payload is committed.
+
+
+## Read-stage diagnostic extension
+
+The next candidate adds one bounded accumulator per RTSP connection and one small
+snapshot per delivered NAL/AU. For each video RTP timestamp it records header-read
+start, last payload-read completion, complete AU callback time, packet count,
+network thread ID, summed header/payload elapsed times, parser elapsed before the
+AU callback, and listener elapsed/completion. Snapshots attach to the existing
+VideoFrame and exact sparse outlier; there are no per-packet logs or payload copies.
+Elapsed header/payload time includes blocking, allocation, and thread descheduling;
+it does **not** identify RF delay or pure CPU time. Callback/listener duration is
+completed after the callback returns; a zero completion timestamp explicitly means
+it was not yet complete when sampled. No bytes, parser branches, buffers, or
+input/output scheduling policies change.
+
+Timestamp changes reset aggregate counters; earlier snapshots retain their own
+identity. Tests cover same-timestamp aggregation, listener exclusion from parser
+elapsed, timestamp reset, sparse-field attachment, and byte-equivalent single-NAL
+and fragmented AVC output against the unobserved parser with exact AnnexB fixtures.
+CPU/schedstat sampling is left to a separate bounded passive observer rather than
+adding an expensive per-packet system call.
