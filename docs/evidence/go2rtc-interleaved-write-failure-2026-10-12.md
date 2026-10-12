@@ -183,8 +183,15 @@ leaves the final viewer receiving the next frame; the producer stops exactly
 once only after the final viewer is removed. The removed viewer receives no
 later frame. **The regression passes with race checking.**
 
-The fixture is `consumer_lifecycle_test.go`; copy it into `internal/streams`
-and run `go test -race ./internal/streams -run TestRemoveDisconnectedViewer -count=1`.
+The fixture is `consumer_lifecycle_test.go`; copy it into `internal/streams`.
+The tag's existing `stream_test.go` does not compile: it expects one return
+from New/GetOrPatch/Patch whose production signatures return two. The first
+whole-package attempt failed on those four existing signature mismatches;
+it is not a passing full-package gate. The focused race result instead used
+all unchanged non-test Go files in that directory plus only this regression,
+via `go test -race -count=1 <non-test files> consumer_lifecycle_test.go`.
+That explicit source-scoped command passed. No unrelated upstream tests or
+production lifecycle files were changed to make it pass.
 It verifies ordinary cleanup ownership, not the exact chronology or cause of
 the later21:47 real-camera interruption. No lifecycle source fix was needed or
 claimed. No live intervention, new capture, or network-fault experiment was
