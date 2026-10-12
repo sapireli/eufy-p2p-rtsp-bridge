@@ -113,3 +113,52 @@ buffer changes, admission changes, pacing changes, or display gates were added.
 Tests cover upper-only uncertainty, the500 ms boundary, exact identity/times, and
 invalid/missing stage timestamps. These records enable joining the same frame
 with the parent Mac observer; they are not themselves a latency fix.
+
+
+## Live exact-frame join after sparse instrumentation
+
+APK `c411aa914167a1f6fae368f1ac7d742c9102a3f01e6d250752d1d66343d59b13`
+was installed sequentially with full original preferences preserved. Both cameras
+on both TVs still used the hardware AVC decoder. SDK candidate deployment at
+19:27:11 UTC preceded this separate window; original release go2rtc was restored.
+This evidence does not assign changes between different runs to that SDK candidate.
+
+INFO collection ran19:28:21.044–19:31:21.049 UTC (180.005 seconds), bridge epoch
+`5a9847d5d5de3c4f`, PIDs24296/23786. There were28 Door and67 Garage sparse
+outlier records on .85; .58 had none. All95 records matched the concurrent Mac
+observer by **epoch, frameId, and ingressMonoUs**, not camera clock or RTP clock.
+The first Garage miss counter already contained18 warmup misses, excluded from
+this run's delta. No warning/error, reconnect, missing stamp, unknown clock,
+observation blank, or pacing drop appeared in the recorded interval.
+
+Statistics below apply only to these selected late frames, not all frames.
+
+| .85 late frames | Door (28) | Garage (67) |
+| --- | ---: | ---: |
+| Mac receipt ingress-age upper median / maximum ms | 110.99 / 148.95 | 134.05 / 189.95 |
+| TV assembled-AU receipt ingress-age lower median / maximum ms | 586.64 / 1464.99 | 837.46 / 1365.84 |
+| AU receipt → input submit median / maximum ms | 4.68 / 7.87 | 0.98 / 16.05 |
+| Input submit → codec output median / maximum ms | 61.15 / 245.38 | 55.65 / 476.44 |
+| Frames already lower-age >500 ms at TV AU receipt | 22 | 51 |
+| TV AU receipt lower minus Mac receipt upper positive | 28 | 61 |
+
+TV receipt lower is decode lower minus measured receive-to-output duration.
+Comparing it with Mac receipt upper conservatively bounds additional delay on
+that TV's path under the respective valid clock intervals. Clock/model allowances
+remain conditional; this is bridge-ingress age, not sensor-to-screen latency.
+
+Worst Door record: frame11425, ingress33241174356 µs. Mac receipt upper104.746 ms;
+TV assembled-AU receipt lower1464.989 ms; receipt→input0.486 ms and input→output
+12.125 ms. Worst Garage decode-age record: frame11420, ingress33241115824 µs;
+Mac receipt upper151.966 ms; TV AU receipt lower1365.839 ms; receipt→input0.752 ms,
+input→output16.225 ms. These exact-frame examples localize most delay **before
+complete AU receipt on .85**, rather than shared producer delivery or that frame's
+decoder input/output stage. They do not distinguish socket/radio/TCP delay from
+read-thread scheduling or RTP assembly CPU. Other Garage records separately show
+input→output holds up to476 ms; one explanation is not sufficient for all frames.
+
+The mean decoded rates were about15 fps for Door and16.2 fps for Garage in this
+window; uneven five-second delivery remained. No smoothness acceptance claim is
+made. Private `tv-exact-outliers-180s/` contains manifest, INFO logs, summaries,
+sparse records, and exact Mac joins. The parent observer is
+`compat-mac-sdk-end-exact-180s.jsonl`. No camera image payload is committed.
