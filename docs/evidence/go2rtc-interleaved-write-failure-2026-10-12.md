@@ -196,3 +196,30 @@ It verifies ordinary cleanup ownership, not the exact chronology or cause of
 the later21:47 real-camera interruption. No lifecycle source fix was needed or
 claimed. No live intervention, new capture, or network-fault experiment was
 performed for this test.
+
+## Normal paired path and reproducible update gate
+
+A later45-second non-paused Mac observation received **the exact same688 unique
+frame IDs** through the main Garage stream and candidate sidecar, no extras or
+missing IDs. Both paths had zero invalid/missing stamps, abandoned units, and
+transport-invalid frames, with identical23,168,338 received bytes. Upper ingress
+age median/max were123.425/247.690ms main and125.239/252.422ms candidate.
+This is same-window delivery equivalence, not a comparison to an earlier
+source window or a sensor/presentation-clock guarantee. Private paired artifact
+`rtsp-write-main-candidate-paired-45.jsonl` records the exact ID join; SHA-256
+`8322d9395da24610d8b7ccbfae80ae6e4052a5cebcbd83245c8517b0044512db`. The prior
+single candidate run with571 frames was a different source window and is not an
+FPS or loss comparison.
+
+The new offline builder downloaded the pinned official source archive, applied
+the tracked patch, copied the regressions and passed RTSP/TCP/core plus focused
+streams lifecycle gates. With Go1.27.1 it cross-built **exactly**
+`7f0858a30dfd8d5450b78458f1abb3dc3240f91165191646b23d65cbf785c585`,
+the reviewed candidate. An actual cache-only install into a temporary path also
+verified this SHA and wrote immutable provenance. The installer/cache regression
+passes seven fault/success cases: bad archive checksum, changed patch, corrupted
+cached binary, wrong manifest SHA, malformed manifest, injected final rename
+failure, and verified compiler-free cached install. Shell syntax checks pass.
+No full installer, main-service restart, or live binary replacement was run by
+this agent for these gates. Root deployment/rollback and real Pi reliability
+remain separate, including the later21:47 interruption under investigation.
