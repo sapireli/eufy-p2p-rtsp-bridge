@@ -102,3 +102,96 @@ header coverage**. A further coordinated short trial must establish that fact
 before any physical pause can be classified. No SDK production code, camera
 setting, source subscription, transport policy or live service has been changed
 for this diagnostic correction.
+
+## Aligned 60-second live trial: pauses between completed units
+
+The aligned tap ran **21:07:31.561287–21:08:31.565018 UTC** on the unchanged
+SDK830/b23 process, without Inspector, camera changes, source restart, or
+transport tuning. Its Mac two-compatible-stream observer started earlier;
+source-word comparisons below use only actual overlapping receipt/stamp data.
+The tap wrote **50,230 rows**, zero drops/missing timestamps/truncation, and
+24,974 incoming VIDEO transport datagrams. Both owned processes completed;
+the remote helper/output were removed after local export and matching SHA.
+
+The actual fixed media headers now establish coverage. **6,117 unit starts**
+were accepted: standalone channel0=2,431, HomeBase channel1=1,836, channel2=1,850.
+Every media start had nonzero `headerTail` (38,47,94 respectively), and audio
+starts used `headerFlags=2`. The old invented byte15==0 rule rejects every one;
+its byte10 whitelist also rejects those audio headers. This proves a concrete
+current-device mismatch in the diagnostic parser. It does not retroactively
+restore the discarded raw bodies from the previous trial. The aligned VIDEO
+rows contain no header-rejection labels; only9 initial rows remained unknown.
+
+| Source (accepted channel) | VIDEO datagrams | Physical gaps >150ms | Known phase before gap | Largest gap |
+| --- | ---: | ---: | --- | ---: |
+| Garage (1) | 7,492 | 25 | 25 complete-unit/header boundaries | 786.833ms |
+| Front Door (2) | 9,304 | 60 | 59 complete-unit/header boundaries;1 initial unknown | 703.095ms |
+| Standalone (0) | 8,178 | 0 | No qualifying interval | — |
+
+**No qualifying interval interrupted a chain-confirmed in-progress unit.**
+All25 Garage intervals resumed at consecutive seq+1. Door had58 seq+1 and2
+seq+2 intervals; those two have an unobserved sequence and cannot establish
+loss-free sender silence. The initial unknown Door interval is not classified.
+The strongest intervals below are known complete boundaries followed by seq+1.
+This localizes the measured stalls before the next logical unit is supplied,
+rather than waiting for the tail of an already-known unit. It does not identify
+which camera/HomeBase/peer state held that next unit.
+
+- Garage: **21:08:03.429323–21:08:04.216156 UTC**,786.833ms.
+  The last datagram's matching ACK reached the outgoing interface tap2.927363ms
+  later. In the preceding1s,348 unambiguous matched ACKs had median3.917688ms,
+  p95=14.801400ms, max=16.779061ms.
+- Door: **21:07:55.867331–21:07:56.570425 UTC**,703.095ms.
+  Its last datagram's ACK followed0.755275ms later. The preceding1s had4
+  unambiguous matches: median0.920106ms,p95/max=2.454075ms.
+
+## Same-window physical ACK limits
+
+Matching uses anonymous peer/local-port/peer-port/data-type/sequence and the
+first outgoing ACK at or after each incoming packet, bounded to2s. Cases where
+a repeated same-sequence packet arrives before that ACK are excluded as
+ambiguous. There were243 such exclusions and one unmatched standalone packet
+1.177ms before capture end. Sequence wrapping is keyed within this bounded
+window; no cross-connection or later-window ACK attribution is used.
+
+| Source | Unambiguous matches | Median RX→ACK | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Garage | 7,397 | 5.881062ms | 41.509261ms | 70.006910ms |
+| Door | 9,210 | 17.805412ms | 47.875511ms | 73.727348ms |
+| Standalone | 8,123 | 1.412075ms | 16.107362ms | 79.908760ms |
+
+The outgoing taps show the final ACKs left the host early in the two longest
+intervals. They do **not** show peer receipt or acceptance. This excludes a
+host-side ACK remaining unsent for the entire measured quiet interval; it does
+not exclude firmware ACK processing, an on-wire loss, peer-window state, or
+upstream media generation/forwarding.
+
+Adjacent stamped RTSP pictures around recovery retain source words advancing
+68ms for Garage and63ms for Door, with exact matching RTP advances. Their SDK
+ingress gaps are804.021ms and1,085.189ms respectively. These are media-timeline
+labels, not sensor capture time; the larger Door ingress gap also spans time
+outside the single selected NIC quiet interval. Do not attribute its entire
+ingress gap to that one physical interval.
+
+The Mac delivered931 Door/903 Garage unique valid stamped frames, no missing
+or transport-invalid stamps. Bridge-ingress→receipt upper ages: Door median
+141.788ms,p95=302.156ms,max=380.567ms; Garage87.310/158.576/217.441ms.
+These do not include upstream delay or measure screen presentation.
+
+**Observer-cost limitation:** the tap used18.477290s user+2.609185s system over
+60.164260s (~35.05% of one CPU core), maxRSS16,680KiB. This is a material
+scheduling confound for cadence and ACK latency; it was not a zero-cost baseline
+and does not prove the measured pause frequency absent instrumentation. CPU
+accounting covers the tap only, not bridge/encoder CPU. No further tap was run.
+The output already uses default block buffering without per-packet flush;
+a larger write buffer has not been measured as an optimization.
+
+Private provenance:
+
+- `incoming-aligned-nic-60.jsonl`, SHA-256
+  `2c65ae15d51f3c8916944612f2509fd3b869ab471d8148a40502e4f44de47ff3`.
+- `compat-mac-incoming-aligned-60s.jsonl`, SHA-256
+  `6fba2617d5459ebbf670b98d45036997b15bae9bdc8496ab04952da574370d80`.
+- `incoming-aligned-60-analysis.json` and `incoming-aligned-60-runtime.txt`
+  retain exact boundaries, fixed integer fields, exclusion counts, and resource
+  accounting under the private evidence directories.
