@@ -344,7 +344,7 @@ class MainActivity : Activity() {
             player = LowLatencyRtspPlayer(this, cam,
                 onFirstFrame = {
                     if (players[sn] === player) {
-                        label.text = if(cam.freshness != null) "${cam.name} • capture time unverified" else cam.name
+                        label.text = if(cam.freshness?.enforces == true) "${cam.name} • capture time unverified" else cam.name
                         decoderFailures = 0
                         android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn} after ${SystemClock.elapsedRealtime() - startedAt}ms; ${player.diagnostics()}")
                     }

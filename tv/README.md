@@ -68,7 +68,8 @@ from its receipt at the bridge. Capability revision 2 requires an explicit mode:
 - `observe` keeps established hardware MediaCodec/SurfaceView playback and pacing. It records
   bridge-ingress age and 500 ms deadline misses without dropping or blanking pictures.
   Codec render timestamps are informational: notifications can be delayed, batched, or omitted.
-  The stable label says capture time is unverified; observation does not guarantee freshness.
+  Camera labels keep their names; capture-clock uncertainty remains in diagnostics.
+  Observation does not guarantee freshness.
 - `enforce` uses an owned EGL renderer. SurfaceTexture timestamps identify the exact acquired
   buffer; its own stamp and clock bound gate drawing and scheduled presentation. Expired output
   is suppressed and expired retained pixels become black. Compressed references keep decoding,

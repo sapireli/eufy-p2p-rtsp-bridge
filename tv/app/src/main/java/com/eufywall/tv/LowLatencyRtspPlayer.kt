@@ -192,7 +192,6 @@ internal class LowLatencyRtspPlayer(
         freshnessCover.visibility = if (enforcesFreshness) View.VISIBLE else View.INVISIBLE
         if(camera.freshness?.mode == "observe") {
             freshnessState="observe • capture time unverified"
-            ui.post { if(!released) onFreshnessState("Capture time unverified") }
         }
         // Strict freshness is gated and expired by the owned GL renderer.
         // MediaCodec render callbacks may be batched or omitted on older TVs.
