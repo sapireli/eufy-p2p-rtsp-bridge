@@ -65,7 +65,7 @@ assert b['boundary']=='header' and b['events'][0]['commandId']==1301
 u=m.IncomingLogicalTracker();a=parse(u,header(0)[:8]);b=parse(u,header(0)[8:],1)
 assert a['boundary']==b['boundary']=='unknown'
 # Bad fixed fields, unrecognized command and oversized length never establish unit metadata.
-for offset,value in [(0,0),(10,255),(11,1),(12,100),(13,255),(15,1)]:
+for offset,value in [(0,0)]:
  raw=bytearray(header(4));raw[offset]=value
  r=parse(m.IncomingLogicalTracker(),bytes(raw)+b'ABCD');assert 'unitId' not in r and r['boundary']=='unknown'
 for raw in [header(4,65535),header(m.IncomingLogicalTracker.MAX_UNIT+1)]:
@@ -123,4 +123,26 @@ assert len(t.streams)==1
 r=parse(t,header(0),0);assert r['sequenceState']=='ordered'
 # Output from a valid unit contains only numeric metadata and diagnostic labels.
 no_body(r)
+`);
+
+
+check("diagnostics accept SDK-parsed noncanonical fixed bytes and distinguish unknown-boundary rejection reasons", String.raw`
+# parseDataFrameHeader reads command/length/channel/sign/type without reserved-byte validation.
+# Its real reassemble path preserves media payload regardless of the sign byte.
+noncanonical=bytearray(header(4));noncanonical[10:16]=bytes([255,127,100,255,253,42])
+t=m.IncomingLogicalTracker()
+a=parse(t,bytes(noncanonical)+b'KEY!')
+assert a['events'][0]['channel']==100 and a['events'][0]['signCode']==255 and a['events'][0]['type']==253
+assert a['events'][0]['headerFlags']==32767 and a['events'][0]['headerTail']==42
+assert a['boundary']=='unknown' and a['events'][0]['confidence']=='tentative'
+b=parse(t,bytes(noncanonical)+b'ZZZZ',1)
+assert b['boundary']=='header' and b['events'][0]['confidence']=='chain'
+for raw,reason in [(b'OPAQUE'*4,'no-packet-start-magic'),(header(0)[:8],'short-packet-start-header'),(header(0,65535),'unsupported-command'),(header(t.MAX_UNIT+1),'oversized-logical-unit')]:
+ r=parse(m.IncomingLogicalTracker(),raw)
+ assert r['boundary']=='unknown' and r['headerRejection']==reason and 'unitId' not in r
+ no_body(r)
+# The additional labels and integer fields still do not inspect a known opaque continuation.
+u=m.IncomingLogicalTracker();parse(u,header(0));parse(u,header(80),1)
+r=parse(u,bytes(noncanonical)+b'Z'*16,2)
+assert r['remainingPayloadBytes']==48 and 'headerRejection' not in r and 'events' not in r
 `);

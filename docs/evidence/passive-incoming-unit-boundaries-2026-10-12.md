@@ -8,7 +8,7 @@ The next discriminator is whether a physical quiet interval interrupts an alread
 
 ## Interpretation
 
-Incoming DATA must have the expected `f1 d0`/`d1` envelope, a supported data-type byte, and an exact declared wire length. At an inferred logical boundary, the fixed 16-byte header must have `XZYH` magic, a whitelisted command, supported magic/sign fields, bounded channel, reserved zero bytes, and a logical length no greater than 8 MiB. The type byte is recorded as an integer; it is not a codec or picture-type assertion. Supported VIDEO transport commands are 1300 and 1301; the latter is audio. A logical unit is not necessarily a complete decoded picture.
+Incoming DATA must have the expected `f1 d0`/`d1` envelope, a supported data-type byte, and an exact declared wire length. At an inferred logical boundary, the fixed 16-byte header must have `XZYH` magic, a whitelisted command and a logical length no greater than 8 MiB. Other fixed bytes are recorded as integers rather than treated as validation rules not present in the SDK. The type byte is recorded as an integer; it is not a codec or picture-type assertion. Supported VIDEO transport commands are 1300 and 1301; the latter is audio. A logical unit is not necessarily a complete decoded picture.
 
 The first valid full header at a packet start is **tentative**. Only a valid subsequent header at the calculated contiguous boundary establishes a **chain**. The tracker never scans arbitrary continuation payload for magic. It skips the exact remaining logical payload length, even when those bytes mimic an otherwise valid header. Initial fragmented headers are deliberately not reconstructed while the boundary is unknown.
 
@@ -31,7 +31,7 @@ The JSON contains only anonymous peer IDs, existing packet metadata, fixed logic
 
 ## Verification
 
-`node --test server/test/capture-udp-metadata.test.mjs server/test/capture-incoming-logical.test.mjs`: **6 tests passed**. The tests cover:
+`node --test server/test/capture-udp-metadata.test.mjs server/test/capture-incoming-logical.test.mjs`: **7 tests passed**. The tests cover:
 
 - Same-size opaque-body substitution leaves metadata/state identical; a header-shaped known continuation creates no new unit.
 - Calculated fragmented headers, unknown initial fragments, partial-header classification, packed empty units, malformed fixed fields/envelopes, unsupported commands/data types, and oversized logical lengths.
@@ -64,3 +64,41 @@ Private metadata provenance (not committed):
 - `.evidence/bridge-network-audit-2026-10-12/incoming-logical-60-analysis.json` contains exact anonymous endpoint/sequence boundaries and per-interval control-message counts.
 
 Next instrumentation must establish fixed-header coverage before another pause-classification claim. It must still avoid scanning opaque continuation bodies, retain no raw payload, and leave production transport policy unchanged.
+
+## Diagnostic alignment after the first coverage failure
+
+The deployed SDK source was inspected without modifying runtime or recording
+packet bodies. `codec.ts:parseDataFrameHeader` reads command, logical length,
+channel, sign and type; it does not assert bytes10/11/15, restrict channel to64,
+or whitelist sign bytes. `p2p-session.ts:reassemble` supports packed units and
+split 16-byte headers. Its `handleFrame` leaves command1300/1301 media payloads
+raw for the media decoder. In `video.ts`, encryption applies to the media payload
+after the fixed XZYH header. Therefore whole-logical-header encryption is not an
+explanation supported by these source paths.
+
+The first diagnostic implementation invented magic/reserved/sign/channel
+restrictions. That is a testably incorrect SDK-compatibility assumption. A
+synthetic header with fixed bytes10..15 =255,127,100,255,253,42 was passed through
+the **actual current SDK `parseDataFrameHeader`**, bundled directly from source
+with esbuild. It returned command1300, logical length4, channel100, sign255 and
+type253. The old diagnostic rejected it. The aligned diagnostic accepts it as a
+tentative first header and establishes a chain on a second calculated header.
+This is source/parser proof, not evidence that the device emitted those bytes.
+
+The diagnostic now keeps exact envelope/magic, command/data-type whitelist,
+8MiB bound and sequence/boundary rules, while recording bytes10/11 as integer
+`headerFlags` and byte15 as integer `headerTail`. An unknown packet-start candidate
+also reports only a rejection label: `no-packet-start-magic`,
+`short-packet-start-header`, `unsupported-command`, or `oversized-logical-unit`.
+Those labels do not disclose packet bytes. Known continuations are still skipped;
+header-looking opaque body bytes cannot create a new unit or rejection label.
+
+Seven tap tests pass, including the new SDK-accepted noncanonical-header case
+and rejection-label/privacy cases. Initial mid-unit attachment and header
+alignment remain limitations; this change does not scan unknown continuation
+bodies or cache reordered payload. The first capture lacks raw bytes and these
+rejection labels, so **we cannot claim the invented restrictions caused its zero
+header coverage**. A further coordinated short trial must establish that fact
+before any physical pause can be classified. No SDK production code, camera
+setting, source subscription, transport policy or live service has been changed
+for this diagnostic correction.

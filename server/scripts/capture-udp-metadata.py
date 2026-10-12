@@ -97,21 +97,29 @@ class IncomingLogicalTracker:
             if key[:3] == endpoint:
                 del self.streams[key]
 
+    def _header_issue(self, data, kind):
+        if len(data) < 16:
+            return "short-packet-start-header"
+        if data[:4] != b"XZYH":
+            return "no-packet-start-magic"
+        command, length = struct.unpack_from("<HI", data, 4)
+        if command not in self.COMMANDS.get(kind, set()):
+            return "unsupported-command"
+        if length > self.MAX_UNIT:
+            return "oversized-logical-unit"
+        return None
+
     def _header(self, data, kind):
-        if len(data) < 16 or data[:4] != b"XZYH":
+        if self._header_issue(data, kind) is not None:
             return None
         command, length = struct.unpack_from("<HI", data, 4)
-        if (command not in self.COMMANDS.get(kind, set()) or length > self.MAX_UNIT
-                or data[10] not in (0, 1, 8) or data[11] != 0 or data[15] != 0
-                or (data[12] not in range(65) and data[12] != 255)
-                or data[13] not in (0, 1, 2, 8)):
-            return None
         return {"commandId": command, "logicalPayloadBytes": length,
-                "channel": data[12], "signCode": data[13], "type": data[14]}
+                "channel": data[12], "signCode": data[13], "type": data[14],
+                "headerFlags": struct.unpack_from("<H", data, 10)[0], "headerTail": data[15]}
 
     @staticmethod
     def _lose(state):
-        state.update(unit=None, remaining=0, header=bytearray(), chain=False, candidate=False)
+        state.update(unit=None, remaining=0, header=bytearray(), chain=False, candidate=False, rejection=None)
 
     def _parse(self, state, data, kind, events):
         offset = 0
@@ -131,7 +139,9 @@ class IncomingLogicalTracker:
             if not state["candidate"] and not state["chain"]:
                 header = self._header(data[offset:offset+16], kind)
                 if header is None:
+                    state["rejection"] = self._header_issue(data[offset:offset+16], kind)
                     return
+                state["rejection"] = None
                 state["candidate"] = True
                 offset += 16
             else:
@@ -145,11 +155,14 @@ class IncomingLogicalTracker:
                         events.append({"event": "invalid-header"})
                     return
                 header = self._header(state["header"], kind)
+                issue = self._header_issue(state["header"], kind)
                 state["header"].clear()
                 if header is None:
                     self._lose(state)
+                    state["rejection"] = issue
                     events.append({"event": "invalid-header"})
                     return
+                state["rejection"] = None
                 state["chain"] = True
             state["unitId"] += 1
             state["unit"] = header
@@ -168,7 +181,7 @@ class IncomingLogicalTracker:
             if len(self.streams) >= self.MAX_STREAMS:
                 self.streams.pop(next(iter(self.streams)))
             self.streams[key] = {"expected": row["sequence"], "pending": {}, "unit": None,
-                "remaining": 0, "header": bytearray(), "chain": False, "candidate": False, "unitId": 0}
+                "remaining": 0, "header": bytearray(), "chain": False, "candidate": False, "unitId": 0, "rejection": None}
         state = self.streams[key]
         sequence = row["sequence"]
         distance = (sequence - state["expected"]) & 65535
@@ -203,6 +216,8 @@ class IncomingLogicalTracker:
         trusted = state["chain"] and not state["pending"]
         result = {"sequenceState": sequence_state, "expectedSequence": state["expected"],
                   "pendingPackets": len(state["pending"]), "boundary": "unit" if trusted and state["unit"] else "partial-header" if trusted and state["header"] else "header" if trusted else "unknown"}
+        if state["rejection"]:
+            result["headerRejection"] = state["rejection"]
         if state["header"]:
             result["partialHeaderBytes"] = len(state["header"])
         if state["unit"] is not None:
