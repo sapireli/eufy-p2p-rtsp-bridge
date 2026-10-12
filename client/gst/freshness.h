@@ -9,6 +9,20 @@ typedef struct {
   uint32_t source;
   uint64_t ingress_us, frame;
 } FreshStamp;
+/* Last observed age is bound to its own picture identity, never a histogram's
+ * most recent frame label. Missing/unknown bounds explicitly clear validity. */
+typedef struct {
+  FreshStamp stamp;
+  uint64_t mono_ns, lower_ns, upper_ns;
+  int valid;
+} FreshAgeSample;
+static inline void fresh_age_sample(FreshAgeSample *sample,const FreshStamp *stamp,
+    uint64_t now,uint64_t lower,uint64_t upper,int valid) {
+  memset(sample,0,sizeof(*sample));sample->mono_ns=now;
+  if(stamp)sample->stamp=*stamp;
+  sample->valid=stamp && valid && lower<=upper;
+  if(sample->valid){sample->lower_ns=lower;sample->upper_ns=upper;}
+}
 static uint64_t fresh_be(const uint8_t *p, unsigned n) {
   uint64_t v = 0;
   while (n--)

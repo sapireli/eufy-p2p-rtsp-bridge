@@ -18,6 +18,7 @@ typedef struct {
   TimingObserver timing;
   guint64 observed, matched, missing, unknown_clock, late_observed, reordered;
   guint64 submit_matched;
+  FreshAgeSample last_decoded_age,last_kms_age;
   guint64 age_max, submit_age_max, uncertainty_max, sink_push_max, longest_gap;
   guint64 last_observed, stats_at, previous_frame, memory_timing_at;
   guint64 age_buckets[101], submit_buckets[101];
@@ -172,7 +173,7 @@ static gboolean frame_deadline(GstEufyPacing *self, guint64 pts, guint64 now,
 
 /* Observation never clears planes, rejects a deadline, or changes pacing. */
 static gboolean observation_age(GstEufyPacing *self, const FreshStamp *stamp,
-                                guint64 now, guint64 *upper) {
+                                guint64 now, guint64 *lower, guint64 *upper) {
   if (!self->observed_clock_valid || now-self->clock_read_at >= 100000000 ||
       memcmp(self->observed_clock+8, stamp->epoch, 8)) {
     FILE *file = fopen(self->clock_file, "rb");
@@ -180,9 +181,9 @@ static gboolean observation_age(GstEufyPacing *self, const FreshStamp *stamp,
     if (file) fclose(file);
     self->clock_read_at = now;
   }
-  guint64 lower, uncertainty;
+  guint64 uncertainty;
   gboolean valid = self->observed_clock_valid &&
-      fresh_age_bounds(stamp, self->observed_clock, now, &lower, upper, &uncertainty);
+      fresh_age_bounds(stamp, self->observed_clock, now, lower, upper, &uncertainty);
   if (valid) self->uncertainty_max=MAX(self->uncertainty_max,uncertainty);
   return valid;
 }
@@ -205,17 +206,33 @@ static void observation_report(GstEufyPacing *self, guint64 now, gboolean force)
       " submitUpperP95Ns=%"G_GUINT64_FORMAT" submitUpperMaxNs=%"G_GUINT64_FORMAT
       " clockUncertaintyMaxNs=%"G_GUINT64_FORMAT" sinkPushMaxNs=%"G_GUINT64_FORMAT
       " longestDecodedGapNs=%"G_GUINT64_FORMAT" quietNowNs=%"G_GUINT64_FORMAT" accepted=%"G_GUINT64_FORMAT
-      " pacingDropped=%"G_GUINT64_FORMAT" scanoutVerified=false\n",
+      " pacingDropped=%"G_GUINT64_FORMAT
+      " lastDecodedValid=%d lastDecodedEpoch=%02x%02x%02x%02x%02x%02x%02x%02x"
+      " lastDecodedFrameId=%"G_GUINT64_FORMAT" lastDecodedMonoNs=%"G_GUINT64_FORMAT
+      " lastDecodedAgeLowerNs=%"G_GUINT64_FORMAT" lastDecodedAgeUpperNs=%"G_GUINT64_FORMAT
+      " lastKmsValid=%d lastKmsEpoch=%02x%02x%02x%02x%02x%02x%02x%02x"
+      " lastKmsFrameId=%"G_GUINT64_FORMAT" lastKmsMonoNs=%"G_GUINT64_FORMAT
+      " lastKmsAgeLowerNs=%"G_GUINT64_FORMAT" lastKmsAgeUpperNs=%"G_GUINT64_FORMAT
+      " scanoutVerified=false\n",
       self->channel,self->observed,self->matched,self->submit_matched,self->missing,self->unknown_clock,
       self->late_observed,self->reordered,self->previous_frame,
       histogram_percentile(self->age_buckets,self->matched,50,self->age_max),
       histogram_percentile(self->age_buckets,self->matched,95,self->age_max),self->age_max,
       histogram_percentile(self->submit_buckets,self->submit_matched,95,self->submit_age_max),self->submit_age_max,
       self->uncertainty_max,self->sink_push_max,self->longest_gap,
-      self->last_observed ? now-self->last_observed : 0,self->rendered,self->dropped);
+      self->last_observed ? now-self->last_observed : 0,self->rendered,self->dropped,
+      self->last_decoded_age.valid,
+      self->last_decoded_age.stamp.epoch[0],self->last_decoded_age.stamp.epoch[1],self->last_decoded_age.stamp.epoch[2],self->last_decoded_age.stamp.epoch[3],
+      self->last_decoded_age.stamp.epoch[4],self->last_decoded_age.stamp.epoch[5],self->last_decoded_age.stamp.epoch[6],self->last_decoded_age.stamp.epoch[7],
+      self->last_decoded_age.stamp.frame,self->last_decoded_age.mono_ns,self->last_decoded_age.lower_ns,self->last_decoded_age.upper_ns,
+      self->last_kms_age.valid,
+      self->last_kms_age.stamp.epoch[0],self->last_kms_age.stamp.epoch[1],self->last_kms_age.stamp.epoch[2],self->last_kms_age.stamp.epoch[3],
+      self->last_kms_age.stamp.epoch[4],self->last_kms_age.stamp.epoch[5],self->last_kms_age.stamp.epoch[6],self->last_kms_age.stamp.epoch[7],
+      self->last_kms_age.stamp.frame,self->last_kms_age.mono_ns,self->last_kms_age.lower_ns,self->last_kms_age.upper_ns);
   self->stats_at=now;
 }
 static gboolean observe_frame(GstEufyPacing *self, guint64 pts, guint64 now, FreshStamp *stamp) {
+  fresh_age_sample(&self->last_decoded_age,NULL,now,0,0,FALSE);
   self->observed++;
   if (self->last_observed) self->longest_gap=MAX(self->longest_gap,now-self->last_observed);
   self->last_observed=now;
@@ -224,8 +241,10 @@ static gboolean observe_frame(GstEufyPacing *self, guint64 pts, guint64 now, Fre
       stamp->frame<=self->previous_frame) self->reordered++;
   self->have_observed_epoch=TRUE;self->previous_frame=stamp->frame;
   memcpy(self->observed_epoch,stamp->epoch,8);
-  guint64 upper;
-  if (!observation_age(self,stamp,now,&upper)) {self->unknown_clock++;return FALSE;}
+  guint64 lower=0,upper=0;
+  gboolean valid=observation_age(self,stamp,now,&lower,&upper);
+  fresh_age_sample(&self->last_decoded_age,stamp,now,lower,upper,valid);
+  if (!valid) {self->unknown_clock++;return FALSE;}
   self->matched++;self->age_max=MAX(self->age_max,upper);
   self->age_buckets[MIN(upper/25000000,100)]++;
   if (upper>(guint64)MIN(stamp->max_age_ms,self->max_age_ms)*1000000) self->late_observed++;
@@ -331,8 +350,10 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
         raw_pts,push_end,&diagnostic_stamp,diagnostic_found,gst_buffer_get_size(buffer),0,0);
     if (flow==GST_FLOW_OK) {
       self->rendered++;
-      guint64 upper;
-      if (observed_stamp && observation_age(self,&stamp,push_end,&upper)) {
+      guint64 lower=0,upper=0;
+      gboolean valid=observed_stamp && observation_age(self,&stamp,push_end,&lower,&upper);
+      fresh_age_sample(&self->last_kms_age,observed_stamp?&stamp:NULL,push_end,lower,upper,valid);
+      if (valid) {
         self->submit_matched++;
         self->submit_age_max=MAX(self->submit_age_max,upper);
         self->submit_buckets[MIN(upper/25000000,100)]++;
@@ -403,6 +424,8 @@ static gboolean start(GstBaseTransform *base) {
   self->observed = self->matched = self->missing = self->unknown_clock = 0;
   self->late_observed = self->reordered = self->submit_matched = 0;
   self->age_max = self->submit_age_max = self->uncertainty_max = 0;
+  memset(&self->last_decoded_age,0,sizeof(self->last_decoded_age));
+  memset(&self->last_kms_age,0,sizeof(self->last_kms_age));
   self->sink_push_max = self->longest_gap = self->last_observed = 0;
   self->stats_at = self->previous_frame = self->clock_read_at = 0;
   self->have_observed_epoch = self->observed_clock_valid = FALSE;

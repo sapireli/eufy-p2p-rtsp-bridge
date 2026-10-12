@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 static gint encoded_count, raw_count;
+static gboolean last_age;
 static gsize raw_bytes=4;
 static GstBuffer *identity_buffer;
 static GstMemory *identity_memory;
@@ -28,6 +29,7 @@ static void handoff(GstElement *s, GstBuffer *b, GstPad *p, gpointer count) {
   (void)b;
   (void)p;
   g_atomic_int_inc((gint *)count);
+  if(last_age && count==&raw_count)g_usleep(50000);
 }
 static void be(uint8_t *p, uint64_t v, unsigned n) {
   while (n) {
@@ -77,8 +79,9 @@ static void push_raw(GstElement *s, guint64 pts) {
   g_assert(r == GST_FLOW_OK);
 }
 int main(int argc, char **argv) {
+  last_age=argc>1 && !strcmp(argv[1],"--last-age");
   gboolean trace = argc > 1 && !strcmp(argv[1], "--trace");
-  gboolean observe = trace || (argc > 1 && !strcmp(argv[1], "--observe"));
+  gboolean observe = last_age || trace || (argc > 1 && !strcmp(argv[1], "--observe"));
   const char *diagnostic="/tmp/eufy-timing-probe";
   if (trace) {remove(diagnostic);raw_bytes=0;}
   gst_init(&argc, &argv);
@@ -126,11 +129,13 @@ int main(int argc, char **argv) {
   for (int i = 0; i < 100 && g_atomic_int_get(&encoded_count) < 2; i++)
     g_usleep(1000);
   push_raw(raw, 67000000);
-  push_raw(raw, 134000000);
+  if(!last_age)push_raw(raw, 134000000);
   g_usleep(30000);
   GstBus *bus = gst_element_get_bus(pipe);
   GstMessage *m;
-  if (observe) {
+  if (last_age) {
+    g_usleep(300000);g_assert(g_atomic_int_get(&raw_count)==2);
+  } else if (observe) {
     /* Old and missing stamps must still reach the sink; no no-input expiry. */
     g_usleep(700000);
     g_assert(g_atomic_int_get(&raw_count) == 3);

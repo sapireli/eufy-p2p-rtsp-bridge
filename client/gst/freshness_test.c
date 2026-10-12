@@ -66,5 +66,19 @@ int main(void) {
   clock[8] ^= 1;
   assert(!fresh_deadline(&s, clock, 80100000000ULL, &deadline));
   assert(!fresh_age_bounds(&s, clock, 80100000000ULL, &lower, &upper, &uncertainty));
+  /* Decoded admission and downstream return keep distinct exact identities.
+   * A later decoded picture must not relabel the earlier submitted age. */
+  FreshAgeSample admission,submitted;
+  fresh_age_sample(&admission,&s,1000,100,120,1);
+  fresh_age_sample(&submitted,&s,1020,120,140,1);
+  FreshStamp next=s;next.frame++;next.epoch[0]^=1;
+  fresh_age_sample(&admission,&next,1040,10,30,1);
+  assert(admission.stamp.frame==next.frame && admission.upper_ns==30);
+  assert(submitted.stamp.frame==s.frame && submitted.upper_ns==140);
+  assert(!memcmp(submitted.stamp.epoch,s.epoch,8));
+  fresh_age_sample(&submitted,&next,1060,0,0,0);
+  assert(!submitted.valid && submitted.upper_ns==0 && submitted.stamp.frame==next.frame);
+  fresh_age_sample(&admission,NULL,1080,0,0,0);
+  assert(!admission.valid && admission.stamp.frame==0 && admission.upper_ns==0);
   return 0;
 }
