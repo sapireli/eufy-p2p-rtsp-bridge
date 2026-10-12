@@ -1,0 +1,48 @@
+--- a/pkg/rtsp/conn.go
++++ b/pkg/rtsp/conn.go
+@@ -10,6 +10,7 @@
+ 	"net/url"
+ 	"strconv"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/AlexxIT/go2rtc/pkg/core"
+@@ -46,8 +47,9 @@
+ 	session   string
+ 	uri       string
+ 
+-	state   State
+-	stateMu sync.Mutex
++	state           State
++	stateMu         sync.Mutex
++	writeDiagnostic atomic.Bool
+ 
+ 	udpConn []*net.UDPConn
+ 	udpAddr []*net.UDPAddr
+--- a/pkg/rtsp/consumer.go
++++ b/pkg/rtsp/consumer.go
+@@ -1,6 +1,7 @@
+ package rtsp
+ 
+ import (
++	"log"
+ 	"time"
+ 
+ 	"github.com/AlexxIT/go2rtc/pkg/aac"
+@@ -178,7 +179,14 @@
+ func (c *Conn) writeInterleavedData(data []byte) error {
+ 	if c.Transport != "udp" {
+ 		_ = c.conn.SetWriteDeadline(time.Now().Add(Timeout))
+-		_, err := c.conn.Write(data)
++		n, err := c.conn.Write(data)
++		if (err != nil || n != len(data)) && c.writeDiagnostic.CompareAndSwap(false, true) {
++			errorText := "short write without error"
++			if err != nil {
++				errorText = err.Error()
++			}
++			log.Printf("[rtsp-write-audit] peer=%s written=%d expected=%d error=%q", c.conn.RemoteAddr(), n, len(data), errorText)
++		}
+ 		return err
+ 	}
+ 

@@ -1,0 +1,123 @@
+--- a/pkg/rtsp/conn.go
++++ b/pkg/rtsp/conn.go
+@@ -6,10 +6,12 @@
+ 	"encoding/binary"
+ 	"fmt"
+ 	"io"
++	"log"
+ 	"net"
+ 	"net/url"
+ 	"strconv"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/AlexxIT/go2rtc/pkg/core"
+@@ -46,8 +48,11 @@
+ 	session   string
+ 	uri       string
+ 
+-	state   State
+-	stateMu sync.Mutex
++	state           State
++	stateMu         sync.Mutex
++	writeDiagnostic atomic.Bool
++	tcpWriteMu      sync.Mutex
++	tcpWriteFailed  bool
+ 
+ 	udpConn []*net.UDPConn
+ 	udpAddr []*net.UDPAddr
+@@ -345,11 +350,8 @@
+ 
+ 	c.Fire(req)
+ 
+-	if err := c.conn.SetWriteDeadline(time.Now().Add(Timeout)); err != nil {
+-		return err
+-	}
+-
+-	return req.Write(c.conn)
++	_, err := c.writeTCP([]byte(req.String()))
++	return err
+ }
+ 
+ func (c *Conn) ReadRequest() (*tcp.Request, error) {
+@@ -394,11 +396,8 @@
+ 
+ 	c.Fire(res)
+ 
+-	if err := c.conn.SetWriteDeadline(time.Now().Add(Timeout)); err != nil {
+-		return err
+-	}
+-
+-	return res.Write(c.conn)
++	_, err := c.writeTCP([]byte(res.String()))
++	return err
+ }
+ 
+ func (c *Conn) ReadResponse() (*tcp.Response, error) {
+@@ -407,3 +406,30 @@
+ 	}
+ 	return tcp.ReadResponse(c.reader)
+ }
++
++// writeTCP preserves one complete RTSP/interleaved message or closes its transport.
++func (c *Conn) writeTCP(data []byte) (int, error) {
++	c.tcpWriteMu.Lock()
++	defer c.tcpWriteMu.Unlock()
++	if c.tcpWriteFailed {
++		return 0, io.ErrClosedPipe
++	}
++	if err := c.conn.SetWriteDeadline(time.Now().Add(Timeout)); err != nil {
++		c.tcpWriteFailed = true
++		_ = c.conn.Close()
++		return 0, err
++	}
++	n, err := c.conn.Write(data)
++	if err == nil && n != len(data) {
++		err = io.ErrShortWrite
++	}
++	if err != nil {
++		c.tcpWriteFailed = true
++		if c.writeDiagnostic.CompareAndSwap(false, true) {
++			log.Printf("[rtsp-write-audit] peer=%s written=%d expected=%d error=%q", c.conn.RemoteAddr(), n, len(data), err.Error())
++		}
++		// The read loop owns consumer cleanup; never invoke its callback in a sender.
++		_ = c.conn.Close()
++	}
++	return n, err
++}
+--- a/pkg/rtsp/consumer.go
++++ b/pkg/rtsp/consumer.go
+@@ -1,8 +1,6 @@
+ package rtsp
+ 
+ import (
+-	"time"
+-
+ 	"github.com/AlexxIT/go2rtc/pkg/aac"
+ 	"github.com/AlexxIT/go2rtc/pkg/core"
+ 	"github.com/AlexxIT/go2rtc/pkg/h264"
+@@ -177,8 +175,7 @@
+ 
+ func (c *Conn) writeInterleavedData(data []byte) error {
+ 	if c.Transport != "udp" {
+-		_ = c.conn.SetWriteDeadline(time.Now().Add(Timeout))
+-		_, err := c.conn.Write(data)
++		_, err := c.writeTCP(data)
+ 		return err
+ 	}
+ 
+--- a/pkg/rtsp/client.go
++++ b/pkg/rtsp/client.go
+@@ -64,7 +64,11 @@
+ 	c.auth = tcp.NewAuth(c.URL.User)
+ 	c.URL.User = nil
+ 
++	c.tcpWriteMu.Lock()
+ 	c.conn = conn
++	c.tcpWriteFailed = false
++	c.writeDiagnostic.Store(false)
++	c.tcpWriteMu.Unlock()
+ 	c.reader = bufio.NewReaderSize(conn, core.BufferSize)
+ 	c.session = ""
+ 	c.sequence = 0
