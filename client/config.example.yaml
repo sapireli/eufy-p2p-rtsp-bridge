@@ -48,14 +48,20 @@ latency_ms: 0                           # TCP; eufypacing supplies one bounded 6
 # and the live stream replaces it a second or two later, so neither step shows a black tile. Nothing
 # retained yet (a camera that has never reported motion) means a dark tile until there is.
 #
-# codec: what the camera actually sends, so the tile decodes it directly.
-#   Omit (or h264) when the device sends H.264 or the bridge is configured to transcode.
-#   Set h265 when the bridge passes that camera through with `go2rtc.transcode: never` (the default): several eufy
-#   models encode HEVC at EVERY quality tier, so this is the only way to avoid a server-side transcode.
-#   The decoder must support it — check `vainfo | grep -i hevc` (VAAPI) or `gst-inspect-1.0 v4l2h265dec`.
+# codec: auto/unset selects an advertised native HEVC rendition only when a
+# hardware HEVC factory exists. Its pipeline falls back once to the compatible
+# URL if negotiation/playback fails. Explicit h264/h265 and manual URLs win.
+# decoder: software disables automatic native preference. Factory presence
+# cannot prove resolution/profile support; runtime negotiation decides.
+# codec: an explicit value says what the configured URL actually sends.
+#   h264 pins the compatible bridge URL. auto/omitted may use its optional native URL.
+#   h265 is for an explicit URL known to carry HEVC or a separately configured
+#   pass-through bridge; it does not rewrite the compatible URL to a native URL.
+#   The bridge's compatible default remains H.264. Check actual installed hardware
+#   factories with gst-inspect-1.0 before assuming native HEVC is available.
 tiles:                                 # order = placement order (row-major after the primary)
-  - { camera: T8425XXXXXXXXXXX, codec: h265 }   # Garage     (dual-lens → portrait ~1920x2160, HEVC)
-  - { camera: T8214XXXXXXXXXXX }                # Front Door (dual-lens → portrait ~1600x2200, H.264)
+  - { camera: T8425XXXXXXXXXXX, codec: auto }   # Garage     (dual-lens → portrait; native when supported)
+  - { camera: T8214XXXXXXXXXXX }                # Front Door (dual-lens → portrait; compatible fallback)
   # A third camera does not fit beside those two on 16:9. Options: give it its own screen, use 3x1
   # (all three narrower), or 2x2 with the pair marked `aspect: tall` and the third in a spare cell.
 restart: { min_seconds: 1, max_seconds: 30, stable_seconds: 60 }

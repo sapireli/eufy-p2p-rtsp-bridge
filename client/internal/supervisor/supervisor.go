@@ -47,6 +47,12 @@ func pump(r io.Reader, log func(string)) {
 
 // Run blocks until ctx is cancelled. It never returns a process error; failures are logged and retried.
 func Run(ctx context.Context, bin string, args []string, r config.Restart, log func(string), files ...*os.File) error {
+	return RunWithFallback(ctx, bin, args, nil, r, log, files...)
+}
+
+// RunWithFallback switches once to a compatible plan after a native process
+// fails. Further retries stay on that fallback until this managed plan changes.
+func RunWithFallback(ctx context.Context, bin string, args, fallback []string, r config.Restart, log func(string), files ...*os.File) error {
 	b := newBackoff(r)
 	for {
 		if ctx.Err() != nil {
@@ -81,6 +87,10 @@ func Run(ctx context.Context, bin string, args []string, r config.Restart, log f
 				}
 				return nil
 			}
+		}
+		if len(fallback) > 0 {
+			log("native pipeline failed; selecting compatible fallback")
+			args, fallback = fallback, nil
 		}
 		d := b.next(time.Since(start))
 		log(fmt.Sprintf("restarting in %s", d))

@@ -121,3 +121,24 @@ func ConnectorID(fsRoot, output string) (int, bool) {
 	}
 	return 0, false
 }
+
+// HardwareHEVCFactory checks the installed hardware decoder factories, rather
+// than treating a software HEVC decoder or H.264-only GPU as HEVC support.
+func HardwareHEVCFactory(configured, resolved string, has func(string) bool) string {
+	if configured == "software" {
+		return ""
+	}
+	candidates := map[string][]string{"v4l2": {"v4l2h265dec", "v4l2slh265dec"}, "va": {"vah265dec"}}
+	families := []string{resolved}
+	if configured == "auto" {
+		families = append(families, "v4l2", "va")
+	}
+	for _, family := range families {
+		for _, factory := range candidates[family] {
+			if has(factory) {
+				return factory
+			}
+		}
+	}
+	return ""
+}

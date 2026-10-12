@@ -30,9 +30,10 @@ type Manager struct {
 }
 
 type proc struct {
-	args   []string
-	cancel context.CancelFunc
-	exited chan struct{}
+	args     []string
+	fallback []string
+	cancel   context.CancelFunc
+	exited   chan struct{}
 }
 
 func NewManager(bin string, r config.Restart, log func(name, line string), files ...*os.File) *Manager {
@@ -63,7 +64,7 @@ func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
 
 	for name, p := range m.running {
 		want, keep := wanted[name]
-		if keep && sameArgs(p.args, want.Args) {
+		if keep && sameArgs(p.args, want.Args) && sameArgs(p.fallback, want.FallbackArgs) {
 			continue // already showing the right thing
 		}
 		m.log(name, "stopping")
@@ -76,13 +77,16 @@ func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
 		if _, already := m.running[name]; already {
 			continue
 		}
+		if len(plan.FallbackArgs) > 0 {
+			m.log(name, "selecting native hardware rendition; compatible fallback available")
+		}
 		pctx, cancel := context.WithCancel(ctx)
-		p := &proc{args: plan.Args, cancel: cancel, exited: make(chan struct{})}
+		p := &proc{args: plan.Args, fallback: plan.FallbackArgs, cancel: cancel, exited: make(chan struct{})}
 		m.running[name] = p
-		go func(n string, args []string) {
+		go func(n string, args, fallback []string) {
 			defer close(p.exited)
-			_ = Run(pctx, m.bin, args, m.restart, func(line string) { m.log(n, line) }, m.files...)
-		}(name, plan.Args)
+			_ = RunWithFallback(pctx, m.bin, args, fallback, m.restart, func(line string) { m.log(n, line) }, m.files...)
+		}(name, plan.Args, plan.FallbackArgs)
 	}
 }
 

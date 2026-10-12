@@ -123,3 +123,17 @@ func TestScreenForNamedOutput(t *testing.T) {
 		t.Error("no output named: there is no connector to pin")
 	}
 }
+
+func TestHardwareHEVCFactoryRequiresRealHardwareElement(t *testing.T) {
+	has := func(name string) bool { return name == "avdec_h265" }
+	if HardwareHEVCFactory("auto", "v4l2", has) != "" {
+		t.Fatal("software HEVC mistaken for hardware")
+	}
+	has = func(name string) bool { return name == "v4l2slh265dec" }
+	if HardwareHEVCFactory("auto", "v4l2", has) != "v4l2slh265dec" {
+		t.Fatal("available stateless HEVC missing")
+	}
+	if HardwareHEVCFactory("software", "software", has) != "" {
+		t.Fatal("explicit software overridden")
+	}
+}

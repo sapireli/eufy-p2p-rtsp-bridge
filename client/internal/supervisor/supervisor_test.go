@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -134,5 +135,42 @@ func TestBackoffSchedule(t *testing.T) {
 	}
 	if d := b.next(61 * time.Second); d != 1*time.Second {
 		t.Fatalf("stable run should reset: %v", d)
+	}
+}
+
+func TestNativeFailureFallsBackOnceAndRetriesCompatible(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "player")
+	attempts := filepath.Join(dir, "attempts")
+	code := "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$2\"\nsleep 0.03\nexit 1\n"
+	if err := os.WriteFile(bin, []byte(code), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = RunWithFallback(ctx, bin, []string{"native", attempts}, []string{"compatible", attempts}, config.Restart{}, func(string) {})
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	var lines []string
+	for time.Now().Before(deadline) {
+		data, _ := os.ReadFile(attempts)
+		lines = strings.Fields(string(data))
+		if len(lines) >= 4 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if len(lines) < 4 || lines[0] != "native" {
+		t.Fatalf("missing initial attempt: %v", lines)
+	}
+	for _, line := range lines[1:] {
+		if line != "compatible" {
+			t.Fatalf("retried failed native: %v", lines)
+		}
 	}
 }

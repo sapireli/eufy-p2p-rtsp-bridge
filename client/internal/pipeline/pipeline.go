@@ -11,12 +11,16 @@ import (
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/freshness"
 	"eufy-wall/internal/layout"
+	"eufy-wall/internal/rendition"
 )
 
 type Caps struct {
-	Decoder string // v4l2 | va | software
-	Sink    string // planes | compositor | window
-	Screen  config.Screen
+	NativeDecoder    string // actual probed hardware HEVC factory, empty disables selection
+	NativeRenditions map[string]rendition.Native
+	decoderOverrides map[string]string
+	Decoder          string // v4l2 | va | software
+	Sink             string // planes | compositor | window
+	Screen           config.Screen
 	// ConnectorID is the DRM connector this instance renders on (0 = let kmssink pick the first connected
 	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
 	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.
@@ -61,7 +65,7 @@ var depayParse = map[string][2]string{
 
 // codecOf defaults a tile with no codec set to H.264, which is what a transcoding bridge serves.
 func codecOf(t layout.Placed) string {
-	if t.Codec == "" {
+	if t.Codec == "" || t.Codec == "auto" {
 		return "h264"
 	}
 	return t.Codec
@@ -71,8 +75,9 @@ func codecOf(t layout.Placed) string {
 type Plan struct {
 	// Name identifies it in logs and, more importantly, identifies it across an Update: a plan whose
 	// args are unchanged keeps running rather than being restarted.
-	Name string
-	Args []string
+	Name         string
+	Args         []string
+	FallbackArgs []string
 }
 
 // Plans returns the processes this wall needs.
@@ -89,7 +94,11 @@ func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 		if err != nil {
 			return nil, err
 		}
-		return []Plan{{Name: "wall", Args: args}}, nil
+		fallback, err := fallbackArgs(c, tiles, caps)
+		if err != nil {
+			return nil, err
+		}
+		return []Plan{{Name: "wall", Args: args, FallbackArgs: fallback}}, nil
 	}
 	out := make([]Plan, 0, len(tiles))
 	for i, t := range tiles {
@@ -101,12 +110,17 @@ func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 		if name == "" {
 			name = fmt.Sprintf("tile%d", i)
 		}
-		out = append(out, Plan{Name: name, Args: args})
+		fallback, err := fallbackArgs(c, []layout.Placed{t}, caps)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Plan{Name: name, Args: args, FallbackArgs: fallback})
 	}
 	return out, nil
 }
 
 func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error) {
+	tiles, caps, _ = selectNative(c, tiles, caps)
 	family, ok := decoders[caps.Decoder]
 	if !ok {
 		return nil, fmt.Errorf("pipeline: unknown decoder %q", caps.Decoder)
@@ -120,7 +134,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		if t.StillURL != "" {
 			continue // a JPEG needs no video decoder
 		}
-		if _, ok := family[codecOf(t)]; !ok {
+		if _, ok := family[codecOf(t)]; !ok && caps.decoderOverrides[t.Camera] == "" {
 			return nil, fmt.Errorf("pipeline: decoder %q cannot decode %s (tile %s)", caps.Decoder, codecOf(t), t.Camera)
 		}
 	}
@@ -163,7 +177,11 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		if strict {
 			args = append(args, "!", "video/x-"+codec+",stream-format=byte-stream,alignment=au", "!", "eufystamp", fmt.Sprintf("channel=%d", t.Index+1))
 		}
-		args = append(args, "!", family[codec], "!", "watchdog", "timeout=15000")
+		decoder := family[codec]
+		if override := caps.decoderOverrides[t.Camera]; override != "" {
+			decoder = override
+		}
+		args = append(args, "!", decoder, "!", "watchdog", "timeout=15000")
 		if caps.DecodedPacing {
 			// Drop only decoded frames: every compressed reference still reaches the decoder.
 			args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream")

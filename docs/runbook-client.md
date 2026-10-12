@@ -190,3 +190,43 @@ and [queue limits](https://gstreamer.freedesktop.org/documentation/coreelements/
 A compatible bridge can advertise per-camera SEI freshness stamps. `mode: observe` keeps the existing Linux playback chain unchanged; it does not activate deadline drops, blanking or freshness-triggered restarts. `mode: enforce` activates the guards below. Version 2 requires an explicit `observe` or `enforce` mode; older clients ignore version 2. Older v1 capabilities without a mode retain enforce compatibility. The binary SEI stamp format remains version 1. The Linux client reads stamps before decoding and checks their original PTS association after decoding; a late or unverified picture is suppressed. Expired independent DRM video planes are cleared to the existing black backdrop even when no frames arrive, while compressed decoding continues. Fresh pictures resume without a reconnect; actual transport/decoder failures still restart.
 
 This bounds age since bridge ingress only. Camera capture age remains unverified. Strict freshness requires the native `eufystamp`/`eufypacing` plugin pair, monotonic clock polling and independent shared DRM overlay planes. Missing required components fail closed for advertised strict feeds. Legacy unadvertised RTSP feeds continue to work. See [implementation and verification boundaries](evidence/linux-ingress-freshness-2026-10-12.md).
+
+
+## Automatic native rendition selection
+
+The bridge can advertise `nativeRendition` alongside its compatible H.264 URL.
+A tile with omitted `codec` or `codec: auto` may select native H.265 when an actual
+GStreamer hardware factory is installed (`v4l2h265dec`, `v4l2slh265dec` or
+`vah265dec`). `decoder: software`, explicit tile codecs, explicit URLs and still
+images retain their configured paths. Merely installing `avdec_h265` does not
+qualify as hardware support.
+
+Factory discovery does not prove that a particular resolution, profile or bit
+depth can initialize that hardware. If the native gst process fails—including
+negotiation failure or its existing watchdog—the supervisor selects its compatible
+plan once and retries that plan thereafter. Repeated unchanged event updates do
+not retry the failed native plan. A materially changed plan or client restart may
+attempt native again. Compositor fallback switches the shared wall; independent
+KMS planes fall back per camera. Existing compatible decoder discovery still
+prefers hardware and uses software when hardware is unavailable.
+
+Freshness metadata belongs to the selected rendition's exact URL. The native
+resource cannot borrow its compatible sibling's contract, downgrade an enforced
+compatible contract, or select enforcement without the required stamp reader,
+clock mapper and shared DRM plane support. Native HEVC strict rendering is **not
+physically verified on Linux** by the unit tests; those verify plan construction
+and resource binding, not a displayed frame deadline.
+
+On 2026-10-12, read-only inspection of GaragePi found `armv6l`, no hardware HEVC
+factories, and `eufy-wall.service` inactive and disabled. It therefore keeps its
+compatible streams. No display, CEC, service activation or installation was
+performed for this change. The Pi artifact is built with `GOOS=linux GOARCH=arm
+GOARM=6 CGO_ENABLED=0`; other Linux targets need their own architecture build.
+
+
+Deployment boundary: the ARMv6 client binary was updated on GaragePi on
+2026-10-12 and its `-h` invocation checked; the service remained inactive and
+disabled. The native GStreamer plugin was not replaced by this client feature.
+No active playback or physical native-HEVC test was performed. Transport packet
+size hints/overrides are retained when selecting a native URI; other URI selector
+parameters belong to that native resource and are not copied from its sibling.

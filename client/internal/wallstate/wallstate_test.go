@@ -6,6 +6,7 @@ import (
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/freshness"
+	"eufy-wall/internal/rendition"
 )
 
 // The wall is driven by pushed events. These cover what a viewer actually experiences: a screen that
@@ -300,5 +301,19 @@ func TestHelloPreservesAdvertisedIngressFreshness(t *testing.T) {
 	cam, ok := s.Camera("fixture")
 	if !ok || !cam.Freshness.BoundTo("rtsp://bridge:8554/fixture?pkt_size=8192") {
 		t.Fatal("lost strict capability across hello")
+	}
+}
+
+func TestHelloNativeRenditionHasItsOwnFreshnessBinding(t *testing.T) {
+	s := New()
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "A", RTSP: "rtsp://bridge/A", NativeRendition: &rendition.Native{RTSP: "rtsp://bridge/A_native", Codec: "h265", Width: 1920, Height: 1080, Freshness: freshness.Capability{Version: 2, Mode: "observe", Scope: "bridge-ingress", MaxAgeMs: 500}}}}})
+	c, _ := s.Camera("A")
+	if c.NativeRendition == nil || c.NativeRendition.Freshness.StreamURL != "rtsp://bridge/A_native" {
+		t.Fatalf("wrong native binding: %+v", c)
+	}
+	s.Apply(Message{Type: "hello", Cameras: []HelloCamera{{SN: "A", RTSP: "rtsp://bridge/A"}}})
+	c, _ = s.Camera("A")
+	if c.NativeRendition != nil {
+		t.Fatal("removed native metadata survived reconnect")
 	}
 }

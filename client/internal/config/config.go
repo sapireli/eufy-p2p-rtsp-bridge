@@ -34,7 +34,7 @@ type Tile struct {
 	// DwellSeconds is the minimum time a motion tile stays on a camera before it may switch again, so
 	// two cameras firing together cannot make the tile strobe.
 	DwellSeconds int `yaml:"dwell_seconds"`
-	// Codec the camera actually sends, so the pipeline picks a matching decoder: "" (=h264) | h264 | h265.
+	// Codec the camera actually sends, so the pipeline picks a matching decoder: ""/auto (hardware-native when advertised, otherwise h264) | h264 | h265.
 	// Set h265 where the bridge passes the camera through untranscoded — several eufy models encode HEVC
 	// at every quality tier, and decoding it here avoids paying for a transcode on the server.
 	Codec string `yaml:"codec"`
@@ -179,9 +179,9 @@ func Parse(data []byte) (*Config, error) {
 			return nil, fmt.Errorf("config: tiles[%d] is a motion tile, so it follows `watch` rather than a fixed camera", i)
 		}
 		switch t.Codec {
-		case "", "h264", "h265":
+		case "", "auto", "h264", "h265":
 		default:
-			return nil, fmt.Errorf("config: tiles[%d].codec must be h264 or h265 (got %q)", i, t.Codec)
+			return nil, fmt.Errorf("config: tiles[%d].codec must be auto, h264 or h265 (got %q)", i, t.Codec)
 		}
 		if t.Role != "" && t.Role != "primary" {
 			return nil, fmt.Errorf("config: tiles[%d].role must be primary or empty", i)

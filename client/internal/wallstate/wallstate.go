@@ -13,10 +13,12 @@ import (
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/freshness"
+	"eufy-wall/internal/rendition"
 )
 
 // Camera is what we know about one camera.
 type Camera struct {
+	NativeRendition   *rendition.Native
 	Freshness         freshness.Capability
 	SN                string
 	Name              string
@@ -52,6 +54,7 @@ func (s *Store) get(sn string) *Camera {
 
 // HelloCamera is one camera in the server's hello snapshot.
 type HelloCamera struct {
+	NativeRendition   *rendition.Native    `json:"nativeRendition"`
 	RTSP              string               `json:"rtsp"`
 	Freshness         freshness.Capability `json:"freshness"`
 	SN                string               `json:"sn"`
@@ -85,7 +88,10 @@ func (s *Store) Apply(m Message) bool {
 		s.cams = map[string]*Camera{}
 		for _, c := range m.Cameras {
 			c.Freshness.StreamURL = c.RTSP
-			s.cams[c.SN] = &Camera{Freshness: c.Freshness, SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, RTSPTCPPacketSize: c.RTSPTCPPacketSize}
+			if c.NativeRendition != nil {
+				c.NativeRendition.Freshness.StreamURL = c.NativeRendition.RTSP
+			}
+			s.cams[c.SN] = &Camera{NativeRendition: c.NativeRendition, Freshness: c.Freshness, SN: c.SN, Name: c.Name, Mode: c.Mode, Live: c.State == "live", Starting: c.State == "starting", HasStill: c.Still, StreamKey: c.StreamKey, RTSPTCPPacketSize: c.RTSPTCPPacketSize}
 		}
 		return true
 	case "motion":

@@ -26,6 +26,7 @@ import (
 	"eufy-wall/internal/freshness"
 	"eufy-wall/internal/layout"
 	"eufy-wall/internal/pipeline"
+	"eufy-wall/internal/rendition"
 	"eufy-wall/internal/supervisor"
 	"eufy-wall/internal/wallstate"
 	"eufy-wall/internal/wsclient"
@@ -93,7 +94,11 @@ func main() {
 	os.Setenv("GST_PLUGIN_PATH", pluginPath)
 	caps.DecodedPacing = detect.HasElement("eufypacing")
 	caps.StampReader = detect.HasElement("eufystamp")
-	caps.Freshness = discoverFreshness(c.RTSPBase)
+	caps.NativeDecoder = detect.HardwareHEVCFactory(c.Decoder, caps.Decoder, detect.HasElement)
+	caps.Freshness, caps.NativeRenditions = discoverRenditions(c.RTSPBase)
+	if caps.NativeDecoder != "" {
+		log.Printf("[wall] native HEVC factory %s available; geometry/profile accepted only by runtime negotiation", caps.NativeDecoder)
+	}
 	{
 		f, e := os.CreateTemp("", "eufy-wall-clock-")
 		if e != nil {
@@ -164,7 +169,7 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	for _, cap := range caps.Freshness {
+	for _, cap := range allFreshness(caps) {
 		if !cap.Enforced() {
 			continue
 		}
@@ -381,7 +386,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	// What each tile is rendering: live video, or the camera's last still while it wakes.
 	content := map[int]string{}
 	lastShown := ""
-	clockPolling := hasEnforcedFreshness(caps.Freshness)
+	clockPolling := hasEnforcedFreshness(allFreshness(caps))
 	// Cameras this wall is keeping awake. A hold is bounded on the server, so showing one means
 	// refreshing it; no longer showing one means releasing it, or a battery camera would be held awake
 	// by a tile that stopped looking at it.
@@ -396,10 +401,23 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		// A reconnect can advertise capabilities even when startup API discovery failed.
 		playbackCaps := caps
 		playbackCaps.Freshness = make(map[string]freshness.Capability, len(caps.Freshness)+len(known))
+		playbackCaps.NativeRenditions = make(map[string]rendition.Native, len(caps.NativeRenditions)+len(known))
+		for sn, native := range caps.NativeRenditions {
+			playbackCaps.NativeRenditions[sn] = native
+		}
 		for sn, cap := range caps.Freshness {
 			playbackCaps.Freshness[sn] = cap
 		}
 		for _, cam := range known {
+			if cam.NativeRendition != nil {
+				playbackCaps.NativeRenditions[cam.SN] = *cam.NativeRendition
+				if cam.NativeRendition.Freshness.Enforced() && caps.NativeDecoder != "" && !clockPolling {
+					clockPolling = true
+					go freshness.Poll(ctx, cam.NativeRendition.Freshness.ClockURL, caps.ClockFile, func(line string) { log.Printf("[freshness] %s", line) })
+				}
+			} else {
+				delete(playbackCaps.NativeRenditions, cam.SN)
+			}
 			if cam.Freshness.Supported() {
 				playbackCaps.Freshness[cam.SN] = cam.Freshness
 				if cam.Freshness.Enforced() && !clockPolling {
@@ -632,35 +650,47 @@ func planNames(plans []pipeline.Plan) string {
 }
 
 // Discovery is opt-in: explicit legacy RTSP feeds without advertised stamps remain usable.
-func discoverFreshness(rtspBase string) map[string]freshness.Capability {
+func discoverRenditions(rtspBase string) (map[string]freshness.Capability, map[string]rendition.Native) {
 	out := map[string]freshness.Capability{}
+	native := map[string]rendition.Native{}
 	base := wsclient.APIBase(rtspBase)
 	if base == "" {
-		return out
+		return out, native
 	}
+	return discoverRenditionsAt(base)
+}
+
+func discoverRenditionsAt(base string) (map[string]freshness.Capability, map[string]rendition.Native) {
+	out := map[string]freshness.Capability{}
+	native := map[string]rendition.Native{}
 	response, err := (&http.Client{Timeout: 4 * time.Second}).Get(base + "/api/cameras")
 	if err != nil {
-		return out
+		return out, native
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
-		return out
+		return out, native
 	}
 	var cams []struct {
-		SN        string               `json:"sn"`
-		RTSP      string               `json:"rtsp"`
-		Freshness freshness.Capability `json:"freshness"`
+		SN              string               `json:"sn"`
+		RTSP            string               `json:"rtsp"`
+		Freshness       freshness.Capability `json:"freshness"`
+		NativeRendition *rendition.Native    `json:"nativeRendition"`
 	}
 	if json.NewDecoder(response.Body).Decode(&cams) != nil {
-		return out
+		return out, native
 	}
 	for _, cam := range cams {
+		if cam.NativeRendition != nil {
+			cam.NativeRendition.Freshness.StreamURL = cam.NativeRendition.RTSP
+			native[cam.SN] = *cam.NativeRendition
+		}
 		if cam.Freshness.Supported() {
 			cam.Freshness.StreamURL = cam.RTSP
 			out[cam.SN] = cam.Freshness
 		}
 	}
-	return out
+	return out, native
 }
 
 func hasEnforcedFreshness(caps map[string]freshness.Capability) bool {
@@ -670,4 +700,21 @@ func hasEnforcedFreshness(caps map[string]freshness.Capability) bool {
 		}
 	}
 	return false
+}
+
+// Candidates retain independent URL bindings. Polling the bridge clock once is
+// sufficient for compatible and native resources from this same bridge epoch.
+func allFreshness(caps pipeline.Caps) map[string]freshness.Capability {
+	out := make(map[string]freshness.Capability)
+	for sn, cap := range caps.Freshness {
+		out[sn] = cap
+	}
+	if caps.NativeDecoder != "" {
+		for sn, n := range caps.NativeRenditions {
+			if n.Freshness.BoundTo(n.RTSP) {
+				out[sn+"#native"] = n.Freshness
+			}
+		}
+	}
+	return out
 }

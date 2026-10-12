@@ -122,3 +122,17 @@ func TestChangeViewByCameraName(t *testing.T) {
 		t.Fatal("accepted bad mode")
 	}
 }
+
+func TestRenditionDiscoveryKeepsIndependentURLBoundContracts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/cameras" {
+			t.Errorf("wrong discovery path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[{"sn":"A","rtsp":"rtsp://bridge/A","freshness":{"version":2,"mode":"observe","scope":"bridge-ingress","maxAgeMs":500,"clockUrl":"http://bridge/api/clock"},"nativeRendition":{"rtsp":"rtsp://bridge/A_native","codec":"h265","width":2560,"height":1440,"freshness":{"version":2,"mode":"observe","scope":"bridge-ingress","maxAgeMs":500,"clockUrl":"http://bridge/api/clock"}}}]`))
+	}))
+	defer server.Close()
+	compatible, native := discoverRenditionsAt(server.URL)
+	if compatible["A"].StreamURL != "rtsp://bridge/A" || native["A"].Freshness.StreamURL != "rtsp://bridge/A_native" {
+		t.Fatalf("contracts cross-bound: %+v %+v", compatible, native)
+	}
+}
