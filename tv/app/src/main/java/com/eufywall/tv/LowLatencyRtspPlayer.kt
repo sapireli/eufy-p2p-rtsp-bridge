@@ -95,7 +95,12 @@ internal class LowLatencyRtspPlayer(
                 observationDefiniteDecodeMisses.incrementAndGet()
                 if (ptsUs != null) {
                     val stages = synchronized(stampLock) { frameStages[ptsUs] }
-                    decodeAgeOutlier(stamp, ptsUs, stages, atNs, lower, age, width ?: -1, queue?.size ?: -1)?.let {
+                    // Sparse diagnostic link only; BOOT and MONO are different clock domains.
+                    val bootBefore = SystemClock.elapsedRealtimeNanos()
+                    val linkMono = System.nanoTime()
+                    val bootAfter = SystemClock.elapsedRealtimeNanos()
+                    decodeAgeOutlier(stamp, ptsUs, stages, atNs, lower, age, width ?: -1, queue?.size ?: -1,
+                        ClockDomainBracket(bootBefore, linkMono, bootAfter))?.let {
                         Log.i("EufyWallTV", "${camera.sn} $it")
                     }
                 }
