@@ -462,7 +462,18 @@ class MainActivity : Activity() {
                                 }
                                 chosen.forEach { updateTile(it) }
                             }
-                            "streamState" -> { val sn = event.optString("sn"); states[sn] = event.optString("state", "idle"); updateTile(sn) }
+                            "streamState" -> {
+                                val sn = event.optString("sn")
+                                states[sn] = event.optString("state", "idle")
+                                if (event.has("nativeRendition")) cameras = cameras.map { camera ->
+                                    if (camera.sn != sn) camera else {
+                                        val updated = camera.copy(nativeRendition = parseNativeRendition(event.optJSONObject("nativeRendition")))
+                                        if (updated != camera) release(sn)
+                                        updated
+                                    }
+                                }
+                                updateTile(sn)
+                            }
                         }
                     }
                 } catch (e: Exception) { android.util.Log.e("EufyWallTV", "Invalid event", e) }
