@@ -518,3 +518,76 @@ Derived `physical-ack-analysis.json` and `nic-only-ack-analysis.json` retain
 selected sequence/timestamp boundaries, pairing counts and distribution details.
 No SDK, protocol, selector, bitrate or resolution change is justified by this
 capture alone.
+
+## Subsequent exclusion: commands during the 18:21 Garage pause
+
+The after-linear-reassembly capture contains a Garage logical-frame gap of
+3,183.404816 ms. Physical VIDEO RX on anonymous HomeBase peer `peer-1`, local
+port 58455 / peer port 19719, was quiet for **3,162.906655 ms**, between sequence
+14444 at Unix millisecond 1791829274220.6802 and sequence 14445 at
+1791829277383.587. Consecutive sequences exclude a sequence hole at this boundary;
+they do not prove that no earlier loss affected the remote sender.
+
+Filtering **all peer-1 ports**, direction `out`, messageType `208` (DATA), over
+[1791829269220.6802, 1791829282383.587] milliseconds — five seconds before the
+last VIDEO RX through five seconds after the next — yields **zero records**.
+The capture contains 40 outgoing DATA records overall. This excludes a newly
+issued SDK start/stop/channel DATA command within this exact interval, including
+commands on the sibling HomeBase session. It does not exclude an earlier command
+with a persistent effect, another unobserved sender or peer-side ACK handling.
+
+The final VIDEO ACK reached the outgoing interface 1.422925 ms after RX.
+During the VIDEO quiet interval the same session still exchanged peer PING/PONG,
+host PING/PONG and CONTROL sequences 78 and 79. CONTROL ACK delays were
+1.093 and 1.540 ms. Local pending-ACK accounting reached zero. Physical ACK TX
+is not proof the peer received or accepted it. No global session outage or
+multi-second Node stoppage explains this selective VIDEO silence.
+
+### Consumer and recovery paths audited without changing production
+
+Source references below refer to SDK commit `55dacd3` and bridge commit
+`d2662b2`; they are control-flow facts, not a causal repair:
+
+- SDK `src/transport/p2p/live-stream.ts`, `settleKeepalive` / `armStallWatch`:
+  attached full-start interval stops on the first own-camera frame. Recovery
+  defaults to keepAliveMs × 2 = **6,000 ms** silence; this 3.163-second pause
+  cannot itself reach that recovery threshold.
+- SDK `src/transport/p2p/shared-live-source.ts`, `onVideo`, `watchReusedStream`:
+  initial warm retries stop on the first keyframe; a reused-source join nudges
+  once and clears its retry watch on the first subsequent video frame.
+- Bridge `server/src/stream-manager.mjs`, `attachConsumer` / `ensureWarm`:
+  an HTTP consumer joins the bridge fan-out. `ensureWarm` returns immediately
+  when `slot.feed` or `slot.opening` already exists. Only `openFeedInto` calls
+  `sdk.openFeed`, and `server/src/sdk-adapter.mjs` opens the SDK readable with
+  explicit streamType 2. An HTTP producer reconnect therefore does not cause
+  a new SharedLiveSource consumer while the existing SDK feed remains open.
+- SDK `src/client/eufy-mega.ts`, `pollOnce`: cloud polling refreshes the registry,
+  capabilities and events; it does not directly issue a media start.
+
+At 18:36:51 UTC the live bridge journal showed two compatible hardware-egress
+starts after a new RTSP observer; 18:36:55 showed TV holds. The inspected
+18:36:30–18:38:30 journal contained no feed error/reopen. This is consistent
+with egress producer replacement while SDK sources remain open, but absence
+of a normal-level journal entry alone is not proof that no command was sent.
+
+Official [Eufy Smart Display E10 product documentation](https://www.eufy.com/products/t87a0120?fliter_category=security-new-camera)
+advertises four simultaneous live feeds and HomeBase S380 bundles. It does not
+publish this firmware's PPCS session/window limits or prove that our subscription
+sequence matches the app. A universal one-camera-per-HomeBase limitation is not
+established by this investigation.
+
+Private provenance under `.evidence/bridge-network-audit-2026-10-12/`:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `goal-nic-after.jsonl` | `7ea88c0646031ec6f6227dc169963c89ae9d679a6abbf7950787684dadeef6a1` |
+| `sdk-reassembly-goal-after.json` | `994588d5e975f11ab94a94bf7e31384ba2b29e600638456971115cee01b620f1` |
+| `sdk-reassembly-garage-quiet-correlation.json` | `059e7c530309bf86bd4c153a7928d76aa1f1392cd337efa4559a82ae43fe427c` |
+
+Next falsifiable observation: record only fixed unencrypted DATA header fields
+(command ID, channel, sign code and type), all session ports and timestamps
+alongside VIDEO RX/ACK. No encrypted body, pictures or SDK method hooks are
+needed. An attached outer command 1350 does not reveal its encrypted inner
+1003/1004 selector; complete absence of outgoing DATA excludes both, while
+presence requires a separately authorized bounded command-call chronology.
+No ACK batching, selector, topology, quality or buffer change is justified yet.
