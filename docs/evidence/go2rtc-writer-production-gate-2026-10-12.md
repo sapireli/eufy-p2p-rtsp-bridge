@@ -61,3 +61,34 @@ This production window exercised ordinary playback, not a deliberate failed
 write on a household TV. It does not establish the cause of past Fire TV
 disconnect reports or guarantee sustained physical smoothness. Independent
 source pauses and Linux timing work remain separate active issues.
+
+## Later passive retained-log check
+
+At 23:20 UTC, existing INFO log buffers were read without changing debug levels,
+opening viewers, restarting apps, or altering playback. The retained ranges cover
+81 seconds on `.85` and 100 seconds on `.58`, approximately eight minutes after
+the writer promotion. App PIDs were still 20526/19463.
+
+| TV | Door decoded increase | Garage decoded increase | Final receipt→decode age bounds, Door / Garage |
+| --- | ---: | ---: | --- |
+| `.85` | 1213 | 1217 | 59–66 / 53–61 ms |
+| `.58` | 1484 | 1506 | 58–66 / 54–60 ms |
+
+No warnings or decoder counter resets appeared in these retained ranges. All four
+players still used hardware AVC, sampled input queues were zero, and the cumulative
+longest-gap values did not increase in these ranges. The cumulative Door maximum
+was 1416 ms on both TVs; Garage was 2233/2249 ms. Garage had one cumulative definite
+decode-age miss (maximum 613/612 ms), already present at the first retained sample.
+These older maxima cannot locate a new pause in this observation. Render callback
+age/cadence remains informational on API 28. The samples support continued decoder
+progress without growing queued input, not sustained physical smoothness or a
+sensor-capture latency bound.
+
+Private artifacts: `.evidence/frame-freshness-2026-10-12/writer-retained-passive/`.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `manifest.json` | `6bce62f785e02754b3ad0d6044e7b71b7b10a19549e49443847ea35ecb7d88bb` |
+| `summary.json` | `3e2013b26c2e5d4ea2c721bfcc063f97a597532f28fb7d93cae52791c953e68e` |
+| `tv85.txt` | `42d63c32044c7748c5ae9e9385f67f2c9e4f84adf9877b9918dc6f6a29ab77d0` |
+| `tv58.txt` | `08a49e71253dfd9ea195d3303b7b030b1b6385d3ad2a8c6d313521c77900ca12` |
