@@ -1,9 +1,9 @@
-// Realtime liveness watchdog. The SDK's poll loop re-arms via `pollOnce().finally(schedulePoll)`, so a
-// cloud call that HANGS (half-open socket, no timeout) never settles → the loop stalls forever while the
-// WS server stays up serving stale state. `deviceState` fires on every healthy poll (proof-of-life even
-// when nothing changed), so its silence is the stall signal; the FCM push channel is tracked separately
-// (events ride push, state rides poll). On a stall we re-establish realtime in place, and exit for a
-// clean restart (container `restart: unless-stopped`) if that fails.
+// Track cloud poll completion separately from device reports. An unchanged
+// last-seen value produces no deviceState event, even when the cloud poll succeeds.
+// A settled failure also rearms the SDK poll loop: errors have their own auth/error
+// handlers and do not prove that loop has hung. Push has its own connection signal.
+// Missing poll completions can trigger recovery;
+// ordinary device silence must not disconnect otherwise healthy live media sessions.
 import { LoginStatus } from "@mega-yfue/eufy-sdk";
 
 export function createWatchdog(ctx) {
@@ -13,10 +13,13 @@ export function createWatchdog(ctx) {
   const bumpActivity = () => {
     flags.lastActivity = Date.now();
   };
+  eufy.on("pollComplete", bumpActivity);
 
   /** No poll heartbeat for max(3 polls, 30 min) ⇒ treat the realtime/poll channel as stalled. */
   function stallThresholdMs() {
-    return Math.max(3 * (eufy.pollIntervalMs || 600_000), 30 * 60_000);
+    const interval = eufy.pollIntervalMs ?? 600_000;
+    if (interval <= 0) return Infinity; // explicitly disabled polls cannot be overdue
+    return Math.max(3 * interval, 30 * 60_000);
   }
 
   async function watchdogTick() {

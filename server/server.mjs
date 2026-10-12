@@ -87,7 +87,6 @@ ctx.completeBoot = async function completeBoot() {
   if (flags.ready || flags.booting) return;
   flags.booting = true;
   try {
-    eufy.on("deviceState", ctx.bumpActivity);
     const cams = await ctx.refreshCameras();
     const enabled = cams.filter((c) => c.enabled);
     console.log(`[bridge] cameras: ${cams.map((c) => `${c.sn}(${c.name}${c.enabled ? "" : ", off"}${c.isDual ? ", dual" : ""})`).join(", ")}`);
