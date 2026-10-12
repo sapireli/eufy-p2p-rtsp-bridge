@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Install eufy-wall-bridge on Debian/Ubuntu (amd64 or arm64) without Docker.
 #   sudo deploy/install-server.sh            (run from the repo root)
-# Installs Node 24 (NodeSource), a verified patched go2rtc binary, the server under /opt/eufy-wall-bridge, a
+# Installs Node 24 (NodeSource), a go2rtc release binary (trial write fix is opt-in), the server under /opt/eufy-wall-bridge, a
 # system user, config/env skeletons in /etc and a systemd unit. Idempotent: re-run to upgrade.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 PREFIX=/opt/eufy-wall-bridge
 GO2RTC_VERSION=${GO2RTC_VERSION:-1.9.14}
-[[ $GO2RTC_VERSION == 1.9.14 ]] || { echo "patched go2rtc supports only version 1.9.14; existing binary preserved"; exit 1; }
 WAS_ACTIVE=0
 systemctl is-active --quiet eufy-wall-bridge && WAS_ACTIVE=1
 
@@ -26,7 +25,7 @@ case "$(uname -m)" in
   *) echo "unsupported arch $(uname -m)"; exit 1 ;;
 esac
 mkdir -p "$PREFIX/bin"
-python3 "$REPO/deploy/build-go2rtc.py" --target "$ARCH" --install "$PREFIX/bin/go2rtc"
+bash "$REPO/deploy/install-go2rtc.sh" "$PREFIX/bin/go2rtc" "$ARCH"
 "$PREFIX/bin/go2rtc" --version || true
 
 # 3. app files + deps

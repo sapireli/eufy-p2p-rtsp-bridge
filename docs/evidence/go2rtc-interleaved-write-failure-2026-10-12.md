@@ -223,3 +223,29 @@ failure, and verified compiler-free cached install. Shell syntax checks pass.
 No full installer, main-service restart, or live binary replacement was run by
 this agent for these gates. Root deployment/rollback and real Pi reliability
 remain separate, including the later21:47 interruption under investigation.
+
+## Production trial withdrawn; stock default restored
+
+The user reported many new Fire TV disconnects during the production candidate
+trial, which were absent in their prior experience. The root restored the
+original go2rtc binary (SHA prefix`32d616`) at **22:00:47 UTC on12 October2026**
+and canceled the candidate rollback timer. This checkpoint is reported by the
+root deployment owner; this documentation task performed no live change.
+There is no quantified before/after user-disconnect rate or established cause
+here. The later Garage interruption is not explained by the synthetic ordinary
+viewer-removal regression.
+
+The structural partial-write proof, controlled backpressure test, paired688-frame
+sidecar equivalence and reproducible build remain valid within their scopes.
+They do **not** establish that the candidate is safe as a production default.
+Consequently the installer returns to the stock release path; the updater skips
+candidate compilation/cache transfer unless `GO2RTC_WRITE_FIX=1` is explicit,
+and forwards that choice to the remote installer. The builder/reproducer remain
+available for a separately authorized future trial; no ordinary update may
+silently reintroduce the withdrawn candidate.
+
+Focused verification exercised both installer-selection paths and both updater
+paths with stubbed external commands, plus failed stock-download preservation
+and invalid flag rejection. The gating test and shell syntax checks pass.
+No live installation, source restart, fault test, capture, or broad rerun was
+performed for this correction. Production regression causation remains unresolved.

@@ -19,3 +19,11 @@ age is unverified; the protocol does not infer it from camera clock overlays.
 
 ## CI
 `ci.yml` runs `npm test` (server), `gofmt`/`go vet`/`go test -race`/cross-builds (client), and `bash -n` on the deploy scripts.
+
+### go2rtc deployment default
+
+Server installation and ordinary updates use stock go2rtc 1.9.14. The experimental
+TCP write-recovery candidate was rolled back after new Fire TV disconnect reports;
+its builder remains available only with explicit `GO2RTC_WRITE_FIX=1`. Normal
+updates do not build or transfer its cache. See the [server runbook](docs/runbook-server.md)
+and [trial evidence/rollback limits](docs/evidence/go2rtc-interleaved-write-failure-2026-10-12.md).
