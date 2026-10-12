@@ -93,6 +93,12 @@ keyframe/fragment-boundary causation. ACK submission at the bridge NIC is not
 proof of peer receipt/acceptance. No ACK, NAS, camera quality, stream type, buffer
 or retry-timer change is justified solely by this result.
 
+The later native metadata artifact does retain logical headers. Its
+[offline boundary reconstruction](udp-logical-pause-boundary-2026-10-12.md)
+classified all seven selected pauses as beginning after complete known logical
+units, with no selected incomplete 1300 transfer. This narrows that later window,
+but still leaves production versus forwarding/window scheduling unresolved.
+
 ## Private provenance
 
 | Artifact | SHA-256 |
