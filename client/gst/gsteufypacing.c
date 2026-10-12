@@ -19,7 +19,7 @@ typedef struct {
   guint64 observed, matched, missing, unknown_clock, late_observed, reordered;
   guint64 submit_matched;
   guint64 age_max, submit_age_max, uncertainty_max, sink_push_max, longest_gap;
-  guint64 last_observed, stats_at, previous_frame;
+  guint64 last_observed, stats_at, previous_frame, memory_timing_at;
   guint64 age_buckets[101], submit_buckets[101];
   guint8 observed_epoch[8];
   gboolean have_observed_epoch;
@@ -360,6 +360,33 @@ static gboolean query(GstBaseTransform *base, GstPadDirection direction,
 /* Downstream timing is rebased. Forwarding these QoS timestamps would make a
  * decoder still using source PTS treat valid encoded frames as seconds late.
  * This element already maps fresh late pictures to immediate output itself. */
+/* Retimestamp only a writable header. Default in-place preparation can copy
+ * shared NO_SHARE decoder memory; explicit memory refs preserve its identity.
+ * The parent meta pins the original pool buffer until this header is released. */
+static void pace_memory_record(GstEufyPacing *self,GstBuffer *input,GstBuffer *output,gboolean writable,guint refs) {
+  guint64 now=(guint64)g_get_monotonic_time()*1000;
+  if(!self->timing.file || (self->memory_timing_at && now-self->memory_timing_at<5000000000))return;
+  self->memory_timing_at=now;guint count=gst_buffer_n_memory(input);
+  GstMemory *first=count?gst_buffer_peek_memory(input,0):NULL;
+  gboolean same=count==gst_buffer_n_memory(output);
+  for(guint n=0;same && n<count;n++)if(gst_buffer_peek_memory(input,n)!=gst_buffer_peek_memory(output,n))same=FALSE;
+  g_printerr("eufy-pacer-memory channel=%u writableHeader=%d clonedHeader=%d inputRefCount=%u memoryCount=%u firstMemoryType=%s firstMemoryFlags=%u sameMemory=%d pixelsMapped=false\n",
+      self->channel,writable,input!=output,refs,count,
+      first && first->allocator && first->allocator->mem_type?first->allocator->mem_type:"none",first?(guint)GST_MINI_OBJECT_FLAGS(first):0,same);
+}
+static GstFlowReturn pace_output_buffer(GstBaseTransform *base,GstBuffer *input,GstBuffer **output) {
+  GstEufyPacing *self=(GstEufyPacing *)base;
+  gboolean writable=gst_buffer_is_writable(input);guint refs=GST_MINI_OBJECT_REFCOUNT_VALUE(input);
+  if(writable){*output=input;pace_memory_record(self,input,*output,writable,refs);return GST_FLOW_OK;}
+  GstBuffer *header=gst_buffer_new();
+  if(!gst_buffer_copy_into(header,input,GST_BUFFER_COPY_METADATA,0,-1)) {
+    gst_buffer_unref(header);return GST_FLOW_ERROR;
+  }
+  for(guint n=0;n<gst_buffer_n_memory(input);n++)
+    gst_buffer_append_memory(header,gst_memory_ref(gst_buffer_peek_memory(input,n)));
+  if(!gst_buffer_add_parent_buffer_meta(header,input)){gst_buffer_unref(header);return GST_FLOW_ERROR;}
+  *output=header;pace_memory_record(self,input,*output,writable,refs);return GST_FLOW_OK;
+}
 static gboolean src_event(GstBaseTransform *base, GstEvent *event) {
   if (GST_EVENT_TYPE(event) == GST_EVENT_QOS) {
     gst_event_unref(event);
@@ -505,6 +532,7 @@ static void gst_eufy_pacing_class_init(GstEufyPacingClass *klass) {
       "Rebase decoded PTS to a rolling local clock with a 67 ms allowance",
       "eufy-wall");
   transform->transform_ip = pace;
+  transform->prepare_output_buffer = pace_output_buffer;
   transform->query = query;
   transform->src_event = src_event;
   transform->start = start;
