@@ -94,7 +94,7 @@ under `.evidence/bridge-network-audit-2026-10-12/`.
 
 ## Live evidence boundary and upstream handoff
 
-At this checkpoint, the natural Pi `gst_rtspsrc_loop_interleaved` parse error
+At the original structural checkpoint, the natural Pi `gst_rtspsrc_loop_interleaved` parse error
 has **not** been joined to an actual server partial Write. The bounded source
 journal showed no RTSP error, but default go2rtc logging suppresses debug
 handle/disconnect diagnostics. The Pi's old RTSP sockets had already closed,
@@ -106,7 +106,7 @@ controlled reader pause can test whether real camera traffic plus backpressure
 creates this server partial-write/continuation path. Such a forced timeout is
 **controlled reproduction**, not evidence that backpressure caused the earlier
 natural failure. Main service/binary/TV ports must remain unchanged during it.
-No successful live reproduction or natural-cause fix is claimed yet.
+The later controlled trial below supersedes the live-reproduction status. No natural-cause fix is claimed.
 
 For upstream, recheck current source and create an isolated branch from its
 base. Port the fail-closed transport seam and meaningful regressions without
@@ -114,3 +114,60 @@ our temporary diagnostic deployment or unrelated bridge/SDK work. Run upstream's
 complete required gate. A production repair must also verify legitimate
 receiver reconnection and sibling consumers, preserving native quality and
 hardware preference. No upstream PR has been created at this checkpoint.
+
+## Later controlled actual-camera backpressure proof
+
+The root deployed isolated sidecars using the **same existing Garage compatible
+RTSP producer**, not another SDK source or encoder. Main bridge service/binary,
+TV ports, camera quality and producer policy stayed unchanged. This was a
+controlled Mac reader experiment, not Pi validation or a spontaneous fault.
+The reader requested an effective16,384-byte receive buffer, read for about8s,
+then deliberately stopped reading for20s and resumed. Both builds used the same
+existing source, sidecar RTSP port, packet-size query, pause, and buffer setting.
+These reader settings were test-only, not new production defaults.
+
+| Sidecar | Binary | Actual write failure (UTC) | Written/expected bytes | After reader resumed |
+| --- | --- | --- | ---: | --- |
+| Diagnostic baseline, PID28387 | `d18e6c82…` | **21:31:46.171547** | **280,873/538,481** | `ValueError` |
+| Fail-closed candidate, PID28473 | `7f0858a3…` | **21:36:42.244886** | **232,966/544,576** | `ConnectionResetError` |
+
+Both journal messages report `i/o timeout`. The baseline left257,608 expected
+bytes unwritten, then retained its continuation behavior; the controlled reader
+failed after its20s pause. **Only the exception type was recorded for that
+baseline run**, so the exact malformed-message reason is unknown. Do not label
+it as a specific GStreamer parse error or reconstruct a missing exception text.
+The candidate left311,610 bytes unwritten and closed its transport. After resume,
+the reader reported a connection reset rather than continuing the corrupted
+TCP stream. The source-backed fail-closed path and isolated regression establish
+that no later frame is appended on that failed transport.
+
+The baseline reader paused at elapsed8.004294s and resumed28.013080s; candidate
+8.457962s/28.462806s. Raw pixels, RTP bodies and dynamic exception messages were
+not saved. The helper's later allowlisted-static-reason field is
+`unclassified-no-payload-logged` for the reset. Source-word stamps, where used,
+remain bridge-ingress/media-timeline metadata, not sensor capture clocks.
+
+**Scope:** this is a real camera + real TCP + deliberately imposed backpressure
+witness of partial writes and candidate recovery behavior. It supports the
+protocol-preserving repair. It does **not** prove the earlier natural Pi parse
+error was caused by partial writes, nor quantify normal camera smoothness,
+production receiver reconnection, or sibling stability. Those remain separate
+live gates; the root's normal-reader45s check and protected deployment were still
+pending when this documentation update was made. No SDK change is involved.
+
+Private provenance:
+
+- `rtsp-write-baseline-controlled.jsonl`, SHA-256
+  `9c6eb17ccb79c764cd65a9585015dd69a03aba81f96da3b127ed04a68725c4e0`.
+- `rtsp-write-candidate-controlled.jsonl`, SHA-256
+  `2acda89c48e4e0fc3d3ef62747ffd358c2ee75f78c8836848a6ea083c484c6d7`.
+- `rtsp-write-controlled-sidecar-journal.jsonl` (bounded baseline unit), SHA-256
+  `d0d8fb504825a663317028a9bd07e19d8069304d1e84b734413d84b5020bf2d9`.
+- `rtsp-write-candidate-sidecar-journal.jsonl` (candidate PID-specific), SHA-256
+  `702b6d3f200660825c5d11b1f3bbf28e4ce314e093deba30d3e27ce1d839dcb2`.
+
+Reader records/helper are under private `.evidence/frame-freshness-2026-10-12/`;
+journals are under `.evidence/bridge-network-audit-2026-10-12/`. The exact full
+binary hashes and upstream source hashes are recorded above. A future upstream
+PR should include both the synthetic base-failing regression and this bounded
+controlled witness, with the spontaneous-cause limitation intact.
