@@ -84,6 +84,7 @@ export function createCameras(ctx) {
 
   function apiShape(cam, host) {
     const st = ctx.streamStatus?.(cam.sn) ?? {};
+    const freshness = ctx.freshness?.capability(cam, host);
     return {
       sn: cam.sn,
       name: cam.name,
@@ -114,6 +115,8 @@ export function createCameras(ctx) {
       // Larger RTP payloads avoid per-packet CPU saturation on small Linux clients.
       // Keep the regular URL unchanged: this is not suitable for UDP/MTU-sized RTP.
       rtspTcpPacketSize: 8192,
+      ...(freshness ? { freshness } : {}),
+      ...(st.freshness ? { freshnessStatus: st.freshness } : {}),
       stream: `/stream/${cam.sn}`,
     };
   }

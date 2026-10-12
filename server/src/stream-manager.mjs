@@ -24,6 +24,7 @@ export function createStreamManager(ctx) {
     // Preserve VideoEvent metadata internally; the legacy raw endpoint still receives only data.
     const chunk = Buffer.isBuffer(frame) ? frame : frame.data;
     const now = Date.now();
+    const receipt = ctx.freshness && !Buffer.isBuffer(frame) ? ctx.freshness.record(frame) : undefined;
     slot.lastBytesAt = now;
     slot.firstFailureAt = 0;
     slot.failures = 0;
@@ -82,6 +83,11 @@ export function createStreamManager(ctx) {
       if (c.writableNeedDrain) { c._ewbDropping = true; continue; } // backpressure: drop until next keyframe
       if (c._ewbDropping && !sets) continue;
       c._ewbDropping = false;
+      if (c._ewbOnFrame) {
+        try { c._ewbOnFrame(frame, receipt); }
+        catch (e) { console.warn(`[bridge] ${slot.sn}: timed consumer failed: ${e.message}`); c.end(); }
+        continue;
+      }
       if (c._ewbFormat !== "mpegts") { c.write(chunk); continue; }
       try {
         if (c._ewbMuxer && c._ewbMuxerCodec !== slot.codec) throw new Error("video codec changed");
@@ -219,7 +225,7 @@ export function createStreamManager(ctx) {
   }
 
   /** Pipe the live feed into an HTTP response. Returns a detach function. */
-  function attachConsumer(sn, res, { format = "annexb", pes = "access-unit" } = {}) {
+  function attachConsumer(sn, res, { format = "annexb", pes = "access-unit", onFrame } = {}) {
     const slot = slotFor(sn);
     // The last keyframe is stale by the time a consumer attaches. Sending it followed by live
     // inter-frames leaves missing references and produces gray blocks until the next IDR.
@@ -227,6 +233,7 @@ export function createStreamManager(ctx) {
     res._ewbDropping = true;
     res._ewbFormat = format;
     res._ewbFragmentPes = pes === "fragmented";
+    res._ewbOnFrame = onFrame;
     slot.consumers.add(res);
     void ensureWarm(sn);
     return () => slot.consumers.delete(res);
@@ -244,6 +251,7 @@ export function createStreamManager(ctx) {
       lastBytesAgoMs: s.lastBytesAt ? Date.now() - s.lastBytesAt : null,
       consumers: s.consumers.size,
       failures: s.failures,
+      ...(s.freshness ? { freshness: s.freshness } : {}),
     };
   }
 

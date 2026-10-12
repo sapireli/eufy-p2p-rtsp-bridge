@@ -25,7 +25,7 @@ export function createWsHub(ctx) {
   let heartbeat;
 
   /** The state a joining client would otherwise have to wait for an event to learn. */
-  async function snapshot() {
+  async function snapshot(host = ctx.cfg?.selfHost ?? "127.0.0.1") {
     const available = await Promise.all(
       (ctx.listCameras?.() ?? [])
         .filter((c) => c.enabled)
@@ -43,7 +43,9 @@ export function createWsHub(ctx) {
       // The go2rtc stream key (the camera's name, slugged). The wall builds its RTSP URL from this
       // rather than from the serial, so renaming a camera moves its stream without a client change.
       streamKey: ctx.streamKeyFor?.(c.sn) ?? c.sn,
+      rtsp: `rtsp://${host}:${ctx.cfg?.rtspPort ?? 8554}/${ctx.streamKeyFor?.(c.sn) ?? c.sn}`,
       rtspTcpPacketSize: 8192,
+      freshness: ctx.freshness?.capability(c, host),
       state: ctx.state.streaming.has(c.sn) ? "live" : ctx.state.starting?.has?.(c.sn) ? "starting" : "idle",
       // Whether GET /snapshot/<sn> has a thumbnail. A wall that renders a still for a camera with
       // none would be pointing a pipeline at a 404 and restarting it forever.
@@ -70,20 +72,28 @@ export function createWsHub(ctx) {
 
   /** Refresh clients that joined while login was still populating the registry. */
   async function broadcastSnapshot() {
-    return broadcast(await snapshot());
+    const hello = await snapshot();
+    for (const ws of clients) {
+      send(ws, { ...hello, cameras: hello.cameras.map((c) => ({ ...c,
+        rtsp: `rtsp://${ws.wallHost ?? ctx.cfg?.selfHost ?? "127.0.0.1"}:${ctx.cfg?.rtspPort ?? 8554}/${c.streamKey}`,
+        freshness: ctx.freshness?.capability(ctx.getCamera?.(c.sn) ?? c, ws.wallHost ?? ctx.cfg?.selfHost ?? "127.0.0.1"),
+      })) });
+    }
+    return hello;
   }
 
   function attach(server) {
     wss = new WebSocketServer({ server, path: "/ws" });
-    wss.on("connection", (ws) => {
+    wss.on("connection", (ws, req) => {
       clients.add(ws);
+      ws.wallHost = (req.headers.host ?? "127.0.0.1").replace(/:\d+$/, "");
       ws.isAlive = true;
       ws.on("pong", () => {
         ws.isAlive = true;
       });
       ws.on("close", () => clients.delete(ws));
       ws.on("error", () => clients.delete(ws));
-      snapshot().then((hello) => send(ws, hello));
+      snapshot(ws.wallHost).then((hello) => send(ws, hello));
     });
     // A wall display that loses power or its network leaves a socket that never closes; without this the
     // server accumulates them and keeps serialising events to nobody.

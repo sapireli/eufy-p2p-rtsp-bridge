@@ -21,6 +21,8 @@ import { createLanUpgrade } from "./src/lan-upgrade.mjs";
 import { createHolds } from "./src/holds.mjs";
 import { createWsHub } from "./src/ws-hub.mjs";
 import { createGo2rtc } from "./src/go2rtc.mjs";
+import { createFreshness } from "./src/freshness.mjs";
+import { createFreshEgress } from "./src/fresh-egress.mjs";
 import { createHttpHandler } from "./src/http.mjs";
 import { installRecoveryRepin } from "./src/recovery.mjs";
 import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
@@ -33,6 +35,7 @@ const state = createState();
 const hooks = {};
 const { eufy, sdk } = createSdk({ cfg, DEBUG, hooks });
 const ctx = { cfg, DEBUG, eufy, sdk, state, SCHEMA_VERSION: 1, PUSH_STALL_MS: 15 * 60_000 };
+ctx.freshness = createFreshness(ctx);
 ctx.viewModes = createViewModes(cfg.dataDir);
 
 // Vendored auth/watchdog broadcast auth changes to "clients"; we have none in phase 1 → log.
@@ -40,6 +43,7 @@ ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);
 
 ctx.lanUpgrade = createLanUpgrade(ctx);
 Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), createStreamManager(ctx), createGo2rtc(ctx), createAuth(ctx), createWatchdog(ctx));
+Object.assign(ctx, createFreshEgress(ctx));
 ctx.holds = createHolds(ctx);
 // The wall's event channel. Created before anything can emit, so an event during boot is not dropped on
 // the floor by an undefined broadcaster.
@@ -146,6 +150,7 @@ async function shutdown() {
   for (const t of Object.values(state.timers)) if (t) clearInterval(t);
   ctx.ws?.close();
   ctx.stopGo2rtc();
+  ctx.stopFreshEgress();
   await ctx.stopAll();
   await sdk.closeStreamClients();
   await eufy.disconnect?.().catch(() => {});

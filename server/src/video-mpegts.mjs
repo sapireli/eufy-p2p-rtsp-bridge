@@ -147,5 +147,5 @@ export function newVideoMpegTsMuxer({ codec, maxTimestampStepMs, maxPesPayloadBy
     discontinuity = false;
     return Buffer.concat(out);
   }
-  return { push, reset };
+  return { push, reset, get pts90k() { return pts90k; } };
 }

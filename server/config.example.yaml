@@ -17,6 +17,14 @@ lan:
   force: true                    # SDK accepts only peers inside cidr before control/media connection
   station_addresses: {}          # optional LAN IP hints keyed by HomeBase/station serial, e.g. T8010XXXX: 192.168.1.50
 
+# Per-picture receipt timing starts at SDK ingress, not camera capture. Observation
+# preserves playback and reports timing. Strict enforcement requires a verified
+# client/display path; the 500 ms experiment has not passed the live smoothness gate.
+freshness:
+  enabled: true
+  mode: observe                  # observe (default) | enforce (explicit opt-in)
+  max_age_ms: 500                 # rejection deadline, not a playback buffer
+
 # Both of these are UNSET by default, and unset means the bridge writes nothing to the camera.
 # Streaming quality and dual-lens view belong to the eufy app, where only the owner account can change
 # them — and writing one from here is a command sent to a camera that may be mid-stream. Set them only if

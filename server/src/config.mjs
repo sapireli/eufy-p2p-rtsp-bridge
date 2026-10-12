@@ -96,6 +96,11 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     go2rtcVaapiDevice: String(env.BRIDGE_GO2RTC_VAAPI_DEVICE || raw.go2rtc?.vaapi_device || ""),
     // Hardware decoding is attempted first. false is an explicit troubleshooting override.
     go2rtcVaapiDecode: ["true", "1"].includes(String(env.BRIDGE_GO2RTC_VAAPI_DECODE ?? raw.go2rtc?.vaapi_decode ?? true).toLowerCase()),
+    freshness: {
+      enabled: raw.freshness?.enabled !== false,
+      mode: raw.freshness?.mode ?? "observe",
+      maxAgeMs: Number(raw.freshness?.max_age_ms ?? 500),
+    },
     pollMs: raw.poll_ms != null ? Number(raw.poll_ms) : undefined,
     lan: {
       cidr: lanRaw.cidr ?? null,

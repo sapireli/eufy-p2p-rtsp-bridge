@@ -74,6 +74,10 @@ export function createHttpHandler(ctx) {
       });
     }
     if (kind === "auth") return auth(req, res, url, arg);
+    if (url.pathname === "/api/clock" && ctx.freshness) {
+      res.setHeader("cache-control", "no-store");
+      return json(res, 200, ctx.freshness.clock());
+    }
 
     // A tile asks for a camera it wants to show. The wall is on a trusted LAN and this only ever makes a
     // camera stream for a bounded time, so it is deliberately unauthenticated like /stream itself.
@@ -146,6 +150,15 @@ export function createHttpHandler(ctx) {
     if (!flags.ready) return json(res, 503, { error: "not authenticated", auth: ctx.authStatus() });
 
     if (url.pathname === "/api/cameras") return json(res, 200, ctx.listCameras().map((c) => ctx.apiShape(c, host)));
+
+    if (kind === "timed-stream" && arg) {
+      const cam = ctx.getCamera(arg);
+      if (!cam?.enabled || !ctx.freshness?.enabledFor(cam)) return json(res, 404, { error: "timed stream unavailable" });
+      if (ctx.isBlocked(arg)) return json(res, 423, { error: "camera peer blocked" });
+      res.writeHead(200, { "content-type": "video/mp2t", "cache-control": "no-store", connection: "close" });
+      ctx.attachFreshConsumer(arg, res);
+      return;
+    }
 
     const viewRoute = /^\/api\/cameras\/([^/]+)\/view$/.exec(url.pathname);
     if (viewRoute) {

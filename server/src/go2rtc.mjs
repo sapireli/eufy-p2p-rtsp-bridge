@@ -146,6 +146,10 @@ export function createGo2rtc(ctx) {
     }
     for (const [sn, suffix] of Object.entries(plan)) {
       const rawUrl = `http://${cfg.selfHost}:${cfg.port}/stream/${sn}`;
+      if (ctx.freshness?.enabledFor(ctx.getCamera(sn))) {
+        text = text.replace(`ffmpeg:${rawUrl}#video=copy`, `http://${cfg.selfHost}:${cfg.port}/timed-stream/${sn}`);
+        continue;
+      }
       const url = `${rawUrl}?format=mpegts&pes=fragmented`;
       const input = suffix.includes("#input=") ? "" : "#input=ewb_timestamped_http";
       const source = `ffmpeg:${url}${input}${suffix}`;

@@ -56,12 +56,32 @@ function collect(url, want, waitMs = 1500) {
 
 const battery = { sn: "BATT", name: "Yard", enabled: true, mode: "on_motion", holdSeconds: 60 };
 
+test("initial and refreshed capabilities identify the actual stream for each client host", async (t) => {
+  const { ctx, hub, url } = await withHub(t, [battery]);
+  ctx.cfg.rtspPort = 9554;
+  ctx.streamKeyFor = () => "yard";
+  ctx.freshness = { capability: (_camera, host) => ({ clockUrl: `http://${host}:3000/api/clock` }) };
+  const peers = await Promise.all(["first.test", "second.test"].map((host) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, { headers: { Host: `${host}:3000` } });
+    t.after(() => ws.close());
+    ws.once("error", reject);
+    ws.once("message", (bytes) => resolve({ ws, host, initial: JSON.parse(bytes) }));
+  })));
+  const refreshed = peers.map(({ ws }) => new Promise((resolve) => ws.once("message", (bytes) => resolve(JSON.parse(bytes)))));
+  await hub.broadcastSnapshot();
+  const updates = await Promise.all(refreshed);
+  for (let i = 0; i < peers.length; i++) for (const message of [peers[i].initial, updates[i]]) {
+    assert.equal(message.cameras[0].rtsp, `rtsp://${peers[i].host}:9554/yard`);
+    assert.equal(message.cameras[0].freshness.clockUrl, `http://${peers[i].host}:3000/api/clock`);
+  }
+});
+
 test("a joining client is told the current state, not just future events", async (t) => {
   const { ctx, url } = await withHub(t, [battery]);
   ctx.state.streaming.add("BATT");
   const [hello] = await collect(url, 1);
   assert.equal(hello.type, "hello");
-  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", streamKey: "BATT", rtspTcpPacketSize: 8192, state: "live", still: false }]);
+  assert.deepEqual(hello.cameras, [{ sn: "BATT", name: "Yard", mode: "on_motion", streamKey: "BATT", rtsp: `rtsp://127.0.0.1:8554/BATT`, rtspTcpPacketSize: 8192, state: "live", still: false }]);
   assert.ok(hello.at > 0, "every message is timestamped so a replay is distinguishable from a live event");
 });
 

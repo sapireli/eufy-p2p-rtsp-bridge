@@ -44,6 +44,31 @@ test("healthz and api/cameras", async () => {
   });
 });
 
+test("clock calibration exposes a noncached monotonic epoch before authentication", async () => {
+  const clock = { serverEpoch: "0011223344556677", monotonicUs: 987654321, scope: "bridge-ingress", captureClockValidated: false };
+  const ctx = ctxWith({ freshness: { clock: () => clock } });
+  ctx.state.flags.ready = false;
+  await withServer(ctx, async (base) => {
+    const response = await fetch(`${base}/api/clock`);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), clock);
+  });
+});
+
+test("timed stream preserves disabled and blocked-camera boundaries", async () => {
+  const attached = [];
+  const ctx = ctxWith({ freshness: { enabledFor: () => true }, attachFreshConsumer: (sn, res) => { attached.push(sn); res.end(Buffer.from([0x47])); } });
+  await withServer(ctx, async (base) => {
+    const response = await fetch(`${base}/timed-stream/A`);
+    assert.equal(response.headers.get("content-type"), "video/mp2t");
+    await response.arrayBuffer();
+    assert.deepEqual(attached, ["A"]);
+    assert.equal((await fetch(`${base}/timed-stream/B`)).status, 404);
+    ctx.state.blocked.set("A", "outside-lan");
+    assert.equal((await fetch(`${base}/timed-stream/A`)).status, 423);
+  });
+});
+
 test("per-camera view endpoint validates mode and reports command failure", async () => {
   const commands = [];
   const cam = { sn: "A", enabled: true, isDual: true };
