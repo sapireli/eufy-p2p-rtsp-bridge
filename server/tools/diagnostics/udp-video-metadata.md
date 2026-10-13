@@ -1,7 +1,7 @@
 # Optional encoded-picture header metadata
 
 `udp-headers IFACE PEER SECONDS OUT --video-header --trigger-port PORT`
-keeps the maximum 45-second deadline. The first incoming VIDEO gap greater than
+accepts a maximum 300-second deadline (the historical trials below used 45 seconds). The first incoming VIDEO gap greater than
 500 ms on the selected local port shortens the deadline to five seconds after
 that resumed packet. A gap that never resumes cannot trigger; the original maximum
 still stops capture. No transport commands, source settings, or buffers change.

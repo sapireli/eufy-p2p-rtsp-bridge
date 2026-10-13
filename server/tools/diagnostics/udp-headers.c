@@ -15,6 +15,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#define MAX_CAPTURE_SECONDS 300
+static int duration_allowed(unsigned seconds) { return seconds >= 1 && seconds <= MAX_CAPTURE_SECONDS; }
+
 static unsigned truncation_kind(int flags) {
  return ((flags & MSG_TRUNC) ? 1u : 0u) | ((flags & MSG_CTRUNC) ? 2u : 0u);
 }
@@ -77,7 +80,7 @@ static size_t fixture(uint8_t*p,uint32_t peer,int out){
  memset(p,0,96);p[0]=0x45;p[9]=17;memcpy(p+(out?16:12),&peer,4);p[3]=52;p[20]=0x30;p[21]=0x39;p[22]=0x40;p[23]=0;p[25]=32;
  uint8_t*b=p+28;b[0]=0xf1;b[1]=0xd0;b[3]=20;b[5]=1;b[6]=0x12;b[7]=0x34;memcpy(b+8,"XZYH",4);b[12]=0x09;b[13]=0x05;b[14]=5;b[20]=2;b[21]=8;return 52;
 }
-static int selftest(void){uint8_t p[96],r[40];uint32_t peer;inet_pton(AF_INET,"192.0.2.1",&peer);size_t n=fixture(p,peer,0);
+static int selftest(void){if(duration_allowed(0)||!duration_allowed(1)||!duration_allowed(45)||!duration_allowed(300)||duration_allowed(301))return 10;uint8_t p[96],r[40];uint32_t peer;inet_pton(AF_INET,"192.0.2.1",&peer);size_t n=fixture(p,peer,0);
  if(test_filter(p,n,ETH_P_IP,peer)!=128||test_filter(p,n,ETH_P_IPV6,peer))return 9;
  if(!parse(p,n,0,peer,r)||le16(r+16)!=16384||le16(r+22)!=0x1234||le16(r+24)!=1289||r[29]!=2||r[30]!=8||le32(r+32)!=5)return 1;
  for(size_t k=0;k<36;k++)if(parse(p,k,0,peer,r))return 2;
@@ -95,7 +98,7 @@ int main(int argc,char**argv){if(argc==2&&!strcmp(argv[1],"--selftest"))return s
   else return 2;
  }
  unsigned record_bytes=extended?56:40;uint64_t last_video=0,trigger_wall=0;
- uint32_t peer;if(inet_pton(AF_INET,argv[2],&peer)!=1)return 2;unsigned seconds=atoi(argv[3]);if(!seconds||seconds>45)return 2;
+ uint32_t peer;if(inet_pton(AF_INET,argv[2],&peer)!=1)return 2;unsigned seconds=atoi(argv[3]);if(!duration_allowed(seconds))return 2;
  int s=socket(AF_PACKET,SOCK_DGRAM,htons(ETH_P_ALL));if(s<0){perror("socket");return 3;}
  struct sockaddr_ll bindaddr={.sll_family=AF_PACKET,.sll_protocol=htons(ETH_P_ALL),.sll_ifindex=if_nametoindex(argv[1])};if(!bindaddr.sll_ifindex||bind(s,(void*)&bindaddr,sizeof(bindaddr))){perror("bind");return 4;}
  // Filter IPv4 UDP to/from peer; fixed header snapshot only, never persisted.

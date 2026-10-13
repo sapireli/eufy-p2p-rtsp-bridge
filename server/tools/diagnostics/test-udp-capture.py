@@ -66,7 +66,30 @@ class CaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             def forbidden(*args,**kwargs):raise AssertionError("observer must not run")
             with self.assertRaises(FileExistsError):module.capture("/trusted/bin","eth0","192.0.2.1",1,root,runner=forbidden)
-            with self.assertRaises(ValueError):module.capture("/trusted/bin","eth0","192.0.2.1",46,pathlib.Path(root)/"unused",runner=forbidden)
+            with self.assertRaises(ValueError):module.capture("/trusted/bin","eth0","192.0.2.1",301,pathlib.Path(root)/"unused",runner=forbidden)
+
+    def test_maximum_300_seconds_preserves_timeout_and_strict_export(self):
+        def runner(args, **kwargs):
+            self.assertEqual(args[3], "300"); self.assertEqual(kwargs["timeout"], 305)
+            pathlib.Path(args[4]).write_bytes(bytes(40))
+            stats={"records":1,"recordBytes":40,"packetSocketDrops":0,"missingTimestamp":0,
+                   "truncations":0,"dataTruncations":0,"controlTruncations":0,"ioError":0}
+            kwargs["stderr"].write((json.dumps(stats)+"\n").encode());kwargs["stderr"].flush()
+            return subprocess.CompletedProcess(args,0)
+        with tempfile.TemporaryDirectory() as root:
+            result=module.capture("/trusted/bin","eth0","192.0.2.1",300,pathlib.Path(root)/"out",runner=runner)
+            self.assertTrue(result["captureValid"]);self.assertTrue(result["exportComplete"])
+            self.assertEqual(result["requestedSeconds"],300)
+    def test_native_duration_bound_without_socket_or_capture(self):
+        source=(HERE/"udp-headers.c").read_text()
+        start=source.index("#define MAX_CAPTURE_SECONDS")
+        end=source.index("static unsigned truncation_kind",start)
+        guard=source[start:end]
+        code=guard+"int main(void){if(duration_allowed(0)||!duration_allowed(1)||!duration_allowed(45)||!duration_allowed(300)||duration_allowed(301))return 1;return 0;}\n"
+        with tempfile.TemporaryDirectory() as root:
+            path=pathlib.Path(root)/"duration.c";path.write_text(code)
+            subprocess.run(["cc","-Wall","-Wextra","-Werror",str(path),"-o",root+"/duration"],check=True)
+            subprocess.run([root+"/duration"],check=True)
 
     def test_export_failure_retains_stage_and_manifest(self):
         with tempfile.TemporaryDirectory() as root:

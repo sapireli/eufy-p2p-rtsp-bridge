@@ -27,8 +27,8 @@ def capture(binary, interface, peer, seconds, output, *, video_header=False, tri
     if not Path(binary).is_absolute() or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,15}", interface):
         raise ValueError("absolute native binary path and interface name required")
     ipaddress.IPv4Address(peer)
-    if not isinstance(seconds, int) or not 1 <= seconds <= 45:
-        raise ValueError("capture seconds must be 1..45")
+    if not isinstance(seconds, int) or not 1 <= seconds <= 300:
+        raise ValueError("capture seconds must be 1..300")
     if trigger_port is not None and not 1 <= trigger_port <= 65535:
         raise ValueError("trigger port outside range")
     output = Path(output)
