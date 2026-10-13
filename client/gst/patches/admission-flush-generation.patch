@@ -1,0 +1,51 @@
+--- a/client/gst/decoded-admission.h
++++ b/client/gst/decoded-admission.h
+@@ -7,7 +7,7 @@
+   GstPad *sink,*src;
+   GMutex lock;GCond changed;GThread *worker;
+   AdmissionSlot slots[2];guint count,channel;
+-  guint64 order,received,dropped,released;
++  guint64 order,received,dropped,released,generation;
+   gboolean stopping,flushing,busy,eos;
+   GstFlowReturn flow;
+ } GstEufyAdmission;
+@@ -34,8 +34,9 @@
+   while(!self->stopping) {
+     if(self->flushing || (!self->count && !self->eos)) {g_cond_wait(&self->changed,&self->lock);continue;}
+     if(!self->count && self->eos) {
+-      self->eos=FALSE;self->flow=GST_FLOW_EOS;
+-      g_mutex_unlock(&self->lock);gst_pad_push_event(self->src,gst_event_new_eos());g_mutex_lock(&self->lock);continue;
++      self->eos=FALSE;self->flow=GST_FLOW_EOS;self->busy=TRUE;
++      g_mutex_unlock(&self->lock);gst_pad_push_event(self->src,gst_event_new_eos());g_mutex_lock(&self->lock);
++      self->busy=FALSE;g_cond_broadcast(&self->changed);continue;
+     }
+     guint64 now=admission_now(self);gint due=-1;guint nearest=0;
+     for(guint i=0;i<self->count;i++) {
+@@ -56,11 +57,11 @@
+         superseded[obsolete++]=self->slots[i].buffer;self->count--;self->slots[i]=self->slots[self->count];
+       } else i++;
+     }
+-    self->dropped+=obsolete;self->busy=TRUE;self->released++;
++    self->dropped+=obsolete;self->busy=TRUE;self->released++;guint64 generation=self->generation;
+     g_mutex_unlock(&self->lock);admission_unref(superseded,obsolete);
+     GstFlowReturn flow=gst_pad_push(self->src,buffer);g_mutex_lock(&self->lock);
+     self->busy=FALSE;
+-    if(flow!=GST_FLOW_OK && !self->flushing)self->flow=flow;
++    if(flow!=GST_FLOW_OK && !self->flushing && generation==self->generation)self->flow=flow;
+     g_cond_broadcast(&self->changed);
+   }
+   g_mutex_unlock(&self->lock);return NULL;
+@@ -106,7 +107,12 @@
+     g_mutex_lock(&self->lock);self->eos=TRUE;g_cond_broadcast(&self->changed);g_mutex_unlock(&self->lock);gst_event_unref(event);return TRUE;
+   }
+   if(type==GST_EVENT_FLUSH_START || type==GST_EVENT_FLUSH_STOP) {
+-    g_mutex_lock(&self->lock);self->flushing=type==GST_EVENT_FLUSH_START;
++    g_mutex_lock(&self->lock);
++    /* FLUSH_START releases blocked downstream work. Finish that old serialized
++     * push before FLUSH_STOP reopens the pad, including an in-flight EOS. */
++    if(type==GST_EVENT_FLUSH_STOP)
++      while(self->busy && !self->stopping)g_cond_wait(&self->changed,&self->lock);
++    self->generation++;self->flushing=type==GST_EVENT_FLUSH_START;
+     count=admission_clear(self,dropped);self->eos=FALSE;self->flow=GST_FLOW_OK;
+     g_cond_broadcast(&self->changed);g_mutex_unlock(&self->lock);admission_unref(dropped,count);
+     return gst_pad_push_event(self->src,event);
