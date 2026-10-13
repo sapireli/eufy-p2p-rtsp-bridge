@@ -95,6 +95,7 @@ func main() {
 	}
 	os.Setenv("GST_PLUGIN_PATH", pluginPath)
 	caps.DecodedPacing = detect.HasElement("eufypacing")
+	caps.ClockAnchor = detect.HasElement("eufyadmission") && detect.HasElement("eufyarrival") && detect.HasElementProperty("eufypacing", "arrival-clock")
 	caps.StampReader = detect.HasElement("eufystamp")
 	caps.ObservePacing = detect.HasElementProperty("eufypacing", "observe-only")
 	if *timingDiagnostics != "" {

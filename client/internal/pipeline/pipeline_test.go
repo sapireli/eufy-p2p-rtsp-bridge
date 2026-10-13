@@ -406,3 +406,28 @@ func TestTimingDiagnosticsObserveEachPhaseWithoutAddingQueues(t *testing.T) {
 		t.Fatal("diagnostics borrowed unrelated resource identity")
 	}
 }
+
+func TestDecodedArrivalClockUsesTwoBoundedSlots(t *testing.T) {
+	c, tiles := two()
+	caps := Caps{Decoder: "v4l2", Sink: "planes", DecodedPacing: true, ClockAnchor: true}
+	args, err := Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	if !strings.Contains(got, "eufyarrival channel=1 ! watchdog timeout=15000 ! eufyadmission channel=1") || !strings.Contains(got, "eufypacing arrival-clock=true channel=1") {
+		t.Fatalf("prequeue clock and two slots must be enabled together: %s", got)
+	}
+	if !strings.Contains(got, "sync=true max-lateness=67000000 processing-deadline=0") {
+		t.Fatal("arrival clock changed sink timing")
+	}
+	caps.ClockAnchor = false
+	args, err = Build(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = String(args)
+	if strings.Contains(got, "eufyarrival") || strings.Contains(got, "arrival-clock=true") || !strings.Contains(got, "max-size-buffers=1") {
+		t.Fatalf("old plugin fallback changed: %s", got)
+	}
+}

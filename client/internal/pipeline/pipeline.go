@@ -33,6 +33,7 @@ type Caps struct {
 	StampReader       bool
 	ObservePacing     bool   // installed pacing plugin accepts observe-only telemetry
 	TimingDiagnostics string // optional bounded private per-frame phase metadata
+	ClockAnchor       bool   // installed prequeue raw clock + compatible pacer property
 	DecodedPacing     bool   // installed eufypacing raw-video clock mapper
 }
 
@@ -205,15 +206,25 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		if caps.TimingDiagnostics != "" {
 			args = append(args, trace("decoder-out")...)
 		}
+		if caps.DecodedPacing && caps.ClockAnchor && caps.Sink == "planes" {
+			args = append(args, "!", "eufyarrival", fmt.Sprintf("channel=%d", t.Index+1))
+		}
 		args = append(args, "!", "watchdog", "timeout=15000")
 		if caps.DecodedPacing {
 			// Drop only decoded frames: every compressed reference still reaches the decoder.
-			args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream")
+			if caps.ClockAnchor && caps.Sink == "planes" {
+				args = append(args, "!", "eufyadmission", fmt.Sprintf("channel=%d", t.Index+1))
+			} else {
+				args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream")
+			}
 			if caps.TimingDiagnostics != "" {
 				args = append(args, trace("post-queue")...)
 			}
 			if caps.Sink == "planes" {
 				args = append(args, "!", "eufypacing")
+				if caps.ClockAnchor {
+					args = append(args, "arrival-clock=true", fmt.Sprintf("channel=%d", t.Index+1))
+				}
 				if caps.TimingDiagnostics != "" {
 					args = append(args, "diagnostic-file="+caps.TimingDiagnostics)
 				}
@@ -260,7 +271,11 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d", caps.Screen.Width, caps.Screen.Height))
 		if caps.DecodedPacing {
 			// Rebase the final composite clock, not each input plus the final sink.
-			args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream", "!", "eufypacing", "!", "watchdog", "timeout=15000")
+			if caps.ClockAnchor {
+				args = append(args, "!", "eufyarrival", "channel=1", "!", "eufyadmission", "channel=1", "!", "eufypacing", "arrival-clock=true", "channel=1", "!", "watchdog", "timeout=15000")
+			} else {
+				args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream", "!", "eufypacing", "!", "watchdog", "timeout=15000")
+			}
 		}
 		if caps.Sink == "window" {
 			args = append(args, "!", "autovideosink", clockArgs[0])
