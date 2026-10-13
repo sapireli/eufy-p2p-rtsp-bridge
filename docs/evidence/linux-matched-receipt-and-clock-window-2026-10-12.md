@@ -40,3 +40,11 @@ These are later cumulative/current socket observations, not deltas joined to the
 There is no justified pacing-delay or DNS correction from this record. Both the generation-fix playback trial and the 16 KiB packet-size trial failed their bounded comparisons and were reverted by the parent. A conditional full compressed-AU memory merge in the stamp reader is a source-level optimization candidate, not a demonstrated cause of this window's poor motion. No split-memory fixture or new device diagnostic was run for this audit.
 
 The next causal comparison must keep shared upstream source gaps separate from Pi-path interruptions. A successful bridge-local request does not validate the Pi request path; a shared physical VIDEO quiet interval cannot be repaired by changing Linux presentation timing. Existing matched per-picture evidence should decide which boundary to address before another code or network change.
+
+## Proposed capacity isolation: decision only
+
+A whole-process Garage `SIGSTOP` is not a clean CPU-versus-RF experiment. It removes media CPU work and, after its TCP receive queue fills, reduces incoming wireless traffic through backpressure. Improvement on Front Door would establish a shared Pi resource interaction, not distinguish those two mechanisms.
+
+The Go supervisor restarts only after process exit or context cancellation; it has no separate decoded-frame timer. Each Gst pipeline does have a 15-second watchdog. Its thread stops with the process, but an overdue timer can fire immediately on resume, so a 15-second pause is unsafe. The RTSP sender also has a five-second write deadline after socket backpressure develops. A bounded shorter pause can therefore still close the paused consumer and change its recovery path.
+
+The parent rejected this comparison because it confounds CPU and wireless capacity and can disrupt RTSP. No pause was executed.
