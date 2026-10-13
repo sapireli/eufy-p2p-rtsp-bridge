@@ -191,11 +191,11 @@ int main(int argc, char **argv) {
     g_usleep(100000);gst_element_set_state(nalpipe,GST_STATE_NULL);gst_object_unref(source);gst_object_unref(nalpipe);
     /* Retain the input buffer: it is deliberately non-writable, and its memory
      * cannot be shared through a subbuffer. A modifying transform would copy it. */
-    GstElement *identity=gst_parse_launch("appsrc name=identity-source is-live=true format=time caps=video/x-raw,format=RGB,width=1,height=1,framerate=15/1 ! eufytrace name=identity-trace phase=raw-identity channel=7 diagnostic-file=/tmp/eufy-timing-probe ! fakesink name=identity-sink sync=false async=false signal-handoffs=true",&err);
+    GstElement *identity=gst_parse_launch("appsrc name=identity-source is-live=true format=time caps=video/x-raw,format=RGB,width=1,height=1,framerate=15/1 ! eufyarrival name=identity-anchor channel=7 ! eufyadmission channel=7 ! eufytrace name=identity-trace phase=raw-identity channel=7 diagnostic-file=/tmp/eufy-timing-probe ! fakesink name=identity-sink sync=false async=false signal-handoffs=true",&err);
     g_assert_no_error(err);source=gst_bin_get_by_name(GST_BIN(identity),"identity-source");
     GstElement *identity_sink=gst_bin_get_by_name(GST_BIN(identity),"identity-sink");
     g_signal_connect(identity_sink,"handoff",G_CALLBACK(identity_handoff),NULL);
-    GstElement *identity_trace=gst_bin_get_by_name(GST_BIN(identity),"identity-trace");
+    GstElement *identity_trace=gst_bin_get_by_name(GST_BIN(identity),"identity-anchor");
     GstPad *identity_pad=gst_element_get_static_pad(identity_trace,"sink");
     gst_pad_add_probe(identity_pad,GST_PAD_PROBE_TYPE_BUFFER,identity_input,NULL,NULL);
     gst_object_unref(identity_pad);gst_object_unref(identity_trace);
@@ -214,6 +214,7 @@ int main(int argc, char **argv) {
     g_assert(strstr(contents,"\"phase\":\"depay-au\"")!=NULL);
     g_assert(strstr(contents,"\"phase\":\"decoder-out\"")!=NULL);
     g_assert(strstr(contents,"\"phase\":\"kms-return\"")!=NULL);
+    g_assert(strstr(contents,"\"phase\":\"decoder-input-return\"")!=NULL);
     gchar **lines=g_strsplit(contents,"\n",-1);guint count=0,matched_phases=0;gboolean avc_found=FALSE,nal_sei=FALSE,nal_complete=FALSE;
     for(guint i=0;lines[i];i++) {
       if(!*lines[i])continue;
@@ -236,7 +237,7 @@ int main(int argc, char **argv) {
         g_assert(strstr(lines[i],"\"stampFound\":true"));g_assert(strstr(lines[i],"\"frameId\":\"9\""));avc_found=TRUE;
       }
     }
-    g_assert(count==22);g_assert(matched_phases==31);g_assert(avc_found);g_assert(nal_sei && nal_complete);g_strfreev(lines);g_free(contents);remove(diagnostic);
+    g_assert(count==29);g_assert(matched_phases==31);g_assert(avc_found);g_assert(nal_sei && nal_complete);g_strfreev(lines);g_free(contents);remove(diagnostic);
     g_print("phase integration: exact encoded/raw/KMS identities; AVC/NAL metadata parsed without format/alignment conversion\n");
   }
   return 0;

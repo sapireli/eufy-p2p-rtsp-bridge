@@ -37,7 +37,15 @@ int main(void) {
   /* An unclocked picture cannot advance source ordering into the local domain. */
   assert(pacing_target(&clock, -1, INT64_C(9000000000), 0, &target) && target == INT64_C(9000000000));
   assert(pacing_target(&clock, 31 * PACING_BOUND_NS, INT64_C(9000000000), 0, &target));
-  /* Only an explicit discontinuity admits a source timestamp restart. */
+  /* Sampling before the raw queue excludes downstream work from the rolling
+   * source offset, including after the initial two-second samples age out. */
+  memset(&clock,0,sizeof(clock));
+  for(int i=0;i<150;i++) {
+    int64_t pts=i*PACING_BOUND_NS,arrival=pts+INT64_C(1000000),now=arrival+INT64_C(70000000);
+    assert(pacing_target_sampled(&clock,pts,arrival,now,0,&target));
+    assert(target==now);
+  }
+  /* Real stream lifecycle reset admits a source timestamp restart. */
   assert(pacing_target(&clock, 0, INT64_C(300000000), 1, &target));
   return 0;
 }

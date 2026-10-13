@@ -6,7 +6,7 @@
 static GstBuffer *input;
 static GstMemory *memory;
 static gint seen,input_freed;
-static gboolean require_identity;
+static gboolean require_identity,bad_diagnostic;
 static void finalized(gpointer unused,GstMiniObject *object) {(void)unused;(void)object;g_atomic_int_inc(&input_freed);}
 static GstPadProbeReturn capture(GstPad *pad,GstPadProbeInfo *info,gpointer unused) {
  (void)pad;(void)unused;input=gst_buffer_ref(GST_PAD_PROBE_INFO_BUFFER(info));
@@ -47,12 +47,13 @@ static void writable_ownership_probe(void) {
  g_assert(writable_seen==64);g_assert(writable_freed==64);
 }
 int main(int argc,char **argv) {
- for(int i=1;i<argc;i++){if(!strcmp(argv[i],"--require-identity"))require_identity=TRUE;}
+ for(int i=1;i<argc;i++){if(!strcmp(argv[i],"--require-identity"))require_identity=TRUE;if(!strcmp(argv[i],"--bad-diagnostic"))bad_diagnostic=TRUE;}
  gst_init(&argc,&argv);
  for(int i=1;i<argc;i++)if(!strcmp(argv[i],"--writable-ownership")){writable_ownership_probe();return 0;}
  GError *error=NULL;
  GstElement *pipeline=gst_parse_launch("appsrc name=s is-live=true format=time caps=video/x-raw,format=RGB,width=1,height=1,framerate=15/1 ! eufypacing name=p ! fakesink name=o sync=false async=false signal-handoffs=true",&error);g_assert_no_error(error);
  GstElement *source=gst_bin_get_by_name(GST_BIN(pipeline),"s"),*pacer=gst_bin_get_by_name(GST_BIN(pipeline),"p"),*sink=gst_bin_get_by_name(GST_BIN(pipeline),"o");
+ if(bad_diagnostic)g_object_set(pacer,"diagnostic-file","/tmp",NULL);
  GstPad *pad=gst_element_get_static_pad(pacer,"sink");gst_pad_add_probe(pad,GST_PAD_PROBE_TYPE_BUFFER,capture,NULL,NULL);gst_object_unref(pad);
  g_signal_connect(sink,"handoff",G_CALLBACK(handoff),NULL);gst_element_set_state(pipeline,GST_STATE_PLAYING);gst_element_get_state(pipeline,NULL,NULL,GST_SECOND);
  GstBuffer *buffer=gst_buffer_new_allocate(NULL,4,NULL);GST_BUFFER_PTS(buffer)=0;GST_BUFFER_OFFSET(buffer)=123;
