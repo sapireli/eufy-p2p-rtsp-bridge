@@ -167,12 +167,13 @@ a kernel crash, or loss of local storage can defeat any userspace rollback; this
 worker does not promise recovery from them. The independent guard retries lock
 contention rather than depending on SSH remaining connected.
 
-Verification: eleven local tests pass for independent-invocation recovery,
+Verification: thirteen local tests pass for independent-invocation recovery,
 idempotency, preserved external freeze, failed candidate load, retryable failed
 interface recovery, rejected stock digest, unfinished-trial protection flock
 exclusion, timeout termination of a spawned hook process group, interrupt group cleanup,
 asynchronous freeze
-acknowledgement ordering and freezer failure cleanup. The fake host performs no module/network/systemd action. Real local
+acknowledgement ordering, interrupted-owned-freeze resumption, real guard runtime
+properties and freezer failure cleanup. The fake host performs no module/network/systemd action. Real local
 systemd timer execution, freezer behavior, module switching, warning reduction,
 CPU improvement and playback are **not yet tested**.
 
@@ -183,3 +184,9 @@ authorized recovery design would be needed for that option.
 
 No Pi trial script, manifest, timer, module reload
 or reboot has been deployed or armed by this preparation.
+
+Guard service settings are explicitly `Type=exec`, `RuntimeMaxSec=90s` and
+`TimeoutStopSec=5s`; an ordinary simple service's `TimeoutStartSec` would not bound
+its running duration. The freezer acknowledgment is checked even when the requested
+freeze value is already one, including resumption after an interrupted owned write.
+Only a zero-to-one request acquires new freeze ownership.

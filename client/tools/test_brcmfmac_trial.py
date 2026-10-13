@@ -96,6 +96,25 @@ class Tests(unittest.TestCase):
             return original(args, **kw)
         self.h.run = check
         self.w.trial()
+    def test_resumed_owned_freeze_waits_for_actual_ack(self):
+        state = {"phase": "restoring", "ownsFreeze": True, "hadWcc": True}
+        self.w.save(state)
+        self.h.files[trial.FREEZER] = "1"
+        self.h.freezeAt = 0.06
+        self.h.files["/sys/module/brcmfmac/srcversion"] = "candidate"
+        original = self.h.run
+        def check(args, **kw):
+            if args[0] == "ifdown": self.assertGreaterEqual(self.h.now, 0.06)
+            return original(args, **kw)
+        self.h.run = check
+        self.w.rollback()
+        self.assertEqual(self.h.files[trial.FREEZER], "0")
+    def test_guard_has_real_runtime_bound(self):
+        self.w.trial()
+        args = next(a for a in self.h.calls if a[0] == "systemd-run")
+        for prop in ("--property=Type=exec", "--property=RuntimeMaxSec=90s", "--property=TimeoutStopSec=5s"):
+            self.assertIn(prop, args)
+        self.assertFalse(any("TimeoutStartSec" in a for a in args))
     def test_freeze_ack_failure_restores_without_unload(self):
         self.h.noAck = True
         with self.assertRaises(RuntimeError): self.w.trial()

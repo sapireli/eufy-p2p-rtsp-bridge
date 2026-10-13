@@ -100,6 +100,7 @@ class Worker:
             state["ownsFreeze"] = True
             self.save(state)
             self.h.write(FREEZER, "1")
+        if self.h.exists(FREEZER):
             self.wait_frozen("1")
     def thaw(self, state):
         if state.get("ownsFreeze"):
@@ -123,7 +124,8 @@ class Worker:
         self.save(state)
         # Explicit Python path and argument vector; no shell or remote dependency.
         self.h.run(["systemd-run", "--unit=" + UNIT, "--on-active=90s",
-                    "--timer-property=AccuracySec=1s", "--property=TimeoutStartSec=90s",
+                    "--timer-property=AccuracySec=1s", "--property=Type=exec",
+                    "--property=RuntimeMaxSec=90s", "--property=TimeoutStopSec=5s",
                     "--property=Restart=on-failure", "--property=RestartSec=2s",
                     "--property=StartLimitIntervalSec=300s", "--property=StartLimitBurst=3",
                     sys.executable, self.executable, "rollback", "--manifest", self.m["manifestPath"],
