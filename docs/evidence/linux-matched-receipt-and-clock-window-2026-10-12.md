@@ -80,3 +80,11 @@ The final partial window contains 22 reports per camera, no counter resets/error
 There is exactly one clock timeout. Therefore the original zero-timeout gate fails and the planned five-minute gate was not completed, despite recovered throughput. The parent owns any revised retention criterion, rollback or subsequent verification. This collector changed no player, service, network setting or camera source.
 
 The parent subsequently reverted the parser-to-decoder queue candidate after the agreed sustained gate failed. No permanent queue patch or wrapper was retained. The successful short window is preserved as scoped evidence, not a released fix.
+
+## TCP clock correction rejected
+
+The parent's next isolated launcher candidate replaced `buffer-mode=none` with `buffer-mode=slave tcp-timestamp=true`; the raw pacer, 67 ms allowance, Go binary, installed plugin, resolution and hardware decoder were unchanged. The parent verified both actual child command lines before judging the trial. No 60-second follow-on collector was started after the immediate regression.
+
+A single bounded existing-journal export covers 03:47:30–03:49:30 UTC on October 13 (23:47:30–23:49:30 EDT on October 12). It contains 382 rows, 367 belonging to candidate main PID 12478. Candidate hardware children 12529 and 12530 start at 03:48:01 UTC. Across this bounded export there are 258 decreasing-decoder-timestamp warnings, eight jitterbuffer skew resets and nine HTTP clock timeouts. Candidate-only reports show missing-stamp increments of 92 for Front Door and 59 for Garage, plus unknown-clock increments of 10 and seven. Final candidate sampled sink-return upper bounds are 2,371.964 ms and 2,635.610 ms. Reports with zero identity indicate unassociated output, not proof of a new source session.
+
+This is an observed regression on the tested path. The parent reverted the clock candidate. No clock wrapper or encoded queue is retained from these trials, and no further pacing or timing knob was selected by this audit. Private files are in `rtsp-clock-correction/`, including the old-mode baseline, bounded journal and candidate-process-only extraction. Aggregate counter subtraction across different main processes is invalid; the candidate-only extraction avoids that reset.
