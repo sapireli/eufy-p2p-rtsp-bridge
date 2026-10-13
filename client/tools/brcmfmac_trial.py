@@ -9,6 +9,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import ipaddress
 import os
 from pathlib import Path
 import subprocess
@@ -31,6 +32,17 @@ class Host:
         Path(path).write_text(text)
     def digest(self, path):
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    def network_ready(self, address):
+        try:
+            raw = subprocess.check_output(["ip", "-j", "-4", "address", "show", "dev", "wlan0"],
+                                          stderr=subprocess.DEVNULL, timeout=3)
+            rows = json.loads(raw)
+            usable = any(info.get("scope") == "global" and not
+                         ipaddress.ip_address(info["local"]).is_unspecified
+                         for row in rows for info in row.get("addr_info", []))
+            return usable and self.run(["ip", "-4", "route", "get", address, "oif", "wlan0"],
+                                       timeout=3, required=False)
+        except (subprocess.SubprocessError, ValueError, KeyError): return False
     def run(self, args, timeout=10, required=True):
         # Never export command output (WPA hooks may print sensitive fields).
         process = subprocess.Popen(args, stdout=subprocess.DEVNULL,
@@ -82,8 +94,17 @@ class Worker:
                 raise RuntimeError("candidate identity must differ from stock")
             if self.h.digest(c["path"]) != c["sha256"]:
                 raise RuntimeError("candidate digest mismatch")
+        probe = ipaddress.ip_address(self.m["bridgeProbeAddress"])
+        if probe.version != 4 or not probe.is_private or probe.is_loopback or probe.is_link_local:
+            raise RuntimeError("verified private bridge IPv4 required")
         if self.m.get("interface") != "wlan0":
             raise RuntimeError("only verified wlan0 layout supported")
+    def wait_network(self):
+        deadline = self.h.clock() + 10
+        while self.h.clock() < deadline:
+            if self.h.network_ready(self.m["bridgeProbeAddress"]): return
+            self.h.sleep(0.25)
+        raise RuntimeError("configured IPv4 route recovery unverified")
     def loaded(self):
         p = "/sys/module/brcmfmac/srcversion"
         return self.h.read(p) if self.h.exists(p) else None
@@ -109,8 +130,8 @@ class Worker:
                 self.wait_frozen("0")
             state["ownsFreeze"] = False
             self.save(state)
-    def trial(self):
-        self.validate(True)
+    def trial(self, stock_control=False):
+        self.validate(not stock_control)
         previous = self.load()
         if previous and previous["phase"] != "restored":
             raise RuntimeError("unfinished trial; rollback first")
@@ -118,8 +139,10 @@ class Worker:
             raise RuntimeError("trial requires loaded stock identity")
         if self.h.read("/sys/class/net/wlan0/operstate") != "up":
             raise RuntimeError("trial requires existing active interface")
+        self.wait_network()
         state = {"phase": "arming", "ownsFreeze": False,
                  "hadWcc": self.h.exists("/sys/module/brcmfmac_wcc"),
+                 "mode": "stock-control" if stock_control else "candidate",
                  "clientActive": self.h.run(["systemctl", "is-active", "--quiet", "eufy-wall.service"], required=False)}
         self.save(state)
         # Explicit Python path and argument vector; no shell or remote dependency.
@@ -135,11 +158,16 @@ class Worker:
             self.freeze(state)
             self.h.run(["ifdown", "--force", "wlan0"], timeout=15)
             self.h.run(["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"])
-            self.h.run(["insmod", self.m["candidate"]["path"]])
+            if stock_control:
+                self.h.run(["modprobe", "brcmfmac"])
+            else:
+                self.h.run(["insmod", self.m["candidate"]["path"]])
             if state["hadWcc"]: self.h.run(["modprobe", "brcmfmac_wcc"])
-            if self.loaded() != self.m["candidate"]["srcversion"]:
-                raise RuntimeError("candidate loaded identity mismatch")
+            expected = self.m["stockSrcversion"] if stock_control else self.m["candidate"]["srcversion"]
+            if self.loaded() != expected:
+                raise RuntimeError("trial loaded identity mismatch")
             self.h.run(["ifup", "--force", "wlan0"], timeout=20)
+            self.wait_network()
             state["phase"] = "trial"; self.save(state)
         except BaseException:
             self.rollback()
@@ -163,6 +191,7 @@ class Worker:
             self.h.run(["ifup", "--force", "wlan0"], timeout=20)
             if self.h.read("/sys/class/net/wlan0/operstate") != "up":
                 raise RuntimeError("interface recovery unverified")
+            self.wait_network()
         finally:
             self.thaw(state)
         state["phase"] = "restored"; self.save(state)
@@ -179,7 +208,7 @@ def lock(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("action", choices=["trial", "rollback"])
+    ap.add_argument("action", choices=["trial", "stock-trial", "rollback"])
     ap.add_argument("--manifest", required=True)
     ap.add_argument("--state", required=True)
     a = ap.parse_args()
@@ -194,6 +223,7 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     with lock(state):
         worker = Worker(Host(), m, state, str(Path(__file__).resolve()))
-        getattr(worker, a.action)()
+        if a.action == "stock-trial": worker.trial(stock_control=True)
+        else: getattr(worker, a.action)()
 
 if __name__ == "__main__": main()

@@ -15,7 +15,8 @@ class Fake(trial.Host):
                       "/sys/module/brcmfmac/srcversion": "stock",
                       "/sys/module/brcmfmac_wcc": "", "/sys/class/net/wlan0/operstate": "up"}
         self.calls = []; self.fail = None; self.freezeWrites = []
-        self.now = 0; self.freezeAt = 0; self.noAck = False
+        self.now = 0; self.freezeAt = 0; self.noAck = False; self.route = True
+    def network_ready(self, address): return self.route
     def clock(self): return self.now
     def sleep(self, seconds): self.now += seconds
     def read(self, p):
@@ -45,7 +46,7 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.h = Fake()
-        self.m = {"kernel": "exact", "interface": "wlan0", "manifestPath": "/manifest",
+        self.m = {"kernel": "exact", "interface": "wlan0", "bridgeProbeAddress": "192.168.23.158", "manifestPath": "/manifest",
                   "stockSrcversion": "stock", "stock": [{"installed": "/stock", "backup": "/backup", "sha256": "hash"}],
                   "candidate": {"path": "/candidate", "sha256": "hash", "srcversion": "candidate"}}
         self.path = Path(self.tmp.name) / "state.json"
@@ -62,6 +63,37 @@ class Tests(unittest.TestCase):
         self.assertEqual([a for a in self.h.calls if a[:2] == ["modprobe", "-r"]],
                          [["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"]] * 2)
         self.assertFalse(any("eufy-wall.service" in a and a[1] != "is-active" for a in self.h.calls))
+    def test_stock_control_same_guard_unload_and_network_path(self):
+        # Explicit control requires no candidate artifact; ordinary trial still does.
+        self.m.pop("candidate")
+        self.w.trial(stock_control=True)
+        self.assertEqual(self.w.load()["mode"], "stock-control")
+        self.assertEqual(self.w.loaded(), "stock")
+        self.assertTrue(any(a[0] == "systemd-run" for a in self.h.calls))
+        self.assertIn(["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"], self.h.calls)
+        self.assertIn(["modprobe", "brcmfmac"], self.h.calls)
+        self.assertIn(["ifdown", "--force", "wlan0"], self.h.calls)
+        self.assertIn(["ifup", "--force", "wlan0"], self.h.calls)
+        self.assertFalse(any(a[0] == "insmod" for a in self.h.calls))
+        self.assertEqual(self.h.files[trial.FREEZER], "1")
+        self.w.rollback()
+        self.assertEqual(self.h.files[trial.FREEZER], "0")
+        self.assertEqual(self.w.load()["phase"], "restored")
+    def test_ifup_success_without_ipv4_route_keeps_guard(self):
+        self.w.trial(); self.h.route = False
+        with self.assertRaises(RuntimeError): self.w.rollback()
+        self.assertEqual(self.w.load()["phase"], "restoring")
+        self.assertFalse(any(a == ["systemctl", "stop", trial.UNIT + ".timer"] for a in self.h.calls))
+        self.h.route = True; self.w.rollback()
+        self.assertEqual(self.w.load()["phase"], "restored")
+    def test_initial_missing_ipv4_route_never_arms(self):
+        self.h.route = False
+        with self.assertRaises(RuntimeError): self.w.trial()
+        self.assertEqual(self.h.calls, [])
+    def test_candidate_trial_does_not_bypass_candidate_validation(self):
+        self.m["candidate"]["sha256"] = "bad"
+        with self.assertRaises(RuntimeError): self.w.trial()
+        self.assertEqual(self.h.calls, [])
     def test_does_not_thaw_external_freeze(self):
         self.h.files[trial.FREEZER] = "1"
         self.w.trial(); self.w.rollback()

@@ -128,6 +128,7 @@ The root-only JSON manifest must contain:
 {
   "kernel": "6.18.50+rpt-rpi-v6",
   "interface": "wlan0",
+  "bridgeProbeAddress": "192.168.23.158",
   "stockSrcversion": "94DA3F3023073BA79C36394",
   "stock": [
     {"installed": "/exact/packaged/brcmfmac.ko.xz", "backup": "/exact/backup/brcmfmac.ko.xz", "sha256": "verified digest"},
@@ -150,8 +151,11 @@ Durable state is atomically replaced and fsynced before freeze ownership changes
 A flock serializes independent invocations. A preexisting frozen monitor is never
 thawed; a freeze acquired by this worker is thawed on rollback and recoverable
 errors. Failed recovery remains retryable, with the timer armed. Rollback checks
-loaded stock identity and interface `operstate=up` before completing. That state
-is **not** proof of DHCP reachability, restored RTSP playback, or physical output;
+loaded stock identity and interface `operstate=up`, a global IPv4 address and a successful route lookup to
+the manifest bridge IPv4 through wlan0 before completing. The last two checks
+retry for at most ten seconds without printing addresses or sending packets.
+Missing IPv4/route leaves restoration retryable and the guard armed. These checks
+are **not** proof of peer reachability, restored RTSP playback, or physical output;
 those must be verified separately by the deployment owner. A concurrent external
 monitor freeze/state-file edit during the trial is unsupported.
 
@@ -167,7 +171,7 @@ a kernel crash, or loss of local storage can defeat any userspace rollback; this
 worker does not promise recovery from them. The independent guard retries lock
 contention rather than depending on SSH remaining connected.
 
-Verification: thirteen local tests pass for independent-invocation recovery,
+Verification: seventeen local tests pass for independent-invocation recovery,
 idempotency, preserved external freeze, failed candidate load, retryable failed
 interface recovery, rejected stock digest, unfinished-trial protection flock
 exclusion, timeout termination of a spawned hook process group, interrupt group cleanup,
@@ -190,3 +194,31 @@ Guard service settings are explicitly `Type=exec`, `RuntimeMaxSec=90s` and
 its running duration. The freezer acknowledgment is checked even when the requested
 freeze value is already one, including resumption after an interrupted owned write.
 Only a zero-to-one request acquires new freeze ownership.
+
+## Explicit stock reload control
+
+The worker also offers `stock-trial` for a causal A/B control. It uses the exact
+same 90-second guard, persisted ownership, monitor acknowledgment, ifdown,
+WCC-before-core unload and ifup sequence, but loads the untouched packaged stock
+core using `modprobe brcmfmac`. Only this explicit action omits candidate digest
+and candidate identity validation; ordinary `trial` retains both checks. Both
+modes still validate kernel and installed/backup stock digests, and require a
+loaded stock starting identity and active WLAN interface.
+
+This matters because the currently observed driver may already have corrupted
+reorder bookkeeping. Any module reload resets its state. Compare short matched
+warning-event counts, CPU, frame-age and cadence windows after **both** fresh stock
+reload and fresh candidate reload; disappearance of warnings after candidate
+reload alone cannot attribute improvement to the patch. The control is not
+executed by preparing the tool. It also always completes through stock rollback,
+with no promotion or permanent client/power/network configuration change.
+
+Two additional local tests prove the explicit control works without a candidate
+artifact while preserving guard/unload/network/freeze restoration, and ordinary
+trial still rejects a bad candidate digest before any action. No device control
+was performed in this implementation step.
+
+The same bounded IPv4 address/route gate runs before arming and after candidate or
+stock-control ifup. Two tests cover successful ifup with missing IPv4 route
+(rollback stays incomplete and guard retained) and an initially missing route
+(no trial action). No active ping or configuration rewrite is used.
