@@ -15,6 +15,9 @@
 #include <time.h>
 #include <unistd.h>
 
+static unsigned truncation_kind(int flags) {
+ return ((flags & MSG_TRUNC) ? 1u : 0u) | ((flags & MSG_CTRUNC) ? 2u : 0u);
+}
 static uint64_t ns(clockid_t c) { struct timespec t; clock_gettime(c,&t); return (uint64_t)t.tv_sec*1000000000+t.tv_nsec; }
 static uint16_t be16(const uint8_t*p){return (p[0]<<8)|p[1];}
 static uint16_t le16(const uint8_t*p){return p[0]|(p[1]<<8);}
@@ -42,7 +45,7 @@ static uint32_t test_filter(const uint8_t*p,size_t n,unsigned protocol,uint32_t 
  }return 0;
 }
 
-/* Fixed 40-byte metadata only. No packet data/address is written. */
+/* Fixed 40-byte base metadata (56 with optional video header). No packet body is written. */
 static int parse(const uint8_t*p,size_t n,int outgoing,uint32_t peer,uint8_t*r){
  if(n<28||(p[0]>>4)!=4||p[9]!=17||(be16(p+6)&0x3fff))return 0;
  unsigned h=(p[0]&15)*4;if(h<20||h+12>n)return 0;
@@ -100,13 +103,18 @@ int main(int argc,char**argv){if(argc==2&&!strcmp(argv[1],"--selftest"))return s
  if(setsockopt(s,SOL_SOCKET,SO_ATTACH_FILTER,&program,sizeof(program))||setsockopt(s,SOL_SOCKET,SO_TIMESTAMPNS,&one,sizeof(one))){perror("options");return 5;}
  setsockopt(s,SOL_SOCKET,SO_RCVBUF,&buf,sizeof(buf));socklen_t bl=sizeof(buf);getsockopt(s,SOL_SOCKET,SO_RCVBUF,&buf,&bl);
  FILE*out=fopen(argv[4],"wb");if(!out){perror("out");return 6;}setvbuf(out,NULL,_IOFBF,65536);
- uint64_t start=ns(CLOCK_MONOTONIC),wall=ns(CLOCK_REALTIME),cpu=ns(CLOCK_PROCESS_CPUTIME_ID),end=start+(uint64_t)seconds*1000000000,records=0,received=0,missing=0,trunc=0;
+ uint64_t start=ns(CLOCK_MONOTONIC),wall=ns(CLOCK_REALTIME),cpu=ns(CLOCK_PROCESS_CPUTIME_ID),end=start+(uint64_t)seconds*1000000000,records=0,received=0,missing=0,trunc=0,data_trunc=0,control_trunc=0;
+ unsigned maximum_received_bytes=0,maximum_control_bytes=0;
  int io_error=0;
  uint8_t packets[32][128];char controls[32][CMSG_SPACE(sizeof(struct timespec))];struct sockaddr_ll addresses[32];struct iovec ios[32];struct mmsghdr messages[32];
  while(!io_error&&ns(CLOCK_MONOTONIC)<end){struct pollfd pf={.fd=s,.events=POLLIN};int rc=poll(&pf,1,100);if(rc<=0){if(rc<0&&errno!=EINTR){io_error=1;break;}continue;}
   for(unsigned j=0;j<32;j++){ios[j]=(struct iovec){packets[j],128};memset(&messages[j],0,sizeof(messages[j]));messages[j].msg_hdr=(struct msghdr){.msg_name=&addresses[j],.msg_namelen=sizeof(addresses[j]),.msg_iov=&ios[j],.msg_iovlen=1,.msg_control=controls[j],.msg_controllen=sizeof(controls[j])};}
   int count=recvmmsg(s,messages,32,MSG_DONTWAIT,NULL);if(count<0){if(errno!=EAGAIN&&errno!=EINTR)io_error=1;continue;}
-  for(int j=0;j<count;j++){uint8_t r[56];struct msghdr*m=&messages[j].msg_hdr;received++;if(m->msg_flags&(MSG_TRUNC|MSG_CTRUNC)){trunc++;continue;}uint64_t stamp=0;
+  for(int j=0;j<count;j++){uint8_t r[56];struct msghdr*m=&messages[j].msg_hdr;received++;
+   if(messages[j].msg_len>maximum_received_bytes)maximum_received_bytes=messages[j].msg_len;
+   if(m->msg_controllen>maximum_control_bytes)maximum_control_bytes=m->msg_controllen;
+   unsigned truncated=truncation_kind(m->msg_flags);
+   if(truncated){trunc++;if(truncated&1u)data_trunc++;if(truncated&2u)control_trunc++;continue;}uint64_t stamp=0;
    for(struct cmsghdr*c=CMSG_FIRSTHDR(m);c;c=CMSG_NXTHDR(m,c))if(c->cmsg_level==SOL_SOCKET&&c->cmsg_type==SCM_TIMESTAMPNS){struct timespec t;memcpy(&t,CMSG_DATA(c),sizeof(t));stamp=(uint64_t)t.tv_sec*1000000000+t.tv_nsec;}
    if(!stamp){missing++;continue;}if(addresses[j].sll_protocol!=htons(ETH_P_IP)||!parse(packets[j],messages[j].msg_len,addresses[j].sll_pkttype==PACKET_OUTGOING,peer,r))continue;
    if(extended)video_metadata(packets[j],messages[j].msg_len,r,r);
@@ -118,6 +126,6 @@ int main(int argc,char**argv){if(argc==2&&!strcmp(argv[1],"--selftest"))return s
   }
  }
  uint64_t stop=ns(CLOCK_MONOTONIC),cpuend=ns(CLOCK_PROCESS_CPUTIME_ID);struct tpacket_stats stats={0};socklen_t sl=sizeof(stats);if(getsockopt(s,SOL_PACKET,PACKET_STATISTICS,&stats,&sl))io_error=1;if(fclose(out))io_error=1;close(s);
- fprintf(stderr,"{\"startWallNs\":%llu,\"startMonoNs\":%llu,\"endMonoNs\":%llu,\"elapsedNs\":%llu,\"cpuNs\":%llu,\"oneCoreCpuPercent\":%.4f,\"records\":%llu,\"received\":%llu,\"packetSocketPackets\":%u,\"packetSocketDrops\":%u,\"missingTimestamp\":%llu,\"truncations\":%llu,\"receiveBufferBytes\":%d,\"recordBytes\":%u,\"formatVersion\":%u,\"triggerWallNs\":%llu}\n",(unsigned long long)wall,(unsigned long long)start,(unsigned long long)stop,(unsigned long long)(stop-start),(unsigned long long)(cpuend-cpu),100.0*(cpuend-cpu)/(stop-start),(unsigned long long)records,(unsigned long long)received,stats.tp_packets,stats.tp_drops,(unsigned long long)missing,(unsigned long long)trunc,buf,record_bytes,extended?2:1,(unsigned long long)trigger_wall);
+ fprintf(stderr,"{\"startWallNs\":%llu,\"startMonoNs\":%llu,\"endMonoNs\":%llu,\"elapsedNs\":%llu,\"cpuNs\":%llu,\"oneCoreCpuPercent\":%.4f,\"records\":%llu,\"received\":%llu,\"packetSocketPackets\":%u,\"packetSocketDrops\":%u,\"missingTimestamp\":%llu,\"truncations\":%llu,\"dataTruncations\":%llu,\"controlTruncations\":%llu,\"maximumReceivedBytes\":%u,\"maximumControlBytes\":%u,\"dataBufferBytes\":%u,\"controlBufferBytes\":%u,\"ioError\":%d,\"receiveBufferBytes\":%d,\"recordBytes\":%u,\"formatVersion\":%u,\"triggerWallNs\":%llu}\n",(unsigned long long)wall,(unsigned long long)start,(unsigned long long)stop,(unsigned long long)(stop-start),(unsigned long long)(cpuend-cpu),100.0*(cpuend-cpu)/(stop-start),(unsigned long long)records,(unsigned long long)received,stats.tp_packets,stats.tp_drops,(unsigned long long)missing,(unsigned long long)trunc,(unsigned long long)data_trunc,(unsigned long long)control_trunc,maximum_received_bytes,maximum_control_bytes,(unsigned)sizeof(packets[0]),(unsigned)sizeof(controls[0]),io_error,buf,record_bytes,extended?2:1,(unsigned long long)trigger_wall);
  return io_error||stats.tp_drops||missing||trunc?7:0;
 }
