@@ -53,3 +53,13 @@ Files are under `.evidence/frame-freshness-2026-10-13/ethernet-original-client/`
 - `info-300.summary.json`, derived from the exact report counters and sample fields.
 
 UTC labels are programmatically converted from the local collection status epoch values. An earlier chat timestamp for the short collection was wrong and corrected from these artifacts. Both bounded SSH collectors have exited; no extra observer was retained.
+
+## Simultaneous follow-up: no reproduced gap
+
+One bounded comparison used existing Pi INFO logs (04:43:00.004127–04:45:00.817921 UTC), both TVs' INFO logs (04:42:21.257208–04:44:21.257336), and bridge API counters at 1 Hz (04:42:30.072929–04:44:30.086529). No service, player, quality, queue or timing configuration changed. The common window is approximately 04:43:00–04:44:21; individual counter brackets are shorter.
+
+In the common Pi window, Front Door delivered 1,124 pictures over 75.795 seconds (14.830 fps) and Garage 1,120 over 75.605 seconds (14.814 fps). There were no new over-500-ms receipt increments, clock timeouts, missing stamps, unknown clocks, resets, errors or longest-gap increases. Sampled KMS-return maxima were 255.608 and 323.048 ms. The complete Pi follow-up averaged 14.771/14.791 fps, with no new late-picture increments or recorded errors. Its original processes and source epoch remained unchanged.
+
+The bridge's common endpoint samples (04:43:00.073228–04:44:20.073170, 81 rows) advanced input by 1,200 pictures per camera; output increased by 1,201/1,199. No one-second counter stasis or new stale/expired/unmapped output appeared. Maximum sampled receipt quiet ages were 275.292/183.299 ms. All 121 API requests succeeded; maximum request time was 91.781 ms and observer CPU was 0.609% of one core. TV Garage five-second received/decoded increments were 74–76 on both devices, with hardware decoding, empty input queues and no recorded errors or releases. Historical TV callback maxima were unchanged, which cannot exclude a shorter pause followed by a burst.
+
+**Decision:** this interval did not reproduce the remaining Pi gap. It supports current progress without accumulating backlog, but cannot attribute the earlier event, establish physical smoothness, or justify a new intervention. Collection ended at its fixed limits with no repeat. Private artifacts are in `frame-freshness-2026-10-13/ethernet-original-client/matched-info-120.*` (Pi), `frame-freshness-2026-10-12/tv-pi-source-matched120-20261013/`, and `frame-freshness-2026-10-12/wired-pi-api120-20261013T044230Z/`, beneath `.evidence/`. API metadata SHA-256 is `e812ce05a5f8cd6c19cdb718cb713cb210103b76984c694ef96148c5bd4e0fbd`.
