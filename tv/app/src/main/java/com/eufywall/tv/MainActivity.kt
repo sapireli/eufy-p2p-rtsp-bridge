@@ -82,6 +82,8 @@ class MainActivity : Activity() {
     private val surfaces = mutableMapOf<String, FrameLayout>()
     private var socket: WebSocket? = null
     private var wallVisible = false
+    private var editingWall = false
+    private var connectionSettings = false
     private var activityStarted = false
     private var resumeWallOnStart = false
     private var cameraLoadGeneration = 0L
@@ -160,46 +162,80 @@ class MainActivity : Activity() {
 
     private fun saveConfiguration(next: WallConfiguration): Boolean {
         val errors = next.validationErrors()
-        if (errors.isNotEmpty()) { Toast.makeText(this, errors.first(), Toast.LENGTH_LONG).show(); return false }
+        if (errors.isNotEmpty()) {
+            val message = if (errors.any { it.contains("grid", true) || it.contains("Tile ") }) "These views do not fit. Choose a larger layout or smaller view sizes." else errors.first()
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show(); return false
+        }
         wallConfig = next
         chosen.clear(); chosen.addAll(next.tiles.filterNot { it.spec.motion }.map { it.spec.camera })
         prefs.edit().putString("configuration", next.encode()).putString("chosen", chosen.joinToString(",")).apply()
         return true
     }
 
-    private fun showSetup(message: String = "Enter the bridge hostname or IP, or use discovery") {
-        cancelCameraLoad()
-        resumeWallOnStart = false
-        wallVisible = false
-        stopWall()
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 24, 40, 24); setBackgroundColor(0xff101c27.toInt()) }
-        root.addView(text("Eufy Wall", 34f))
-        root.addView(text("Live cameras · motion views · battery-friendly snapshots", 17f))
-        status = text(message, 18f).also { root.addView(it) }
+    private fun setupPage(title: String, message: String): LinearLayout {
+        cancelCameraLoad(); resumeWallOnStart = false; wallVisible = false; stopWall()
+        ipEntry = null
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(48, 28, 48, 28)
+            setBackgroundColor(0xff101c27.toInt())
+        }
+        root.addView(text(title, 34f))
+        status = text(message, 17f).also { root.addView(it) }
+        setContentView(android.widget.ScrollView(this).apply {
+            isFillViewport = true; setBackgroundColor(0xff101c27.toInt()); addView(root)
+        })
+        return root
+    }
+
+    private fun focusFirst(view: View) {
+        ui.post { if (!wallVisible && activityStarted && !destroyed && view.isAttachedToWindow) view.requestFocus() }
+    }
+
+    private fun showSetup(message: String = "") {
+        if (cameras.isEmpty()) { showConnectionSettings(if (message.isBlank()) "Find your bridge or enter its address." else message); return }
+        editingWall = false; connectionSettings = false
+        val root = setupPage("Eufy Wall", if (message.isBlank()) {
+            if (wallConfig.tiles.isEmpty()) "Choose the cameras you want to watch." else "${wallConfig.tiles.size} camera views ready"
+        } else message)
+        val watch = button(if (wallConfig.tiles.isEmpty()) "Choose cameras" else "Watch cameras") {
+            if (wallConfig.tiles.isEmpty()) chooseCameras() else showWall()
+        }.apply { textSize = 24f }
+        root.addView(watch, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 20, 0, 12) })
+        root.addView(button("Edit wall") { showWallEditor() }, LinearLayout.LayoutParams(-1, -2))
+        root.addView(text("Your cameras", 24f))
+        wallConfig.tiles.take(5).forEach { tile -> root.addView(text(viewName(tile), 20f)) }
+        if (wallConfig.tiles.size > 5) root.addView(text("And ${wallConfig.tiles.size - 5} more", 18f))
+        if (wallConfig.tiles.isEmpty()) root.addView(text("Add the cameras you want to watch. Battery cameras stay asleep until they wake or you choose Wake.", 18f))
+        root.addView(button("Connection settings") { showConnectionSettings("Connected to ${bridge.removePrefix("http://")}") },
+            LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 24, 0, 0) })
+        focusFirst(watch)
+    }
+
+    private fun showConnectionSettings(message: String = "") {
+        editingWall = false; connectionSettings = true
+        val root = setupPage("Bridge connection", message)
+        root.addView(text("Bridge address", 20f))
         ipEntry = EditText(this).apply {
-            setSingleLine(true); hint = "Bridge hostname or IP, e.g. homebridge.lan"; setText(bridge.removePrefix("http://").substringBefore(':'))
-            setTextColor(0xffffffff.toInt()); setHintTextColor(0xffaabbcc.toInt()); inputType = android.text.InputType.TYPE_CLASS_TEXT
+            setSingleLine(true); hint = "homebridge.lan"; setText(bridge.removePrefix("http://"))
+            setTextColor(0xffffffff.toInt()); setHintTextColor(0xffaabbcc.toInt())
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
         }.also { root.addView(it) }
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val connectButton = button("Connect") {
-            cancelCameraLoad()
+        val connect = button("Connect") {
             val value = ipEntry?.text.toString().trim()
             if (value.isNotEmpty()) try { loadCameras(normalize(value), false) }
-            catch (e: Exception) { status?.text = "Invalid bridge address: ${e.message}" }
+            catch (_: Exception) { status?.text = "Enter a valid bridge address." }
         }.apply { id = View.generateViewId() }
-        actions.addView(connectButton)
-        ipEntry?.nextFocusDownId = connectButton.id
-        ipEntry?.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
-                if (event.action == android.view.KeyEvent.ACTION_DOWN) connectButton.requestFocus()
+        actions.addView(connect); actions.addView(button("Find automatically") { startDiscovery() }); root.addView(actions)
+        ipEntry?.nextFocusDownId = connect.id
+        ipEntry?.setOnKeyListener { _, code, event ->
+            if (code == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (event.action == android.view.KeyEvent.ACTION_DOWN) connect.requestFocus()
                 true
             } else false
         }
-        actions.addView(button("Discover") { startDiscovery() })
-        root.addView(actions)
-        val scroller = android.widget.ScrollView(this).apply { addView(root) }
-        setContentView(scroller)
-        if (cameras.isNotEmpty()) showCameras(root)
+        if (cameras.isNotEmpty()) root.addView(button("Back to wall") { showSetup() })
+        focusFirst(connect)
     }
 
     private fun normalize(input: String): String {
@@ -243,7 +279,7 @@ class MainActivity : Activity() {
                     states.clear(); list.forEach { states[it.sn] = if (it.streaming) "live" else "idle" }
                     wallPolicy.applyHello(list.map { WallCameraState(it.sn, it.name, it.mode, states[it.sn] ?: "idle", it.hasStill) })
                     if (autoOpen && wallConfig.tiles.isNotEmpty() && list.isNotEmpty()) showWall()
-                    else showSetup("Connected to $url • ${list.size} camera(s)")
+                    else showSetup("Bridge connected · ${list.size} cameras available")
                 }
             } catch (e: Exception) {
                 ui.post {
@@ -272,107 +308,147 @@ class MainActivity : Activity() {
         ui.postDelayed(savedWallRetry, 5_000)
     }
 
-    private fun showCameras(root: LinearLayout) {
+    private fun viewName(tile: ConfiguredWallTile): String = if (tile.spec.motion) "Motion view" else
+        cameras.firstOrNull { it.sn == tile.spec.camera }?.name ?: "Unavailable camera"
+
+    private fun showWallEditor(message: String = "Choose a camera below to change it.") {
+        editingWall = true; connectionSettings = false
+        val root = setupPage("Edit wall", message)
+        val done = button("Done") { showSetup() }
+        root.addView(done)
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val startButton = button("▶ Start wall") {
-            if (wallConfig.tiles.isEmpty()) status?.text = "Add a camera or a motion tile first" else showWall()
-        }
-        actions.addView(startButton)
-        ui.post { if (!wallVisible && activityStarted && !destroyed) startButton.requestFocus() }
-        actions.addView(button(if (wallConfig.layout == WallLayoutMode.AUTO) "Layout: Automatic" else "Layout: ${wallConfig.columns} × ${wallConfig.rows}") { editLayout() })
-        actions.addView(button("+ Motion tile") {
-            val tile = ConfiguredWallTile(WallTileSpec(UUID.randomUUID().toString(), motion = true))
-            if (saveConfiguration(wallConfig.copy(tiles = wallConfig.tiles + tile))) showSetup("Motion tile added · choose its watched cameras")
-        })
-        root.addView(actions)
-        root.addView(text("Your wall · ${wallConfig.tiles.size} tile(s)", 24f))
-        root.addView(text("Select a tile to change its source, size or motion behavior. On the live wall, OK opens camera actions; Back opens setup.", 16f))
+        actions.addView(button("Choose cameras") { chooseCameras() })
+        actions.addView(button("Add motion view") { chooseWatched(null) })
+        actions.addView(button("Layout") { editLayout() }); root.addView(actions)
+        root.addView(text(if (wallConfig.layout == WallLayoutMode.AUTO) "Automatic layout" else "${wallConfig.columns} columns · ${wallConfig.rows} rows", 18f))
         wallConfig.tiles.forEachIndexed { index, tile ->
-            val spec = tile.spec
-            val name = if (spec.motion) "Latest motion" else cameras.firstOrNull { it.sn == spec.camera }?.name ?: spec.camera
-            val detail = if (spec.motion) "${if (spec.watch.isEmpty()) "All cameras" else "${spec.watch.size} watched"} · dwell ${spec.dwellMs / 1000}s · ${if (spec.blankAfterMs == 0L) "keep visible" else "blank after ${spec.blankAfterMs / 1000}s"}" else "${if (cameras.firstOrNull { it.sn == spec.camera }?.mode == "always") "Always on" else "Passive battery viewing"} · ${tile.columnSpan} × ${tile.rowSpan} cells"
-            val card = button("${index + 1}.  $name\n$detail") { editTile(tile) }
-            card.gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            root.addView(card, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 6, 0, 6) })
+            val description = if (tile.spec.motion) {
+                if (tile.spec.watch.isEmpty()) "Shows the camera with the most recent motion" else
+                    "Follows motion from " + cameras.filter { it.sn in tile.spec.watch }.joinToString { it.name }
+            } else if (cameras.firstOrNull { it.sn == tile.spec.camera }?.mode == "always") "Live camera" else "Shows a snapshot while asleep"
+            root.addView(button("${index + 1}.  ${viewName(tile)}\n$description") { editTile(tile) }.apply {
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            }, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 8, 0, 0) })
         }
-        root.addView(text("Add cameras", 24f))
-        cameras.forEach { cam ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            row.addView(button("+ ${cam.name}  ·  ${if (cam.mode == "always") "Always on" else "Battery / on demand"}") {
-                val tile = ConfiguredWallTile(WallTileSpec(UUID.randomUUID().toString(), camera = cam.sn))
-                if (saveConfiguration(wallConfig.copy(tiles = wallConfig.tiles + tile))) showSetup("${cam.name} added")
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-            if (cam.dual) row.addView(button(viewLabel(cam)) { setDualView(cam.sn, null) })
-            root.addView(row, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 5, 0, 5) })
-        }
-        root.addView(text("Fixed battery cameras stay asleep until motion or an explicit timed wake. More live tiles require enough decoder capacity; hardware remains first, software is the fallback.", 16f))
+        if (wallConfig.tiles.isEmpty()) root.addView(text("Choose cameras to create your wall.", 20f))
+        focusFirst(done)
     }
 
-    private fun editLayout() {
-        var layout = wallConfig.layout; var columns = wallConfig.columns; var rows = wallConfig.rows
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(28, 16, 28, 16) }
-        val modeButton = button("Mode: $layout") {}
-        modeButton.setOnClickListener { layout = if (layout == WallLayoutMode.AUTO) WallLayoutMode.GRID else WallLayoutMode.AUTO; modeButton.text = "Mode: $layout" }
-        body.addView(modeButton)
-        val colButton = button("Columns: $columns") {}; colButton.setOnClickListener { columns = columns % 6 + 1; colButton.text = "Columns: $columns" }; body.addView(colButton)
-        val rowButton = button("Rows: $rows") {}; rowButton.setOnClickListener { rows = rows % 6 + 1; rowButton.text = "Rows: $rows" }; body.addView(rowButton)
-        body.addView(text("Automatic preserves portrait layouts and fits up to 36 tiles. Custom grids use the tile sizes and order you choose.", 16f))
-        val dialog = AlertDialog.Builder(this).setTitle("Wall layout").setView(body).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create()
-        dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            if (saveConfiguration(wallConfig.copy(layout = layout, columns = columns, rows = rows))) { dialog.dismiss(); showSetup("Layout saved") }
-        } }; dialog.show()
+    private fun chooseCameras() {
+        val selected = wallConfig.tiles.filterNot { it.spec.motion }.map { it.spec.camera }.toMutableSet()
+        AlertDialog.Builder(this).setTitle("Choose cameras")
+            .setMultiChoiceItems(cameras.map { it.name }.toTypedArray(), cameras.map { it.sn in selected }.toBooleanArray()) { _, i, checked ->
+                if (checked) selected.add(cameras[i].sn) else selected.remove(cameras[i].sn)
+            }.setNegativeButton("Cancel", null).setPositiveButton("Apply") { _, _ ->
+                try {
+                    val next = WallEditing.withCameras(wallConfig, selected.toList()) { UUID.randomUUID().toString() }
+                    if (saveConfiguration(next)) showWallEditor("Cameras saved")
+                } catch (e: IllegalArgumentException) { Toast.makeText(this, e.message, Toast.LENGTH_LONG).show() }
+            }.show()
+    }
+
+    private fun chooseWatched(tile: ConfiguredWallTile?) {
+        val selected = if (tile == null || tile.spec.watch.isEmpty()) cameras.map { it.sn }.toMutableSet() else tile.spec.watch.toMutableSet()
+        AlertDialog.Builder(this).setTitle(if (tile == null) "Follow motion from these cameras" else "Watched cameras")
+            .setMultiChoiceItems(cameras.map { it.name }.toTypedArray(), cameras.map { it.sn in selected }.toBooleanArray()) { _, i, checked ->
+                if (checked) selected.add(cameras[i].sn) else selected.remove(cameras[i].sn)
+            }.setNegativeButton("Cancel", null).setPositiveButton(if (tile == null) "Add view" else "Apply", null).create().apply {
+                setOnShowListener { getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    if (selected.isEmpty()) { Toast.makeText(this@MainActivity, "Choose at least one camera.", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+                    val watch = if (selected.containsAll(cameras.map { it.sn })) emptyList() else selected.toList()
+                    val updated = if (tile == null) ConfiguredWallTile(WallTileSpec(UUID.randomUUID().toString(), motion = true, watch = watch))
+                        else tile.copy(spec = tile.spec.copy(watch = watch))
+                    val list = if (tile == null) wallConfig.tiles + updated else wallConfig.tiles.map { if (it.spec.id == tile.spec.id) updated else it }
+                    if (saveConfiguration(wallConfig.copy(tiles = list))) { dismiss(); showWallEditor("Motion view saved") }
+                } }; show()
+            }
+    }
+
+    private fun applyTile(tile: ConfiguredWallTile, updated: ConfiguredWallTile, message: String = "View saved") {
+        if (saveConfiguration(wallConfig.copy(tiles = wallConfig.tiles.map { if (it.spec.id == tile.spec.id) updated else it }))) showWallEditor(message)
     }
 
     private fun editTile(tile: ConfiguredWallTile) {
-        var spec = tile.spec; var colSpan = tile.columnSpan; var rowSpan = tile.rowSpan
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 12, 24, 12) }
-        fun sourceName() = if (spec.motion) "Latest motion" else cameras.firstOrNull { it.sn == spec.camera }?.name ?: spec.camera
-        val source = button("Source: ${sourceName()}") {}
-        source.setOnClickListener {
-            AlertDialog.Builder(this).setTitle("Tile source").setItems((listOf("Latest motion") + cameras.map { it.name }).toTypedArray()) { _, which ->
-                spec = if (which == 0) spec.copy(camera = "", motion = true) else spec.copy(camera = cameras[which - 1].sn, motion = false)
-                source.text = "Source: ${sourceName()}"
-            }.show()
-        }; body.addView(source)
-        val watched = button(if (spec.watch.isEmpty()) "Watch: All cameras" else "Watch: ${spec.watch.size} cameras") {}
-        watched.setOnClickListener {
-            val selection = spec.watch.toMutableSet()
-            AlertDialog.Builder(this).setTitle("Watched cameras · none means all")
-                .setMultiChoiceItems(cameras.map { it.name }.toTypedArray(), cameras.map { it.sn in selection }.toBooleanArray()) { _, index, checked ->
-                    if (checked) selection.add(cameras[index].sn) else selection.remove(cameras[index].sn)
-                }.setPositiveButton("Done") { _, _ -> spec = spec.copy(watch = selection.toList()); watched.text = if (selection.isEmpty()) "Watch: All cameras" else "Watch: ${selection.size} cameras" }.show()
-        }; body.addView(watched)
-        fun timingButton(name: String, values: List<Long>, initial: Long, update: (Long) -> Unit) {
-            var value = initial
-            val b = button("$name: ${if (value == 0L) "Off" else "${value / 1000}s"}") {}
-            b.setOnClickListener { value = values[(values.indexOf(value) + 1).mod(values.size)]; update(value); b.text = "$name: ${if (value == 0L) "Off" else "${value / 1000}s"}" }; body.addView(b)
+        val options = mutableListOf<Pair<String, () -> Unit>>()
+        if (tile.spec.motion) {
+            options += "Watched cameras" to { chooseWatched(tile) }
+            options += "Minimum display time: ${if (tile.spec.dwellMs == 0L) "Switch immediately" else "${tile.spec.dwellMs / 1000} seconds"}" to {
+                chooseDuration("Stay on a camera for", listOf(0, 5000, 10000, 15000, 30000), "Switch immediately", tile.spec.dwellMs) { applyTile(tile, tile.copy(spec = tile.spec.copy(dwellMs = it))) }
+            }
+            options += "Hide after quiet: ${if (tile.spec.blankAfterMs == 0L) "Never" else "${tile.spec.blankAfterMs / 1000} seconds"}" to {
+                chooseDuration("Hide when there is no new motion", listOf(0, 15000, 30000, 60000, 120000), "Keep the last camera visible", tile.spec.blankAfterMs) { applyTile(tile, tile.copy(spec = tile.spec.copy(blankAfterMs = it))) }
+            }
+        } else {
+            options += "Change camera" to {
+                AlertDialog.Builder(this).setTitle("Show this camera").setItems(cameras.map { it.name }.toTypedArray()) { _, i -> applyTile(tile, tile.copy(spec = tile.spec.copy(camera = cameras[i].sn))) }.show()
+            }
+            val cam = cameras.firstOrNull { it.sn == tile.spec.camera }
+            if (cam?.dual == true) options += "Camera image: ${if (cam.dualView?.startsWith("pip-") == true) "Picture in picture" else "Stacked views"}" to {
+                AlertDialog.Builder(this).setTitle("Camera image").setItems(arrayOf("Stacked views", "Picture in picture")) { _, i ->
+                    if ((i == 1) != (cam.dualView?.startsWith("pip-") == true)) setDualView(cam.sn, null)
+                }.show()
+            }
         }
-        timingButton("Minimum dwell", listOf(0, 5000, 10000, 15000, 30000), spec.dwellMs) { spec = spec.copy(dwellMs = it) }
-        timingButton("Blank after no motion", listOf(0, 15000, 30000, 60000, 120000), spec.blankAfterMs) { spec = spec.copy(blankAfterMs = it) }
-        val size = button("Size: $colSpan × $rowSpan cells") {}
-        size.setOnClickListener { colSpan = colSpan % wallConfig.columns + 1; size.text = "Size: $colSpan × $rowSpan cells" }; body.addView(size)
-        val height = button("Height: $rowSpan cells") {}
-        height.setOnClickListener { rowSpan = rowSpan % wallConfig.rows + 1; height.text = "Height: $rowSpan cells"; size.text = "Size: $colSpan × $rowSpan cells" }; body.addView(height)
-        if (wallConfig.layout == WallLayoutMode.AUTO) {
-            size.isEnabled = false; height.isEnabled = false
-            body.addView(text("Choose a custom grid in Layout to resize tiles.", 16f))
+        val index = wallConfig.tiles.indexOfFirst { it.spec.id == tile.spec.id }
+        fun move(delta: Int) {
+            val tiles = wallConfig.tiles.toMutableList(); val current = tiles.indexOfFirst { it.spec.id == tile.spec.id }
+            if (current < 0 || current + delta !in tiles.indices) return
+            val moved = tiles.removeAt(current); tiles.add(current + delta, moved)
+            if (saveConfiguration(wallConfig.copy(tiles = tiles))) showWallEditor("Order saved")
         }
-        val move = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fun moveTile(delta: Int): Boolean {
-            val list = wallConfig.tiles.toMutableList(); val index = list.indexOfFirst { it.spec.id == tile.spec.id }; val to = index + delta
-            if (index < 0 || to !in list.indices) return false
-            list[index] = tile.copy(spec = spec, columnSpan = colSpan, rowSpan = rowSpan)
-            val moving = list.removeAt(index); list.add(to, moving)
-            return saveConfiguration(wallConfig.copy(tiles = list))
+        if (index > 0) options += "Move earlier" to { move(-1) }
+        if (index in 0 until wallConfig.tiles.lastIndex) options += "Move later" to { move(1) }
+        if (wallConfig.layout == WallLayoutMode.GRID) options += "Size (advanced)" to { editSize(tile) }
+        options += "Remove from wall" to {
+            if (saveConfiguration(wallConfig.copy(tiles = wallConfig.tiles.filterNot { it.spec.id == tile.spec.id }))) showWallEditor("View removed")
         }
-        val dialog = AlertDialog.Builder(this).setTitle("Edit tile").setView(android.widget.ScrollView(this).apply { addView(body) }).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create()
-        move.addView(button("Move earlier") { if (moveTile(-1)) { dialog.dismiss(); showSetup("Tile order saved") } }.apply { isEnabled = wallConfig.tiles.firstOrNull()?.spec?.id != tile.spec.id })
-        move.addView(button("Move later") { if (moveTile(1)) { dialog.dismiss(); showSetup("Tile order saved") } }.apply { isEnabled = wallConfig.tiles.lastOrNull()?.spec?.id != tile.spec.id }); body.addView(move)
-        body.addView(button("Remove tile") { dialog.dismiss(); if (saveConfiguration(wallConfig.copy(tiles = wallConfig.tiles.filterNot { it.spec.id == tile.spec.id }))) showSetup("Tile removed") })
-        dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val updated = tile.copy(spec = spec, columnSpan = colSpan, rowSpan = rowSpan)
-            if (saveConfiguration(wallConfig.copy(tiles = wallConfig.tiles.map { if (it.spec.id == tile.spec.id) updated else it }))) { dialog.dismiss(); showSetup("Tile saved") }
-        } }; dialog.show()
+        AlertDialog.Builder(this).setTitle(viewName(tile)).setItems(options.map { it.first }.toTypedArray()) { _, i -> options[i].second() }.setNegativeButton("Back", null).show()
+    }
+
+    private fun chooseDuration(title: String, values: List<Long>, zero: String, current: Long, selected: (Long) -> Unit) {
+        val labels = values.map { if (it == 0L) zero else "${it / 1000} seconds" }
+        AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(labels.toTypedArray(), values.indexOf(current)) { dialog, i -> dialog.dismiss(); selected(values[i]) }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun editLayout() {
+        AlertDialog.Builder(this).setTitle("Choose a layout")
+            .setItems(arrayOf("Automatic · fits your cameras", "2 columns", "3 columns", "4 columns", "6 columns", "Custom grid (advanced)")) { _, i ->
+                if (i == 5) { editCustomGrid(); return@setItems }
+                try {
+                    val next = if (i == 0) wallConfig.copy(layout = WallLayoutMode.AUTO) else WallEditing.presetColumns(wallConfig, listOf(2, 3, 4, 6)[i - 1])
+                    if (saveConfiguration(next)) showWallEditor("Layout saved")
+                } catch (_: IllegalArgumentException) { Toast.makeText(this, "Choose more columns to fit these cameras.", Toast.LENGTH_LONG).show() }
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun numberChoice(title: String, max: Int, current: Int, selected: (Int) -> Unit) {
+        AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems((1..max).map { it.toString() }.toTypedArray(), current - 1) { dialog, i -> dialog.dismiss(); selected(i + 1) }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun editCustomGrid() {
+        var columns = wallConfig.columns; var rows = wallConfig.rows
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(28, 16, 28, 16) }
+        val col = button("Columns: $columns") {}; col.setOnClickListener { numberChoice("Columns", 6, columns) { columns = it; col.text = "Columns: $columns" } }; body.addView(col)
+        val row = button("Rows: $rows") {}; row.setOnClickListener { numberChoice("Rows", 6, rows) { rows = it; row.text = "Rows: $rows" } }; body.addView(row)
+        AlertDialog.Builder(this).setTitle("Custom grid").setView(body).setNegativeButton("Cancel", null).setPositiveButton("Apply", null).create().apply {
+            setOnShowListener { getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (saveConfiguration(wallConfig.copy(layout = WallLayoutMode.GRID, columns = columns, rows = rows))) { dismiss(); showWallEditor("Layout saved") }
+            } }; show()
+        }
+    }
+
+    private fun editSize(tile: ConfiguredWallTile) {
+        var width = tile.columnSpan; var height = tile.rowSpan
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(28, 16, 28, 16) }
+        val w = button("Width: $width columns") {}; w.setOnClickListener { numberChoice("Width in columns", wallConfig.columns, width) { width = it; w.text = "Width: $width columns" } }; body.addView(w)
+        val h = button("Height: $height rows") {}; h.setOnClickListener { numberChoice("Height in rows", wallConfig.rows, height) { height = it; h.text = "Height: $height rows" } }; body.addView(h)
+        AlertDialog.Builder(this).setTitle("View size").setView(body).setNegativeButton("Cancel", null).setPositiveButton("Apply", null).create().apply {
+            setOnShowListener { getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val updated = tile.copy(columnSpan = width, rowSpan = height)
+                val next = wallConfig.copy(tiles = wallConfig.tiles.map { if (it.spec.id == tile.spec.id) updated else it })
+                if (saveConfiguration(next)) { dismiss(); showWallEditor("Size saved") }
+            } }; show()
+        }
     }
 
     private fun viewLabel(cam: Camera) = "${cam.name} view: ${if (cam.dualView?.startsWith("pip-") == true) "PiP" else "Split"} (switch)"
@@ -391,7 +467,7 @@ class MainActivity : Activity() {
                 ui.post {
                     cameras = cameras.map { if (it.sn == sn) it.copy(dualView = next, width = 0, height = 0) else it }
                     control?.text = viewLabel(cameras.first { it.sn == sn })
-                    status?.text = "${cam.name}: ${if (next == "split") "Split" else "PiP"} selected. Start live wall to see it."
+                    if (editingWall) showWallEditor("Camera image saved") else status?.text = "Camera image saved"
                     control?.isEnabled = true
                 }
             } catch (e: Exception) { ui.post { status?.text = "Could not switch ${cam.name}: ${e.message}"; control?.isEnabled = true } }
@@ -427,7 +503,7 @@ class MainActivity : Activity() {
         val cam = cameras.firstOrNull { it.sn == sn }
         val options = if (cam != null && cam.mode != "always") arrayOf("Wake for 2 minutes", "Edit wall") else arrayOf("Edit wall")
         AlertDialog.Builder(this).setTitle(cam?.name ?: "Motion tile").setItems(options) { _, which ->
-            if (options[which] == "Edit wall") showSetup()
+            if (options[which] == "Edit wall") showWallEditor()
             else if (cam != null) { wallPolicy.requestWake(cam.sn, SystemClock.elapsedRealtime(), 120_000); refreshWall() }
         }.show()
     }
@@ -681,7 +757,7 @@ class MainActivity : Activity() {
     private fun startDiscovery() {
         cancelCameraLoad()
         stopDiscovery()
-        status?.text = "Searching for _eufy-wall._tcp…"
+        status?.text = "Finding your bridge…"
         val wifi = applicationContext.getSystemService(WIFI_SERVICE) as? WifiManager
         multicast = wifi?.createMulticastLock("eufy-wall-discovery")?.apply { setReferenceCounted(false); acquire() }
         nsd = getSystemService(NSD_SERVICE) as NsdManager
@@ -735,7 +811,7 @@ class MainActivity : Activity() {
     }
 
     @Deprecated("Deprecated in Java")
-    override fun onBackPressed() { cancelCameraLoad(); if (wallVisible) showSetup("Choose cameras or change bridge") else super.onBackPressed() }
+    override fun onBackPressed() { cancelCameraLoad(); if (wallVisible) showSetup() else if (editingWall || (connectionSettings && cameras.isNotEmpty())) showSetup() else super.onBackPressed() }
     override fun onStart() {
         super.onStart()
         activityStarted = true
