@@ -2,6 +2,7 @@
 #include "freshness.h"
 #include "pacing.h"
 #include <gst/base/gstbasetransform.h>
+#include <gst/base/gstbasesink.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -12,6 +13,8 @@ GST_DEBUG_CATEGORY_STATIC(eufy_pacing_debug);
 typedef struct {
   GstBaseTransform parent;
   PacingClock clock;
+  gint reset_clock;
+  gboolean arrival_clock;
   guint64 rendered, dropped;
   gboolean observe_only;
   gchar *diagnostic_file;
@@ -20,7 +23,7 @@ typedef struct {
   guint64 submit_matched;
   FreshAgeSample last_decoded_age,last_kms_age;
   guint64 age_max, submit_age_max, uncertainty_max, sink_push_max, longest_gap;
-  guint64 last_observed, stats_at, previous_frame, memory_timing_at;
+  guint64 last_observed, stats_at, previous_frame, sink_timing_at, memory_timing_at;
   guint64 age_buckets[101], submit_buckets[101];
   guint8 observed_epoch[8];
   gboolean have_observed_epoch;
@@ -52,6 +55,34 @@ static void remember(guint channel, guint64 pts, const FreshStamp *stamp) {
   g_mutex_lock(&registry_lock);
   registry[registry_next++ % 256] = (StampEntry){channel, pts, *stamp};
   g_mutex_unlock(&registry_lock);
+}
+/* Complete decoded picture arrivals: bounded metadata, no GstBuffer mutation. */
+typedef struct {guint channel;guint64 pts,running,target;} ArrivalEntry;
+static ArrivalEntry arrivals[256];
+static guint arrival_next;
+static GMutex arrival_lock;
+static void arrival_store(guint channel,guint64 pts,guint64 running,guint64 target) {
+  if(!GST_CLOCK_TIME_IS_VALID(pts))return;
+  g_mutex_lock(&arrival_lock);arrivals[arrival_next++%256]=(ArrivalEntry){channel,pts,running,target};g_mutex_unlock(&arrival_lock);
+}
+static gboolean arrival_take(guint channel,guint64 pts,guint64 *running,guint64 *target) {
+  gboolean found=FALSE;g_mutex_lock(&arrival_lock);
+  for(guint n=0;n<256;n++) {
+    ArrivalEntry *entry=&arrivals[(arrival_next+255-n)%256];
+    if(entry->channel==channel && entry->pts==pts){*running=entry->running;*target=entry->target;entry->channel=0;found=TRUE;break;}
+  }
+  g_mutex_unlock(&arrival_lock);return found;
+}
+static gboolean arrival_due(guint channel,guint64 pts,guint64 *target) {
+  gboolean found=FALSE;g_mutex_lock(&arrival_lock);
+  for(guint n=0;n<256;n++) {
+    ArrivalEntry *entry=&arrivals[(arrival_next+255-n)%256];
+    if(entry->channel==channel && entry->pts==pts){*target=entry->target;found=TRUE;break;}
+  }
+  g_mutex_unlock(&arrival_lock);return found;
+}
+static void arrival_clear(guint channel) {
+  g_mutex_lock(&arrival_lock);for(guint n=0;n<256;n++)if(arrivals[n].channel==channel)arrivals[n].channel=0;g_mutex_unlock(&arrival_lock);
 }
 static gboolean lookup_entry(guint channel, guint64 pts, FreshStamp *stamp, gboolean consume) {
   gboolean found = FALSE;
@@ -255,8 +286,35 @@ typedef struct {
   GstBaseTransformClass parent;
 } GstEufyPacingClass;
 G_DEFINE_TYPE(GstEufyPacing, gst_eufy_pacing, GST_TYPE_BASE_TRANSFORM)
+static void diagnostic_sink_timing(GstBaseTransform *base,guint64 now) {
+  GstEufyPacing *self=(GstEufyPacing *)base;
+  if(!self->timing.file || (self->sink_timing_at && now-self->sink_timing_at<5000000000))return;
+  self->sink_timing_at=now;
+  GstPad *peer=gst_pad_get_peer(GST_BASE_TRANSFORM_SRC_PAD(base));
+  for(guint n=0;peer && n<8;n++) {
+    GstElement *element=gst_pad_get_parent_element(peer);gst_object_unref(peer);peer=NULL;
+    if(!element)break;
+    if(GST_IS_BASE_SINK(element)) {
+      guint64 processing=0,render=0;g_object_get(element,"processing-deadline",&processing,"render-delay",&render,NULL);
+      /* No upstream query here: the decoder can hold STREAM_LOCK while its
+       * CAPS delivery waits for this async output. This callback must not enter
+       * that opposing lock path merely to collect diagnostics. */
+      g_printerr("eufy-sink-timing channel=%u sinkLatencyNs=%"G_GUINT64_FORMAT" processingDeadlineNs=%"G_GUINT64_FORMAT
+          " renderDelayNs=%"G_GUINT64_FORMAT" upstreamQueried=false\n",
+          self->channel,gst_base_sink_get_latency(GST_BASE_SINK(element)),processing,render);
+      gst_object_unref(element);break;
+    }
+    GstPad *src=gst_element_get_static_pad(element,"src");
+    if(src){peer=gst_pad_get_peer(src);gst_object_unref(src);}gst_object_unref(element);
+  }
+  if(peer)gst_object_unref(peer);
+}
 static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
   GstEufyPacing *self = (GstEufyPacing *)base;
+  GstState state;gst_element_get_state(GST_ELEMENT(base),&state,NULL,0);
+  /* Non-live preroll must reach BaseSink before PLAYING assigns a clock/base.
+   * Do not learn that temporary domain or manufacture a future preroll hold. */
+  if(state!=GST_STATE_PLAYING && (!self->clock_file || self->observe_only))return GST_FLOW_OK;
   GstClock *clock = gst_element_get_clock(GST_ELEMENT(base));
   if (!clock)
     return GST_BASE_TRANSFORM_FLOW_DROPPED;
@@ -266,6 +324,7 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
   GstClockTime raw_pts = GST_BUFFER_PTS(buffer);
   GstClockTime pts = gst_segment_to_running_time(
       &base->segment, GST_FORMAT_TIME, GST_BUFFER_PTS(buffer));
+  diagnostic_sink_timing(base,(guint64)g_get_monotonic_time()*1000);
   FreshStamp diagnostic_stamp;
   gboolean diagnostic_found=self->timing.file && peek(self->channel,raw_pts,&diagnostic_stamp);
   FreshStamp stamp;
@@ -278,12 +337,19 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
     return GST_BASE_TRANSFORM_FLOW_DROPPED;
   }
   int64_t target;
-  if (!pacing_target(&self->clock, pts, now,
-                     GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DISCONT),
+  guint64 arrival=now,carried_target=now;
+  gboolean carried=self->arrival_clock && arrival_take(self->channel,raw_pts,&arrival,&carried_target);
+  if(self->arrival_clock && !carried)
+    GST_WARNING_OBJECT(base,"Missing prequeue clock sample; using admission-time fallback");
+  if (!pacing_target_sampled(&self->clock, pts, arrival, now,
+                     g_atomic_int_compare_and_exchange(&self->reset_clock,1,0),
                      &target)) {
     self->dropped++;
     return GST_BASE_TRANSFORM_FLOW_DROPPED;
   }
+  if(carried)target=MAX(carried_target,now);
+  timing_pacing(&self->timing,self->clock_file,self->channel,raw_pts,mono,&diagnostic_stamp,
+      diagnostic_found,arrival,now,MAX(target,0),GST_BUFFER_FLAG_IS_SET(buffer,GST_BUFFER_FLAG_DISCONT));
   if (self->clock_file && !self->observe_only) {
     guint64 wait = target > (int64_t)now ? (guint64)target - now : 0;
     /* Keep scanout margin; never spend the freshness budget merely pacing. */
@@ -416,10 +482,20 @@ static gboolean src_event(GstBaseTransform *base, GstEvent *event) {
   return GST_BASE_TRANSFORM_CLASS(gst_eufy_pacing_parent_class)
       ->src_event(base, event);
 }
+/* A downstream-leaky queue marks its next raw buffer DISCONT. That is local
+ * loss, not a new source timeline: reanchoring here would impose a new one-frame
+ * wait after every drop. Only stream lifecycle events may restart PTS ordering. */
+static gboolean sink_event(GstBaseTransform *base,GstEvent *event) {
+  GstEufyPacing *self=(GstEufyPacing *)base;
+  if(GST_EVENT_TYPE(event)==GST_EVENT_SEGMENT || GST_EVENT_TYPE(event)==GST_EVENT_FLUSH_STOP)
+    g_atomic_int_set(&self->reset_clock,1);
+  return GST_BASE_TRANSFORM_CLASS(gst_eufy_pacing_parent_class)->sink_event(base,event);
+}
 static gboolean start(GstBaseTransform *base) {
   GstEufyPacing *self = (GstEufyPacing *)base;
   if (!timing_open(&self->timing,self->diagnostic_file)) return FALSE;
   memset(&self->clock, 0, sizeof(self->clock));
+  g_atomic_int_set(&self->reset_clock,0);
   self->rendered = self->dropped = 0;
   self->observed = self->matched = self->missing = self->unknown_clock = 0;
   self->late_observed = self->reordered = self->submit_matched = 0;
@@ -427,7 +503,7 @@ static gboolean start(GstBaseTransform *base) {
   memset(&self->last_decoded_age,0,sizeof(self->last_decoded_age));
   memset(&self->last_kms_age,0,sizeof(self->last_kms_age));
   self->sink_push_max = self->longest_gap = self->last_observed = 0;
-  self->stats_at = self->previous_frame = self->clock_read_at = 0;
+  self->stats_at = self->previous_frame = self->clock_read_at = self->sink_timing_at = self->memory_timing_at = 0;
   self->have_observed_epoch = self->observed_clock_valid = FALSE;
   memset(self->age_buckets, 0, sizeof(self->age_buckets));
   memset(self->submit_buckets, 0, sizeof(self->submit_buckets));
@@ -469,12 +545,15 @@ enum {
   PROP_PLANE,
   PROP_MAX_AGE,
   PROP_OBSERVE_ONLY,
-  PROP_DIAGNOSTIC_FILE
+  PROP_DIAGNOSTIC_FILE,
+  PROP_ARRIVAL_CLOCK
 };
 static void set_prop(GObject *object, guint prop, const GValue *value,
                      GParamSpec *spec) {
   GstEufyPacing *s = (GstEufyPacing *)object;
   switch (prop) {
+  case PROP_ARRIVAL_CLOCK:
+    s->arrival_clock=g_value_get_boolean(value);break;
   case PROP_CHANNEL:
     s->channel = g_value_get_uint(value);
     break;
@@ -541,6 +620,8 @@ static void gst_eufy_pacing_class_init(GstEufyPacingClass *klass) {
           "Report ingress age without deadlines, plane clearing or extra pacing",FALSE,G_PARAM_WRITABLE));
   g_object_class_install_property(object,PROP_DIAGNOSTIC_FILE,
       g_param_spec_string("diagnostic-file","diagnostic-file","Optional bounded private metadata file",NULL,G_PARAM_WRITABLE));
+  g_object_class_install_property(object,PROP_ARRIVAL_CLOCK,
+      g_param_spec_boolean("arrival-clock","arrival-clock","Use decoded arrival before raw queue",FALSE,G_PARAM_WRITABLE));
   GstElementClass *element = GST_ELEMENT_CLASS(klass);
   GstBaseTransformClass *transform = GST_BASE_TRANSFORM_CLASS(klass);
   GstCaps *caps = gst_caps_from_string("video/x-raw(ANY)");
@@ -558,6 +639,7 @@ static void gst_eufy_pacing_class_init(GstEufyPacingClass *klass) {
   transform->prepare_output_buffer = pace_output_buffer;
   transform->query = query;
   transform->src_event = src_event;
+  transform->sink_event = sink_event;
   transform->start = start;
   transform->stop = stop;
 }
@@ -701,6 +783,15 @@ static GstFlowReturn trace_frame(GstBaseTransform *base,GstBuffer *buffer) {
     }
   } else timing_record(&s->timing,s->clock_path,s->phase?s->phase:"unspecified",s->channel,
       pts,now,&stamp,found,gst_buffer_get_size(buffer),s->width,s->height);
+  if(!s->raw && !s->nal_aligned && g_strcmp0(s->phase,"parsed-au")==0) {
+    /* Measure the synchronous encoded decoder chain, not just its eventual
+     * output. Preserve the exact same buffer; BaseTransform must not push twice. */
+    gsize bytes=gst_buffer_get_size(buffer);
+    GstFlowReturn flow=gst_pad_push(GST_BASE_TRANSFORM_SRC_PAD(base),gst_buffer_ref(buffer));
+    timing_record(&s->timing,s->clock_path,"decoder-input-return",s->channel,pts,
+        (guint64)g_get_monotonic_time()*1000,&stamp,found,bytes,s->width,s->height);
+    return flow==GST_FLOW_OK?GST_BASE_TRANSFORM_FLOW_DROPPED:flow;
+  }
   return GST_FLOW_OK;
 }
 static gboolean trace_caps(GstBaseTransform *base,GstCaps *in,GstCaps *out) {
@@ -765,10 +856,60 @@ static void gst_eufy_trace_init(GstEufyTrace *s) {
   /* Inspection must not make shared decoder memory writable or copy pixels. */
   gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(s),TRUE);
 }
+/* Clock-only raw inspection preserves even shared NO_SHARE decoder memory. */
+typedef struct {GstBaseTransform parent;guint channel;PacingClock clock;gint reset_clock;} GstEufyArrival;
+typedef struct {GstBaseTransformClass parent;} GstEufyArrivalClass;
+G_DEFINE_TYPE(GstEufyArrival,gst_eufy_arrival,GST_TYPE_BASE_TRANSFORM)
+static GstFlowReturn arrival_frame(GstBaseTransform *base,GstBuffer *buffer) {
+  GstState state;gst_element_get_state(GST_ELEMENT(base),&state,NULL,0);
+  if(state!=GST_STATE_PLAYING)return GST_FLOW_OK;
+  GstClock *clock=gst_element_get_clock(GST_ELEMENT(base));
+  if(clock) {
+    guint64 running=gst_clock_get_time(clock)-gst_element_get_base_time(GST_ELEMENT(base));
+    gst_object_unref(clock);
+    GstEufyArrival *self=(GstEufyArrival *)base;
+    GstClockTime pts=gst_segment_to_running_time(&base->segment,GST_FORMAT_TIME,GST_BUFFER_PTS(buffer));
+    int64_t target;
+    if(!pacing_target_sampled(&self->clock,pts,running,running,g_atomic_int_compare_and_exchange(&self->reset_clock,1,0),&target))
+      return GST_BASE_TRANSFORM_FLOW_DROPPED;
+    arrival_store(self->channel,GST_BUFFER_PTS(buffer),running,MAX(target,0));
+  }
+  return GST_FLOW_OK;
+}
+static gboolean arrival_start(GstBaseTransform *base) {
+ GstEufyArrival *self=(GstEufyArrival *)base;arrival_clear(self->channel);memset(&self->clock,0,sizeof(self->clock));g_atomic_int_set(&self->reset_clock,0);return TRUE;
+}
+static gboolean arrival_event(GstBaseTransform *base,GstEvent *event) {
+  if(GST_EVENT_TYPE(event)==GST_EVENT_SEGMENT || GST_EVENT_TYPE(event)==GST_EVENT_FLUSH_STOP) {
+    GstEufyArrival *self=(GstEufyArrival *)base;arrival_clear(self->channel);g_atomic_int_set(&self->reset_clock,1);
+  }
+  return GST_BASE_TRANSFORM_CLASS(gst_eufy_arrival_parent_class)->sink_event(base,event);
+}
+static void arrival_prop(GObject *object,guint prop,const GValue *value,GParamSpec *spec) {
+  if(prop==1)((GstEufyArrival *)object)->channel=g_value_get_uint(value);
+  else G_OBJECT_WARN_INVALID_PROPERTY_ID(object,prop,spec);
+}
+static void gst_eufy_arrival_class_init(GstEufyArrivalClass *klass) {
+  GObjectClass *object=G_OBJECT_CLASS(klass);object->set_property=arrival_prop;
+  g_object_class_install_property(object,1,g_param_spec_uint("channel","channel","Per-tile clock channel",1,G_MAXUINT,1,G_PARAM_WRITABLE));
+  GstElementClass *element=GST_ELEMENT_CLASS(klass);GstCaps *caps=gst_caps_from_string("video/x-raw(ANY)");
+  gst_element_class_add_pad_template(element,gst_pad_template_new("sink",GST_PAD_SINK,GST_PAD_ALWAYS,caps));
+  gst_element_class_add_pad_template(element,gst_pad_template_new("src",GST_PAD_SRC,GST_PAD_ALWAYS,caps));gst_caps_unref(caps);
+  gst_element_class_set_static_metadata(element,"Decoded arrival clock","Filter/Video","Capture prequeue clock without touching pixels","eufy-wall");
+  GstBaseTransformClass *transform=GST_BASE_TRANSFORM_CLASS(klass);
+  transform->transform_ip=arrival_frame;transform->transform_ip_on_passthrough=TRUE;
+  transform->start=arrival_start;transform->sink_event=arrival_event;
+}
+static void gst_eufy_arrival_init(GstEufyArrival *self) {
+  self->channel=1;gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(self),TRUE);
+}
+#include "decoded-admission.h"
 static gboolean plugin_init(GstPlugin *plugin) {
   GST_DEBUG_CATEGORY_INIT(eufy_pacing_debug, "eufypacing", 0,
                           "Decoded video pacing");
-  return gst_element_register(plugin, "eufypacing", GST_RANK_NONE,
+  return gst_element_register(plugin,"eufyadmission",GST_RANK_NONE,gst_eufy_admission_get_type()) &&
+         gst_element_register(plugin,"eufyarrival",GST_RANK_NONE,gst_eufy_arrival_get_type()) &&
+         gst_element_register(plugin, "eufypacing", GST_RANK_NONE,
                               gst_eufy_pacing_get_type()) &&
          gst_element_register(plugin, "eufystamp", GST_RANK_NONE,
                               gst_eufy_stamp_get_type()) &&

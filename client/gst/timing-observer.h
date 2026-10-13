@@ -13,13 +13,13 @@ static gboolean timing_open(TimingObserver *o, const gchar *path) {
   memset(o, 0, sizeof(*o));
   if (!path) return TRUE;
   int fd=open(path,O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOFOLLOW,0600);
-  if (fd<0) return FALSE;
+  if (fd<0) {g_printerr("eufy-timing cannot open diagnostic file; observation disabled, playback continues\n");return TRUE;}
   struct stat st;
   if (fstat(fd,&st) || !S_ISREG(st.st_mode) || st.st_size>=64*1024*1024) {
-    close(fd); return FALSE;
+    close(fd);g_printerr("eufy-timing diagnostic target unavailable; observation disabled, playback continues\n");return TRUE;
   }
   o->file=fdopen(fd,"a");
-  if (!o->file) {close(fd);return FALSE;}
+  if (!o->file) {close(fd);g_printerr("eufy-timing cannot create diagnostic stream; observation disabled, playback continues\n");return TRUE;}
   setvbuf(o->file,NULL,_IOLBF,0);
   return TRUE;
 }
@@ -27,9 +27,9 @@ static void timing_close(TimingObserver *o) {
   if (o->file) fclose(o->file);
   o->file=NULL;
 }
-static void timing_record(TimingObserver *o, const gchar *clock_path,
+static void timing_record_detail(TimingObserver *o, const gchar *clock_path,
     const char *phase, guint channel, guint64 pts, guint64 now,
-    const FreshStamp *stamp, gboolean found, gsize bytes, gint width, gint height) {
+    const FreshStamp *stamp, gboolean found, gsize bytes, gint width, gint height,const gchar *extra) {
   if (!o->file) return;
   struct stat st;
   if (o->records>=40000 || fstat(fileno(o->file),&st) || st.st_size>=64*1024*1024) {
@@ -54,11 +54,25 @@ static void timing_record(TimingObserver *o, const gchar *clock_path,
       "\"frameId\":\"%"G_GUINT64_FORMAT"\",\"sourceTimestamp\":%u,"
       "\"clockValid\":%s,\"ageLowerNs\":\"%"G_GUINT64_FORMAT
       "\",\"ageUpperNs\":\"%"G_GUINT64_FORMAT"\",\"uncertaintyNs\":\"%"G_GUINT64_FORMAT
-      "\",\"bytes\":%"G_GSIZE_FORMAT",\"width\":%d,\"height\":%d}\n",
+      "\",\"bytes\":%"G_GSIZE_FORMAT",\"width\":%d,\"height\":%d%s}\n",
       phase,channel,now,pts,found?"true":"false",epoch[0],epoch[1],epoch[2],epoch[3],
       epoch[4],epoch[5],epoch[6],epoch[7],found?stamp->frame:0,
-      found?stamp->source:0,valid?"true":"false",lower,upper,uncertainty,bytes,width,height);
+      found?stamp->source:0,valid?"true":"false",lower,upper,uncertainty,bytes,width,height,extra?extra:"");
   o->records++;
   if(n<0) {g_printerr("eufy-timing write failed; playback continues\n");timing_close(o);}
+}
+static void timing_record(TimingObserver *o,const gchar *clock_path,
+    const char *phase,guint channel,guint64 pts,guint64 now,
+    const FreshStamp *stamp,gboolean found,gsize bytes,gint width,gint height) {
+  timing_record_detail(o,clock_path,phase,channel,pts,now,stamp,found,bytes,width,height,NULL);
+}
+static void timing_pacing(TimingObserver *o,const gchar *clock_path,guint channel,
+    guint64 pts,guint64 now,const FreshStamp *stamp,gboolean found,
+    guint64 arrival,guint64 admission,guint64 target,gboolean discont) {
+  gchar extra[256];g_snprintf(extra,sizeof(extra),
+      ",\"arrivalRunningNs\":\"%"G_GUINT64_FORMAT"\",\"admissionRunningNs\":\"%"G_GUINT64_FORMAT
+      "\",\"targetRunningNs\":\"%"G_GUINT64_FORMAT"\",\"waitNs\":\"%"G_GUINT64_FORMAT"\",\"rawDiscont\":%s",
+      arrival,admission,target,target>admission?target-admission:0,discont?"true":"false");
+  timing_record_detail(o,clock_path,"pacing-target",channel,pts,now,stamp,found,0,0,0,extra);
 }
 #endif

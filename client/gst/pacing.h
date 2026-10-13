@@ -12,8 +12,11 @@ typedef struct {
   int initialized;
 } PacingClock;
 /* Reject superseded timestamps, never fresh pictures just because delivery paused.
- * The one-frame raw queue already replaces pictures when output is blocked. */
-static int pacing_target(PacingClock *clock, int64_t pts, int64_t now, int reset, int64_t *target) {
+ * The bounded raw queue replaces pictures when output is blocked. */
+/* arrival is measured before the decoded queue; now is admission time. Mixing
+ * them teaches the rolling clock its own sink waits as upstream latency. */
+static int pacing_target_sampled(PacingClock *clock, int64_t pts, int64_t arrival,
+    int64_t now, int reset, int64_t *target) {
   if (reset) memset(clock, 0, sizeof(*clock));
   /* Missing source PTS is immediate output, not a local-clock sample that could
    * poison the source timestamp ordering when valid media timestamps resume. */
@@ -21,10 +24,10 @@ static int pacing_target(PacingClock *clock, int64_t pts, int64_t now, int reset
   if (clock->initialized && pts <= clock->last_pts) return 0;
   clock->initialized = 1;
   clock->last_pts = pts;
-  clock->samples[clock->next] = (PacingSample){now, now - pts};
+  clock->samples[clock->next] = (PacingSample){arrival, arrival - pts};
   clock->next = (clock->next + 1) % 512;
   if (clock->count < 512) clock->count++;
-  int64_t offset = now - pts;
+  int64_t offset = arrival - pts;
   for (unsigned i = 0; i < clock->count; i++)
     if (now - clock->samples[i].at <= PACING_WINDOW_NS && clock->samples[i].offset < offset)
       offset = clock->samples[i].offset;
@@ -34,5 +37,8 @@ static int pacing_target(PacingClock *clock, int64_t pts, int64_t now, int reset
    * ages out. Render the newest late picture now; retain the drift estimate. */
   if (*target < now) *target = now;
   return 1;
+}
+static inline int pacing_target(PacingClock *clock, int64_t pts, int64_t now, int reset, int64_t *target) {
+  return pacing_target_sampled(clock,pts,now,now,reset,target);
 }
 #endif
