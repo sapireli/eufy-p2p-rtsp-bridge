@@ -14,9 +14,13 @@ class Fake(trial.Host):
         self.files = {"/proc/sys/kernel/osrelease": "exact", trial.FREEZER: frozen,
                       "/sys/module/brcmfmac/srcversion": "stock",
                       "/sys/module/brcmfmac_wcc": "", "/sys/module/brcmutil": "",
-                      "/sys/module/cfg80211": "", "/sys/class/net/wlan0/operstate": "up"}
+                      "/sys/module/cfg80211": "", "/sys/class/net/wlan0": "", "/sys/class/net/wlan0/operstate": "up"}
         self.calls = []; self.fail = None; self.freezeWrites = []
-        self.now = 0; self.freezeAt = 0; self.noAck = False; self.route = True
+        self.now = 0; self.freezeAt = 0; self.noAck = False; self.route = True; self.scopeFail = False; self.noRoute = False; self.absentScope = False; self.unsafeMonitor = False; self.monitorChecks = 0; self.unsafeAfter = 10000
+    def monitor_safe(self):
+        self.monitorChecks += 1
+        return not self.unsafeMonitor and self.monitorChecks <= self.unsafeAfter
+    def scope_absent(self, scope): return self.absentScope
     def network_ready(self, address): return self.route
     def clock(self): return self.now
     def sleep(self, seconds): self.now += seconds
@@ -32,22 +36,29 @@ class Fake(trial.Host):
     def digest(self, p): return "hash"
     def run(self, args, timeout=10, required=True):
         self.calls.append(args)
+        if "--scope" in args and self.scopeFail: raise RuntimeError("scoped ifup timeout")
+        if self.fail == "ifup" and "--scope" in args: raise RuntimeError("injected ifup failure")
+        if "--scope" in args and not self.noRoute: self.route = True
         if self.fail == args[0]:
             if required: raise RuntimeError("injected failure")
             return False
         if args[:2] == ["modprobe", "-r"]:
             self.files.pop("/sys/module/brcmfmac/srcversion", None)
             self.files.pop("/sys/module/brcmfmac_wcc", None)
+            self.route = False
+            self.files.pop("/sys/class/net/wlan0", None)
             self.files.pop("/sys/module/brcmutil", None)
             self.files.pop("/sys/module/cfg80211", None)
         if args[0] == "insmod":
             if not all("/sys/module/" + dep in self.files for dep in ("brcmutil", "cfg80211")):
                 raise RuntimeError("insmod unresolved dependency")
             self.files["/sys/module/brcmfmac/srcversion"] = "candidate"
+            self.files["/sys/class/net/wlan0"] = ""
         if args in (["modprobe", "brcmutil"], ["modprobe", "cfg80211"]):
             self.files["/sys/module/" + args[1]] = ""
         if args == ["modprobe", "brcmfmac"]:
             self.files["/sys/module/brcmfmac/srcversion"] = "stock"
+            self.files["/sys/class/net/wlan0"] = ""
             self.files["/sys/module/brcmutil"] = self.files["/sys/module/cfg80211"] = ""
         if args == ["modprobe", "brcmfmac_wcc"]: self.files["/sys/module/brcmfmac_wcc"] = ""
         return True
@@ -73,6 +84,50 @@ class Tests(unittest.TestCase):
         self.assertEqual([a for a in self.h.calls if a[:2] == ["modprobe", "-r"]],
                          [["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"]] * 2)
         self.assertFalse(any("eufy-wall.service" in a and a[1] != "is-active" for a in self.h.calls))
+    def test_unsafe_monitor_descendants_rejected_before_arm(self):
+        self.h.unsafeMonitor = True
+        with self.assertRaises(RuntimeError): self.w.trial()
+        self.assertEqual(self.h.calls, [])
+        self.assertEqual(self.h.freezeWrites, [])
+    def test_new_unsafe_monitor_child_after_freeze_rejected_and_thawed(self):
+        self.h.unsafeAfter = 1
+        with self.assertRaises(RuntimeError): self.w.trial()
+        self.assertFalse(any(a[0] == "ifdown" for a in self.h.calls))
+        self.assertFalse(any(a[:2] == ["modprobe", "-r"] for a in self.h.calls))
+        self.assertEqual(self.h.files[trial.FREEZER], "0")
+    def test_scope_retains_daemons_after_success_and_uses_unique_names(self):
+        self.w.trial(); first = self.w.load()["networkScope"]
+        self.w.rollback(); second = self.w.load()["networkScope"]
+        self.assertNotEqual(first, second)
+        self.assertIn(["systemctl", "stop", first], self.h.calls)
+        self.assertNotIn(["systemctl", "stop", second], self.h.calls)
+        self.assertEqual(self.w.load()["phase"], "restored")
+    def test_scoped_ifup_failure_cleans_owned_scope(self):
+        state = {"phase": "restoring", "ownsFreeze": False, "hadWcc": True}
+        self.w.save(state); self.h.scopeFail = True
+        with self.assertRaises(RuntimeError): self.w.scoped_ifup(state)
+        args = next(a for a in self.h.calls if "--scope" in a)
+        unit = next(a[7:] for a in args if a.startswith("--unit="))
+        self.assertIn(["systemctl", "stop", unit], self.h.calls)
+        self.assertIsNone(self.w.load()["networkScope"])
+    def test_scope_not_created_is_safely_retired(self):
+        state = {"phase": "restoring", "networkScope": "eufy-brcmfmac-ifup-uncreated.scope"}
+        self.w.save(state); self.h.fail = "systemctl"; self.h.absentScope = True
+        self.w.close_network_scope(state)
+        self.assertIsNone(self.w.load()["networkScope"])
+    def test_live_scope_cleanup_failure_prevents_duplicate_ifup(self):
+        state = {"phase": "restoring", "networkScope": "eufy-brcmfmac-ifup-live.scope"}
+        self.w.save(state); self.h.fail = "systemctl"
+        with self.assertRaises(RuntimeError): self.w.scoped_ifup(state)
+        self.assertFalse(any("--scope" in a for a in self.h.calls))
+        self.assertEqual(self.w.load()["networkScope"], state["networkScope"])
+    def test_stock_identity_without_netdev_forces_reload(self):
+        state = {"phase": "trial", "ownsFreeze": False, "hadWcc": True}
+        self.w.save(state); self.h.files.pop("/sys/class/net/wlan0")
+        self.w.rollback()
+        self.assertIn(["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"], self.h.calls)
+        self.assertIn(["modprobe", "brcmfmac"], self.h.calls)
+        self.assertEqual(self.w.load()["phase"], "restored")
     def test_candidate_resolves_dependencies_after_recursive_unload(self):
         self.w.trial()
         start = self.h.calls.index(["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"])
@@ -91,18 +146,18 @@ class Tests(unittest.TestCase):
         self.assertIn(["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"], self.h.calls)
         self.assertIn(["modprobe", "brcmfmac"], self.h.calls)
         self.assertIn(["ifdown", "--force", "wlan0"], self.h.calls)
-        self.assertIn(["ifup", "--force", "wlan0"], self.h.calls)
+        self.assertTrue(any("--scope" in a and a[-3:] == ["ifup", "--force", "wlan0"] for a in self.h.calls))
         self.assertFalse(any(a[0] == "insmod" for a in self.h.calls))
         self.assertEqual(self.h.files[trial.FREEZER], "1")
         self.w.rollback()
         self.assertEqual(self.h.files[trial.FREEZER], "0")
         self.assertEqual(self.w.load()["phase"], "restored")
     def test_ifup_success_without_ipv4_route_keeps_guard(self):
-        self.w.trial(); self.h.route = False
+        self.w.trial(); self.h.route = False; self.h.noRoute = True
         with self.assertRaises(RuntimeError): self.w.rollback()
         self.assertEqual(self.w.load()["phase"], "restoring")
         self.assertFalse(any(a == ["systemctl", "stop", trial.UNIT + ".timer"] for a in self.h.calls))
-        self.h.route = True; self.w.rollback()
+        self.h.route = True; self.h.noRoute = False; self.w.rollback()
         self.assertEqual(self.w.load()["phase"], "restored")
     def test_initial_missing_ipv4_route_never_arms(self):
         self.h.route = False

@@ -17,6 +17,7 @@ import signal
 import sys
 import tempfile
 import time
+import uuid
 
 UNIT = "eufy-brcmfmac-trial-rollback"
 FREEZER = "/sys/fs/cgroup/system.slice/dietpi-wifi-monitor.service/cgroup.freeze"
@@ -32,6 +33,26 @@ class Host:
         Path(path).write_text(text)
     def digest(self, path):
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    def monitor_safe(self):
+        directory = Path(FREEZER).parent
+        if not directory.exists(): return True
+        try:
+            main = int(subprocess.check_output(["systemctl", "show", "--property=MainPID", "--value",
+                                               "dietpi-wifi-monitor.service"], stderr=subprocess.DEVNULL, timeout=3))
+            if main <= 0 or any(p.is_dir() for p in directory.iterdir()): return False
+            members = [int(v) for v in (directory / "cgroup.procs").read_text().split()]
+            # Only the monitor main process and harmless sleep children are known safe.
+            # Reject WPA/DHCP/ifupdown/ping/unclassified descendants conservatively.
+            return main in members and all(pid == main or
+                       Path("/proc/" + str(pid) + "/comm").read_text().strip() == "sleep"
+                       for pid in members)
+        except (OSError, ValueError, subprocess.SubprocessError): return False
+    def scope_absent(self, scope):
+        try:
+            value = subprocess.check_output(["systemctl", "show", "--property=LoadState", "--value", scope],
+                                            stderr=subprocess.DEVNULL, timeout=3)
+            return value.strip() == b"not-found"
+        except subprocess.SubprocessError: return False
     def network_ready(self, address):
         try:
             raw = subprocess.check_output(["ip", "-j", "-4", "address", "show", "dev", "wlan0"],
@@ -123,6 +144,8 @@ class Worker:
             self.h.write(FREEZER, "1")
         if self.h.exists(FREEZER):
             self.wait_frozen("1")
+            if not self.h.monitor_safe():
+                raise RuntimeError("unsafe monitor descendants; no interface/module action")
     def thaw(self, state):
         if state.get("ownsFreeze"):
             if self.h.exists(FREEZER):
@@ -130,6 +153,27 @@ class Worker:
                 self.wait_frozen("0")
             state["ownsFreeze"] = False
             self.save(state)
+    def close_network_scope(self, state):
+        scope = state.get("networkScope")
+        if scope:
+            # Only a name durably allocated by this worker may be stopped.
+            if not scope.startswith("eufy-brcmfmac-ifup-") or not scope.endswith(".scope"):
+                raise RuntimeError("invalid owned network scope")
+            stopped = self.h.run(["systemctl", "stop", scope], timeout=7, required=False)
+            if not stopped and not self.h.scope_absent(scope):
+                raise RuntimeError("owned network scope cleanup incomplete")
+            state["networkScope"] = None; self.save(state)
+    def scoped_ifup(self, state):
+        self.close_network_scope(state)
+        scope = "eufy-brcmfmac-ifup-" + uuid.uuid4().hex + ".scope"
+        state["networkScope"] = scope; self.save(state)
+        try:
+            self.h.run(["systemd-run", "--quiet", "--scope", "--unit=" + scope,
+                        "--property=TimeoutStopSec=5s", "ifup", "--force", "wlan0"], timeout=20)
+        except BaseException:
+            self.close_network_scope(state)
+            raise
+        # A successful scope remains: WPA/DHCP must outlive worker completion.
     def trial(self, stock_control=False):
         self.validate(not stock_control)
         previous = self.load()
@@ -140,6 +184,8 @@ class Worker:
         if self.h.read("/sys/class/net/wlan0/operstate") != "up":
             raise RuntimeError("trial requires existing active interface")
         self.wait_network()
+        if not self.h.monitor_safe():
+            raise RuntimeError("unsafe monitor descendants before arming")
         state = {"phase": "arming", "ownsFreeze": False,
                  "hadWcc": self.h.exists("/sys/module/brcmfmac_wcc"),
                  "mode": "stock-control" if stock_control else "candidate",
@@ -170,7 +216,7 @@ class Worker:
             expected = self.m["stockSrcversion"] if stock_control else self.m["candidate"]["srcversion"]
             if self.loaded() != expected:
                 raise RuntimeError("trial loaded identity mismatch")
-            self.h.run(["ifup", "--force", "wlan0"], timeout=20)
+            self.scoped_ifup(state)
             self.wait_network()
             state["phase"] = "trial"; self.save(state)
         except BaseException:
@@ -184,15 +230,20 @@ class Worker:
             self.validate()
             self.freeze(state)
             # Skip repeated unload once a prior invocation restored stock.
-            if self.loaded() != self.m["stockSrcversion"]:
+            needs_reload = self.loaded() != self.m["stockSrcversion"] or not self.h.exists("/sys/class/net/wlan0")
+            if needs_reload:
                 self.h.run(["ifdown", "--force", "wlan0"], timeout=15, required=False)
+                self.close_network_scope(state)
                 self.h.run(["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"])
                 self.h.run(["modprobe", "brcmfmac"])
             if state["hadWcc"] and not self.h.exists("/sys/module/brcmfmac_wcc"):
                 self.h.run(["modprobe", "brcmfmac_wcc"])
             if self.loaded() != self.m["stockSrcversion"]:
                 raise RuntimeError("stock loaded identity mismatch")
-            self.h.run(["ifup", "--force", "wlan0"], timeout=20)
+            if not self.h.network_ready(self.m["bridgeProbeAddress"]):
+                if not needs_reload:
+                    self.h.run(["ifdown", "--force", "wlan0"], timeout=15, required=False)
+                self.scoped_ifup(state)
             if self.h.read("/sys/class/net/wlan0/operstate") != "up":
                 raise RuntimeError("interface recovery unverified")
             self.wait_network()

@@ -171,7 +171,7 @@ a kernel crash, or loss of local storage can defeat any userspace rollback; this
 worker does not promise recovery from them. The independent guard retries lock
 contention rather than depending on SSH remaining connected.
 
-Verification: eighteen local tests pass for independent-invocation recovery,
+Verification: twenty-five local tests pass for independent-invocation recovery,
 idempotency, preserved external freeze, failed candidate load, retryable failed
 interface recovery, rejected stock digest, unfinished-trial protection flock
 exclusion, timeout termination of a spawned hook process group, interrupt group cleanup,
@@ -238,3 +238,60 @@ reload at five seconds each. Including the 15-second ifdown, ten-second unload,
 nominal trial step ceilings total 74 seconds after arming, below its 90-second
 rollback trigger. Kernel uninterruptibility and process cleanup can still violate
 nominal ceilings, as disclosed above; this arithmetic is not a hardware result.
+
+## Transient worker daemon lifetime correction
+
+The first stock-control attempt lost SSH beyond the guard window; no candidate
+was loaded. Its actual Pi failure cause remains unknown without recovered logs.
+Offline review identified two real worker holes: a matching loaded stock
+srcversion did not imply a recreated netdev, and plain ifup from an ephemeral
+service can place background WPA/DHCP in that service's cgroup. Default systemd
+`KillMode=control-group` kills those descendants when the unit stops. See the
+[official systemd source](https://raw.githubusercontent.com/systemd/systemd/v257/man/systemd.kill.xml).
+The earlier fake-host tests did not establish daemon lifetime on real systemd.
+
+A harmless isolated bridge experiment compared a main command spawning one
+20-second Python sleeping child, without any network command. A transient service
+completed in 0.348 seconds with the child gone/unit inactive. A scope completed in
+0.244 seconds with the child alive/unit active. Stopping that exact owned scope
+removed the child. Both owned units and temporary PID files were cleaned. This
+proves the daemon-lifetime distinction on the bridge, not the Pi outage cause or
+network recovery.
+
+The worker now runs original `ifup --force wlan0` in a unique, durably recorded
+systemd scope. A successful scope remains so its network daemons outlive worker
+exit; normal ifdown hooks retain network ownership. A failed scoped ifup gets
+bounded stop/cleanup of only its owned scope. An existing failed/live scope must
+be retired before creating another; cleanup failure aborts rather than duplicating
+network clients. A scope that was never created is retired only after systemd
+reports `LoadState=not-found`. Successful stock recovery with an already usable
+route reuses its existing scope instead of unnecessarily launching ifup again.
+
+Rollback now requires both stock identity **and netdev presence** to skip reload;
+a missing wlan0 forces the protected stock unload/reload path. Scope uniqueness,
+successful daemon scope retention, failure cleanup, absent-scope handling,
+cleanup-failure duplication prevention and missing-netdev reload are covered by
+focused tests. No Pi network/module/service/power actions were performed while
+making this correction. The modified worker must be reviewed before another
+trial; these tests do not declare the unreachable Pi recovered.
+
+A second harmless bridge lifecycle proof records UTC 2026-10-13 00:45:53.510941
+through 00:45:54.722224, with explicit PID/start-tick identities and scope settings.
+Service child 36994/start 5214907 was gone after its main exited in 0.313 seconds;
+scope child 36999/start 5214964 remained the same process after main exit in
+0.228 seconds and disappeared after exact-owned cleanup. The private artifact is
+`.evidence/frame-freshness-2026-10-12/worker-daemon-lifetime-proof.json`, SHA-256
+`a4ed8d8cee78e816939afce948e20386250d78c7f8e52db995dec6b453d37baa`.
+
+The monitor cgroup membership was not captured before the failed Pi trial.
+Future workers reject unsafe membership both before arming and after freeze
+acknowledgement: only the reported main process and named sleep children are
+accepted. WPA, DHCP, ifupdown, unclassified children or nested cgroups cause
+rejection, owned-thaw cleanup and no interface/module action. This conservative
+check avoids assuming the freezer contains only the shell main process; it does
+not establish the old Pi hook state. Two tests cover initial unsafe descendants
+and a child appearing between preflight and acknowledged freeze.
+
+The Pi remains unreachable at this preparation boundary. These corrections are
+not production-ready recovery proof until its actual hook/daemon/cgroup and unit
+logs are recovered and reviewed. No further Pi action was taken here.
