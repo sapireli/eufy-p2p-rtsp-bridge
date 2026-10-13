@@ -120,7 +120,7 @@ class Tests(unittest.TestCase):
         with self.assertRaises(RuntimeError): self.w.trial()
         self.assertFalse(any(a[:2] == ["modprobe", "-r"] for a in self.h.calls))
         self.assertEqual(self.h.files[trial.FREEZER], "0")
-        self.assertEqual(self.w.load()["phase"], "restored")
+        self.assertEqual(self.w.load()["phase"], "restoring")
     def test_interrupt_kills_and_reaps_owned_group(self):
         proc = Mock(pid=43210)
         proc.wait.side_effect = [KeyboardInterrupt(), 0]
