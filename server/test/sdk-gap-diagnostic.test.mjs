@@ -58,6 +58,14 @@ test("assembler preserves this, arguments and exact result; virtual gating follo
   assert.equal(h.output.find(x => x.kind === "video-gap").members[0].waitingKeyframe, true);
   h.stop();
 });
+test("discard callback during original push is reflected before the unit loop", () => {
+  const h = harness({ source: false });
+  h.owner.units.push = function (units) { h.owner.awaitingKeyframeAfterGap = true; return units; };
+  h.ctx.eufy.p2p.liveSources.set("PRIVATE:2", h.src); h.tick();
+  const units = [{ keyframe: false }, { keyframe: true }, { keyframe: false }];
+  assert.strictEqual(h.owner.units.push(units), units); h.tick();
+  assert.equal(h.output.at(-1).streams[0].gatedCompleteUnits, 1); h.stop();
+});
 test("borrowed receiver and original exception are preserved", () => {
   const h = harness({ source: false }); const sentinel = {}, receiver = {}, result = [];
   h.owner.units.push = function (...args) { assert.strictEqual(this, receiver); assert.deepEqual(args, [1, 2]); return result; };

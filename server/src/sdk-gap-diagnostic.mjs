@@ -104,12 +104,12 @@ export function initializeSdkGapDiagnostic(ctx, {
     streams.set(owner, info);
     const assembler = owner.units, descriptor = Object.getOwnPropertyDescriptor(assembler, "push"), original = assembler.push;
     const replacement = function (...args) {
-      const waitingBefore = owner.awaitingKeyframeAfterGap;
       const result = original.apply(this, args); // Original exception/result/receiver preserved.
       if (!stopped) {
         try {
           if (!Array.isArray(result)) throw Error("assembler result shape");
-          let waiting = waitingBefore;
+          // push may discard an older incomplete unit and set the gate via its callback.
+          let waiting = owner.awaitingKeyframeAfterGap;
           for (const unit of result) {
             info.assembled++;
             if (waiting && !unit.keyframe) info.gated++;

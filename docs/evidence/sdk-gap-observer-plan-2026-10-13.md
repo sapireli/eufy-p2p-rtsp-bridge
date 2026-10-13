@@ -32,7 +32,8 @@ Boundaries observed together:
 - Original assembler results, with exact original receiver, arguments, return
   object and exceptions preserved. `gatedCompleteUnits` is a prediction using the
   same awaiting-keyframe branch: a keyframe in a multi-unit result resumes virtual
-  gating before subsequent P frames. It is not independent decoder proof.
+  gating before subsequent P frames. The starting flag is sampled after the
+  original push, because its incomplete-unit discard callback can set the gate. It is not independent decoder proof.
 - SDK delivered video/keyframes and post-gap waiting flags. A diagnostic gap
   listener is moved behind newly registered SDK handlers without changing their
   relative order; inactive old stream generations are excluded from fanout.
@@ -47,7 +48,7 @@ encoded output implicates encoding/HTTP submission; continuing encoded output
 with both RTSP readers timing out places the pause further downstream. No SDK
 change is justified without the actual event and aligned identities/counters.
 
-Eleven deterministic tests pass: default no-op, absent-shape rejection, opaque
+Twelve deterministic tests pass: default no-op, absent-shape rejection, opaque
 inventory and exact source linking, multi-unit gating, borrowed receiver/return/
 exception preservation, metadata-only counts, automatic cleanup, row cap,
 third-party replacement preservation, late stream listener ordering, and write
