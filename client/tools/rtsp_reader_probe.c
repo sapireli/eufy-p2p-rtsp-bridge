@@ -42,21 +42,42 @@ static int text(const char *p,char *b,size_t n){
   b[r]=0;
   return r;
 }
-static int st(int pid,int tid,char *state,unsigned long long *ticks,unsigned long long *start){
+static int st_full(int pid,int tid,char *state,unsigned long long *ticks,unsigned long long *start,unsigned long long *user,unsigned long long *system){
   char p[128],b[4096],*save,*s;
-  snprintf(p,sizeof p,"/proc/%d/task/%d/stat",pid,tid);
+  if(tid)snprintf(p,sizeof p,"/proc/%d/task/%d/stat",pid,tid);
+  else snprintf(p,sizeof p,"/proc/%d/stat",pid);
   if(text(p,b,sizeof b)<0)return -1;
   s=strrchr(b,')');
   if(!s)return -1;
   int n=3;
   *ticks=0;
   *start=0;
+  if(user)*user=0;
+  if(system)*system=0;
   for(char *t=strtok_r(s+2," ",&save);t;t=strtok_r(NULL," ",&save),n++){
     if(n==3)*state=t[0];
     if(n==14||n==15)*ticks+=strtoull(t,NULL,10);
+    if(n==14&&user)*user=strtoull(t,NULL,10);
+    if(n==15&&system)*system=strtoull(t,NULL,10);
     if(n==22)*start=strtoull(t,NULL,10);
   }
   return *start?0:-1;
+}
+static int st(int pid,int tid,char *state,unsigned long long *ticks,unsigned long long *start){
+  return st_full(pid,tid,state,ticks,start,NULL,NULL);
+}
+static int schedvalues(const char *b,unsigned long long *run,unsigned long long *wait,unsigned long long *slices){
+  return sscanf(b,"%llu %llu %llu",run,wait,slices)==3;
+}
+static int schedstat(Target *t,unsigned long long *run,unsigned long long *wait,unsigned long long *slices){
+  char p[128],b[256];
+  snprintf(p,sizeof p,"/proc/%d/task/%d/schedstat",t->pid,t->tid);
+  return text(p,b,sizeof b)>=0&&schedvalues(b,run,wait,slices);
+}
+static void globalcpu(int i){
+  char b[2048];unsigned long long v[8];
+  if(text("/proc/stat",b,sizeof b)<0||sscanf(b,"cpu %llu %llu %llu %llu %llu %llu %llu %llu",v,v+1,v+2,v+3,v+4,v+5,v+6,v+7)!=8)return;
+  printf("global_cpu i=%d mono=%lld user=%llu nice=%llu system=%llu idle=%llu iowait=%llu irq=%llu softirq=%llu steal=%llu\n",i,ns(CLOCK_MONOTONIC),v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7]);
 }
 static int syscallp(Target*t,char*b,size_t n){
   char p[128];
@@ -87,6 +108,15 @@ static int socketq(int pid,int fd,unsigned long long *inode,unsigned *rx){
   fclose(f);
   return ok;
 }
+static int callscalar(Target *t,long *number,int *fd,int *running){
+  char b[512]; unsigned long long first;
+  *number=-1; *fd=-1; *running=0;
+  if(syscallp(t,b,sizeof b)<0)return 0;
+  if(!strncmp(b,"running",7)){*running=1;return 1;}
+  if(sscanf(b,"%ld %llx",number,&first)!=2)return 0;
+  if((*number==3||*number==291||*number==292||*number==297)&&first<=4096)*fd=(int)first;
+  return 1;
+}
 static int pollargs(const char*s,unsigned long long*ptr){
   long call;
   unsigned long long n,p;
@@ -95,6 +125,14 @@ static int pollargs(const char*s,unsigned long long*ptr){
   return 1;
 }
 static int proof(Target*t){
+  long number;int directfd,running;
+  if(callscalar(t,&number,&directfd,&running)&&directfd>=0){
+    unsigned long long inode;unsigned rx;
+    if(socketq(t->pid,directfd,&inode,&rx)){
+      printf("reader_proven pid=%d tid=%d fd=%d inode=%llu rtsp_port=8554 via_syscall=%ld rx=%u\n",t->pid,t->tid,directfd,inode,number,rx);
+      t->proven=directfd;t->provenInode=inode;return 1;
+    }
+  }
   char a[512],b[512],p[128];
   unsigned long long ptr,n,ptr2,n2;
   long call,call2;
@@ -136,7 +174,9 @@ int main(int argc,char**argv){
     ;
     for(unsigned i=0;i<sizeof bad/sizeof bad[0];i++)if(pollargs(bad[i],&p))return 1;
     if(!pollargs("168 0xb0000000 0x2",&p)||p!=0xb0000000ULL)return 1;
-    puts("self-test strict pollfd authorization PASS");
+    unsigned long long run,wait,slices;
+    if(!schedvalues("123 456 7",&run,&wait,&slices)||run!=123||wait!=456||slices!=7||schedvalues("123 456",&run,&wait,&slices))return 1;
+    puts("self-test strict pollfd authorization and schedstat parsing PASS");
     return 0;
   }
 #if !defined(__arm__)
@@ -150,6 +190,9 @@ int main(int argc,char**argv){
   }
   setvbuf(stdout,NULL,_IOLBF,0);
   long long cpu0=ns(CLOCK_PROCESS_CPUTIME_ID),wall0=ns(CLOCK_MONOTONIC);
+  char schedFlag[32];
+  int schedEnabled=text("/proc/sys/kernel/sched_schedstats",schedFlag,sizeof schedFlag)>=0?atoi(schedFlag):-1;
+  printf("detailed_schedstats flag=%d observed_readonly=true\n",schedEnabled);
   Target ts[8];
   int count=0;
   for(int z=1;z<argc&&count<8;z++){
@@ -206,12 +249,14 @@ int main(int argc,char**argv){
       Target*t=&ts[z];
       unsigned long long tick,start,pt;
       char state,p[128],w[128];
-      if(st(t->pid,t->pid,&state,&pt,&start)||start!=t->pidStart){
+      unsigned long long procUser=0,procSystem=0;
+      if(st_full(t->pid,0,&state,&pt,&start,&procUser,&procSystem)||start!=t->pidStart){
         printf("abort pid_changed=%d\n",t->pid);
         return 2;
       }
       long long t0=ns(CLOCK_MONOTONIC);
-      if(st(t->pid,t->tid,&state,&tick,&start)||start!=t->tidStart){
+      unsigned long long user=0,system=0;
+      if(st_full(t->pid,t->tid,&state,&tick,&start,&user,&system)||start!=t->tidStart){
         printf("abort tid_changed=%d\n",t->tid);
         return 2;
       }
@@ -226,8 +271,13 @@ int main(int argc,char**argv){
         printf("abort socket_changed pid=%d fd=%d\n",t->pid,t->proven);
         return 2;
       }
-      printf("sample i=%d mono=%lld pid=%d tid=%d state=%c ticks=%llu wchan=%s proven=%d rx=%u readNs=%lld\n",i,t0,t->pid,t->tid,state,tick,w,has,rx,ns(CLOCK_MONOTONIC)-t0);
+      unsigned long long run=0,wait=0,slices=0;
+      int schedAvailable=schedstat(t,&run,&wait,&slices);
+      long syscall;int fd,running;
+      int syscallAvailable=callscalar(t,&syscall,&fd,&running);
+      printf("sample i=%d mono=%lld pid=%d tid=%d state=%c ticks=%llu processTicks=%llu processUser=%llu processSystem=%llu userTicks=%llu systemTicks=%llu wchan=%s proven=%d rx=%u schedAvailable=%d detailedSchedstatsFlag=%d schedRunNs=%llu schedWaitNs=%llu slices=%llu syscallAvailable=%d syscall=%ld syscallFd=%d syscallRunning=%d readNs=%lld\n",i,t0,t->pid,t->tid,state,tick,pt,procUser,procSystem,user,system,w,has,rx,schedAvailable,schedEnabled,run,wait,slices,syscallAvailable,syscall,fd,running,ns(CLOCK_MONOTONIC)-t0);
     }
+    globalcpu(i);
     long long elapsed=ns(CLOCK_MONOTONIC)-wall0,cpu=ns(CLOCK_PROCESS_CPUTIME_ID)-cpu0;
     if(i==5){
       int all=1;
