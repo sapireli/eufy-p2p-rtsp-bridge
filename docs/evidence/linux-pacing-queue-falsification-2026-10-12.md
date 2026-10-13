@@ -51,6 +51,12 @@ It reports whole-picture counts, local discontinuities, actual sink work,
 queue-to-handoff wait, and source-PTS age at handoff. The optional
 `--min-frames=N` supports a candidate regression gate. Synthetic pixels are 1×1
 RGB, so this does not benchmark decoder or image-processing capacity.
+The first experiments above used the fake sink default processing deadline
+(20 ms), whereas production specifies zero and max-lateness 67 ms. They prove
+the generic coupling but are not an exact production policy reproduction. The
+harness on `experiment/linux-arrival-admission-20261013` explicitly matches
+those production settings for the subsequent matrix recorded in
+[the historical prototype evidence](linux-prequeue-clock-2026-10-12.md).
 The lifecycle candidate is intentionally not deployed or committed as a cadence
 fix. Two slots with the SAME allowance are the next evidence gate; no latency
 benefit is assumed before measuring actual handoff age and drops.
