@@ -24,4 +24,27 @@ Candidate APK SHA-256: `1da7cdcb4a75751fc4831db85a6e8708c2a8b12130df0476299286bd
 
 ## Next decision
 
-The candidate is built but **not installed or deployed** in this task. Parent review should decide whether to perform a short controlled control-only disconnect with existing hardware RTSP playback, confirming no media recreation and later control reconnection. Such a test must preserve preferences/source sessions and distinguish metadata-triggered releases on the subsequent hello. No further observer or behavioral change is justified by the historical counter reset alone. Physical smoothness and the separate source-arrival pause remain unproven.
+The parent approved installation and a narrowly scoped HTTP/control interruption; the live result below proves media survival in that event. It does not establish the historical reset cause. Metadata-triggered releases remain a separate issue. Physical smoothness and the separate source-arrival pause remain unproven.
+
+
+## Deployed controlled proof
+
+Both TVs were updated with `adb install -r`, preserving signature/data. Each existing Activity was deliberately force-stopped/launched after the update; these are intentional deployment boundaries, not natural failures. The exact installed APK SHA above was verified on both. Rollback APK `fe0b8fd35a94d6b10fd45af7d11d5eb809cc905e5dc54d112401ea4a789b7e96` was pulled beforehand. Preference files were byte-identical before installation, after startup, and after the controlled test. New app PIDs were780/.85 and31852/.58.
+
+Ordinary INFO observation ran01:46:07.353–01:47:07.361 UTC. Both TVs used hardware AVC with rising decoder counters, queue0, and no warning/retry/release. The background Garage callback maximum reached4899ms on **both** TVs with pacing resets6 and unknown-clock count3 before the control intervention. Those callback maxima are informational, not physical-panel proof; the source/pacing concern remains open and is not attributed to this fix.
+
+A separate controlled INFO window ran01:48:36.984–01:49:36.991 UTC. Before action, the bridge had four established .85 HTTP3000 connections and two independent RTSP8554 tuples to client ports49058/49060. The parent explicitly approved one `ss -K dst 192.168.23.85 sport = :3000`, executed01:49:06.860–01:49:07.191 UTC. Its output contained only .85 port3000 tuples (including a FIN-WAIT-2 HTTP tuple). No other address, RTSP8554, interface, firewall, source, SDK session, or Pi was targeted.
+
+The actual application emitted:
+
+```text
+Control socket lost reason=failure:SocketException; preserving 2 RTSP players; reconnect in 5000ms
+```
+
+Its device-wall timestamp was01:49:08.219; clock-bracket artifacts are retained, so this is not claimed as exact reaction latency. **No player release, counter decrease, new first-frame event, retry, or media error occurred** in the recorded window. Both exact8554 tuples remained49058/49060 afterward, and hardware decoder output continued. .85 Garage decoded+890 over its65.013s statistics span; Front Door+837 over55.008s. .58, whose control connections were untouched, continued Garage+866/Front Door+900 over60.007/60.017s. All four decode500ms counter deltas were0 and queue samples0.
+
+New .85 HTTP3000 connections appeared afterward. This confirms HTTP reconnection activity and the code's reconnect schedule, but no explicit hello/upgrade log was emitted; a completed WebSocket handshake is not independently claimed from TCP tuples alone. Clock HTTP was also interrupted, so this is **HTTP/control interruption**, not a pure WebSocket-only fault.
+
+Garage pacing-reset counters increased by1 in the controlled statistics spans on each TV; the shared callback maximum stayed4899ms. Those background timing effects are not demonstrated repaired by control isolation. The controlled evidence supports only the concrete claim that this real control failure did not unnecessarily tear down healthy independent RTSP players.
+
+All60s collectors terminated. Private metadata is retained under `.evidence/frame-freshness-2026-10-12/tv-control-loss-deploy/`, including exact intervention/tuple records, preference hashes, installed APK hashes, filtered INFO logs, manifests, and per-SN summaries. No pixels/media payload were captured. A separately authorized sustained INFO gate follows; no new transport/pacing experiment is implied.
