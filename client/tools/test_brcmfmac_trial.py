@@ -13,7 +13,8 @@ class Fake(trial.Host):
     def __init__(self, frozen="0"):
         self.files = {"/proc/sys/kernel/osrelease": "exact", trial.FREEZER: frozen,
                       "/sys/module/brcmfmac/srcversion": "stock",
-                      "/sys/module/brcmfmac_wcc": "", "/sys/class/net/wlan0/operstate": "up"}
+                      "/sys/module/brcmfmac_wcc": "", "/sys/module/brcmutil": "",
+                      "/sys/module/cfg80211": "", "/sys/class/net/wlan0/operstate": "up"}
         self.calls = []; self.fail = None; self.freezeWrites = []
         self.now = 0; self.freezeAt = 0; self.noAck = False; self.route = True
     def network_ready(self, address): return self.route
@@ -37,8 +38,17 @@ class Fake(trial.Host):
         if args[:2] == ["modprobe", "-r"]:
             self.files.pop("/sys/module/brcmfmac/srcversion", None)
             self.files.pop("/sys/module/brcmfmac_wcc", None)
-        if args[0] == "insmod": self.files["/sys/module/brcmfmac/srcversion"] = "candidate"
-        if args == ["modprobe", "brcmfmac"]: self.files["/sys/module/brcmfmac/srcversion"] = "stock"
+            self.files.pop("/sys/module/brcmutil", None)
+            self.files.pop("/sys/module/cfg80211", None)
+        if args[0] == "insmod":
+            if not all("/sys/module/" + dep in self.files for dep in ("brcmutil", "cfg80211")):
+                raise RuntimeError("insmod unresolved dependency")
+            self.files["/sys/module/brcmfmac/srcversion"] = "candidate"
+        if args in (["modprobe", "brcmutil"], ["modprobe", "cfg80211"]):
+            self.files["/sys/module/" + args[1]] = ""
+        if args == ["modprobe", "brcmfmac"]:
+            self.files["/sys/module/brcmfmac/srcversion"] = "stock"
+            self.files["/sys/module/brcmutil"] = self.files["/sys/module/cfg80211"] = ""
         if args == ["modprobe", "brcmfmac_wcc"]: self.files["/sys/module/brcmfmac_wcc"] = ""
         return True
 
@@ -63,6 +73,14 @@ class Tests(unittest.TestCase):
         self.assertEqual([a for a in self.h.calls if a[:2] == ["modprobe", "-r"]],
                          [["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"]] * 2)
         self.assertFalse(any("eufy-wall.service" in a and a[1] != "is-active" for a in self.h.calls))
+    def test_candidate_resolves_dependencies_after_recursive_unload(self):
+        self.w.trial()
+        start = self.h.calls.index(["modprobe", "-r", "brcmfmac_wcc", "brcmfmac"])
+        self.assertEqual(self.h.calls[start+1:start+4],
+                         [["modprobe", "brcmutil"], ["modprobe", "cfg80211"], ["insmod", "/candidate"]])
+        self.assertEqual(self.w.loaded(), "candidate")
+        self.w.rollback()
+        self.assertEqual(self.w.loaded(), "stock")
     def test_stock_control_same_guard_unload_and_network_path(self):
         # Explicit control requires no candidate artifact; ordinary trial still does.
         self.m.pop("candidate")

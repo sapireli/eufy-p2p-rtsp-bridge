@@ -171,7 +171,7 @@ a kernel crash, or loss of local storage can defeat any userspace rollback; this
 worker does not promise recovery from them. The independent guard retries lock
 contention rather than depending on SSH remaining connected.
 
-Verification: seventeen local tests pass for independent-invocation recovery,
+Verification: eighteen local tests pass for independent-invocation recovery,
 idempotency, preserved external freeze, failed candidate load, retryable failed
 interface recovery, rejected stock digest, unfinished-trial protection flock
 exclusion, timeout termination of a spawned hook process group, interrupt group cleanup,
@@ -222,3 +222,19 @@ The same bounded IPv4 address/route gate runs before arming and after candidate 
 stock-control ifup. Two tests cover successful ifup with missing IPv4 route
 (rollback stays incomplete and guard retained) and an initially missing route
 (no trial action). No active ping or configuration rewrite is used.
+
+Candidate loading explicitly runs bounded `modprobe brcmutil` and `modprobe
+cfg80211` after removing the holder/core and before `insmod`. `modprobe -r` may
+remove unused dependencies recursively, whereas `insmod` does not resolve them.
+The stock-control and rollback paths retain normal `modprobe brcmfmac` dependency
+resolution. A regression fake host removes both dependencies during core removal
+and refuses candidate insmod unless both were reloaded; the full candidate and
+stock-restoration sequence passes. This correction was prepared before any trial
+was armed; no device action accompanied it.
+
+Dependency loads are capped at three seconds each; candidate insmod and trial WCC
+reload at five seconds each. Including the 15-second ifdown, ten-second unload,
+20-second ifup, three-second freezer acknowledgement and ten-second IPv4 gate,
+nominal trial step ceilings total 74 seconds after arming, below its 90-second
+rollback trigger. Kernel uninterruptibility and process cleanup can still violate
+nominal ceilings, as disclosed above; this arithmetic is not a hardware result.

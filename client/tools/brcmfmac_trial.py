@@ -161,8 +161,12 @@ class Worker:
             if stock_control:
                 self.h.run(["modprobe", "brcmfmac"])
             else:
-                self.h.run(["insmod", self.m["candidate"]["path"]])
-            if state["hadWcc"]: self.h.run(["modprobe", "brcmfmac_wcc"])
+                # modprobe -r may recursively unload now-unused dependencies.
+                # insmod does not resolve them, unlike the stock modprobe path.
+                self.h.run(["modprobe", "brcmutil"], timeout=3)
+                self.h.run(["modprobe", "cfg80211"], timeout=3)
+                self.h.run(["insmod", self.m["candidate"]["path"]], timeout=5)
+            if state["hadWcc"]: self.h.run(["modprobe", "brcmfmac_wcc"], timeout=5)
             expected = self.m["stockSrcversion"] if stock_control else self.m["candidate"]["srcversion"]
             if self.loaded() != expected:
                 raise RuntimeError("trial loaded identity mismatch")
