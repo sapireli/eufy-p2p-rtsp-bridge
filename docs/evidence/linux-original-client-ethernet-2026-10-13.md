@@ -40,6 +40,8 @@ Both cameras retain epoch `ef8d6ac33b3483d9`. There are **zero** HTTP clock time
 
 The original wired client passes the agreed five-minute throughput (at least 14 fps per camera), late incidence (at most 5% per matched picture), and no-clock-timeout/no-restart gates. It does **not** meet an all-pictures-below-500-ms guarantee. Garage's newly increased 1.662-second decoded gap and 609-ms final sink-return age remain unresolved. The collector alone cannot locate that gap before or after the bridge, or separate source quiet from client processing.
 
+A subsequent read of existing logs narrowed the new Garage gap to the reports at 04:38:21–26 UTC. The bridge journal contained no entries for 04:38:15–31 UTC. Both TVs' INFO rings had already overwritten that interval (earliest retained device-wall entries were 04:38:51.847 and 04:38:51.355). Later TV progress and unchanged historical callback maxima cannot locate this particular Pi gap. No buffering, SDK, or restart intervention was justified by this retrospective check; no new timed capture was started. Metadata artifacts are in `.evidence/frame-freshness-2026-10-12/tv-pi-gap-retrospective-20261013/`.
+
 `observed` is after raw admission; it does not count any earlier discarded decoded pictures. `accepted` and `submitMatched` measure successful return from the KMS sink chain, not physical scanout. Sample-age medians describe the 59 low-rate reports, not every picture. Reported ages are bounded SDK-source receipt/bridge-ingress ages, not validated sensor-capture ages. Physical smoothness was not observed by this collector. This result is a bounded baseline improvement and **does not complete the overall playback goal**.
 
 ## Private artifacts
