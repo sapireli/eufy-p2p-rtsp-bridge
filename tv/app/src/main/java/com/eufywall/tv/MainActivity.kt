@@ -77,6 +77,10 @@ class MainActivity : Activity() {
     private var decoderFailures = 0
     private var decoderRecoveryScheduled = false
     private val reconnect = Runnable { if (wallVisible) connectEvents() }
+    private val controlRecovery = ControlChannelRecovery(
+        reportLoss = { reason -> android.util.Log.i("EufyWallTV", "Control socket lost reason=$reason; preserving ${players.size} RTSP players; reconnect in 5000ms") },
+        scheduleReconnect = { ui.removeCallbacks(reconnect); ui.postDelayed(reconnect, 5_000) },
+    )
     private val firstFrameTimeoutMs = 15_000L
     private val liveFrameTimeoutMs = 5_000L
     private val holdRefresh = object : Runnable {
@@ -95,7 +99,7 @@ class MainActivity : Activity() {
             android.util.Log.w("EufyWallTV", "DEBUG native profile probe active for ${probeSeconds}s; reported profile eligibility bypassed, bitstream unchanged")
             ui.postDelayed({
                 nativeProfileProbeUntil = 0L
-                if (wallVisible) { chosen.forEach { release(it) }; chosen.forEach { updateTile(it) } }
+                if (wallVisible) { chosen.forEach { release(it, "native-profile-probe-expired") }; chosen.forEach { updateTile(it) } }
                 android.util.Log.i("EufyWallTV", "DEBUG native profile probe expired; conservative selection restored")
             }, probeSeconds * 1000L)
         }
@@ -360,7 +364,7 @@ class MainActivity : Activity() {
                 }
                 ui.postDelayed({
                     if (wallVisible && states[sn] == "live" && players[sn] === player) {
-                        release(sn); updateTile(sn)
+                        release(sn, "rtsp-retry"); updateTile(sn)
                     }
                 }, 1_000)
             }
@@ -401,20 +405,22 @@ class MainActivity : Activity() {
             frameWatchdogs[sn] = watchdog
             ui.postDelayed(watchdog, 1_000)
         } else {
-            release(sn)
+            release(sn, "camera-state:$state")
             label.text = "${cam.name} • ${if (state == "starting") "starting" else "idle"}"
         }
     }
 
-    private fun release(sn: String) {
+    private fun release(sn: String, reason: String) {
         frameWatchdogs.remove(sn)?.let { ui.removeCallbacks(it) }
-        players.remove(sn)?.release()
+        val player = players.remove(sn) ?: return
+        android.util.Log.i("EufyWallTV", "Player released sn=$sn reason=$reason decodedFrames=${player.decodedFrames.get()} receivedUnits=${player.receivedUnits.get()}")
+        player.release()
     }
 
     private fun recoverDecoder() {
         if (decoderRecoveryScheduled) return
         decoderRecoveryScheduled = true
-        players.keys.toList().forEach { release(it) }
+        players.keys.toList().forEach { release(it, "decoder-recovery") }
         val last = prefs.getLong("decoder_restart_at", 0)
         val now = System.currentTimeMillis()
         if (now - last < 5 * 60_000) {
@@ -466,7 +472,7 @@ class MainActivity : Activity() {
                                     cameras = cameras.map { camera ->
                                         if (camera.sn != sn) camera else {
                                             val updated = camera.copy(rtsp = item.optString("rtsp", camera.rtsp), freshness = cap, nativeRendition = parseNativeRendition(item.optJSONObject("nativeRendition")))
-                                            if (updated != camera) release(sn)
+                                            if (updated != camera) release(sn, "hello-metadata-changed")
                                             updated
                                         }
                                     }
@@ -479,7 +485,7 @@ class MainActivity : Activity() {
                                 if (event.has("nativeRendition")) cameras = cameras.map { camera ->
                                     if (camera.sn != sn) camera else {
                                         val updated = camera.copy(nativeRendition = parseNativeRendition(event.optJSONObject("nativeRendition")))
-                                        if (updated != camera) release(sn)
+                                        if (updated != camera) release(sn, "stream-metadata-changed")
                                         updated
                                     }
                                 }
@@ -489,8 +495,13 @@ class MainActivity : Activity() {
                     }
                 } catch (e: Exception) { android.util.Log.e("EufyWallTV", "Invalid event", e) }
             }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { ui.post { if (wallVisible && socket === webSocket) { players.keys.toList().forEach { release(it) }; labels.values.forEach { it.text = "Bridge disconnected • retrying" }; ui.postDelayed(reconnect, 5_000) } } }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { ui.post { if (wallVisible && socket === webSocket) { players.keys.toList().forEach { release(it) }; labels.values.forEach { it.text = "Bridge disconnected • retrying" }; ui.postDelayed(reconnect, 5_000) } } }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                ui.post { controlRecovery.lost(wallVisible && socket === webSocket,
+                    "failure:${t.javaClass.simpleName}") }
+            }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                ui.post { controlRecovery.lost(wallVisible && socket === webSocket, "closed:$code") }
+            }
         })
     }
 
@@ -548,7 +559,7 @@ class MainActivity : Activity() {
     private fun stopWall() {
         ui.removeCallbacks(reconnect); ui.removeCallbacks(holdRefresh)
         socket?.cancel(); socket = null
-        players.keys.toList().forEach { release(it) }
+        players.keys.toList().forEach { release(it, "wall-stopped") }
         labels.clear(); surfaces.clear()
         if (bridge.isNotBlank()) chosen.forEach { hold(it, "DELETE") }
     }
