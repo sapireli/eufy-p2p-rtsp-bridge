@@ -1,6 +1,6 @@
 # Eufy Wall TV
 
-One APK supports Android TV/Google TV and Fire TV devices that run Fire OS 6 or newer (Android API 24 or newer). The wall displays up to four cameras. It reads each live stream's width and height from the bridge: two portrait views share 70% of the width, with landscape views stacked on the right. PiP produces landscape video, so the wall adapts to a mixed portrait/landscape arrangement or a 2×2 grid. Playback was tested on Fire TV; Google TV hardware still needs device testing.
+One APK supports Android TV/Google TV and Fire TV devices that run Fire OS 6 or newer (Android API 24 or newer). The wall supports up to 36 configured tiles, including fixed cameras and motion-following tiles. Simultaneous live capacity depends on the device; a 36-tile layout is not a promise that it can decode 36 streams. It reads each live stream's width and height from the bridge: two portrait views share 70% of the width, with landscape views stacked on the right. PiP produces landscape video, so the wall adapts to a mixed portrait/landscape arrangement or a 2×2 grid. Playback was tested on Fire TV; Google TV hardware still needs device testing.
 
 Build with JDK 17, Android SDK platform 36, build tools 35, Gradle 8.13, and Kotlin 2.2.21 (pinned in the project):
 
@@ -9,7 +9,7 @@ gradle assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Open **Eufy Wall** from the TV launcher. The app discovers `_eufy-wall._tcp` (HTTP port 3000, TXT `rtsp=<RTSP port>`) or accepts a bridge hostname or IP address. Enter `homebridge.lan` to save `http://homebridge.lan:3000` and use that hostname for camera URLs advertised by the bridge. The name must resolve through the device's network resolver; `.lan` is normally supplied by LAN DNS, while mDNS hostnames normally end in `.local`. It ignores a service that resolves to `127.0.0.1` or another loopback address. Select one to four cameras and choose **Start live wall**. Press Back to return to setup. The selection and bridge are saved locally. Each dual-lens camera has its own **View: Split/PiP** button in setup. Changing it sends a command to the camera through the bridge, restarts that camera's stream, and persists on the bridge. PiP uses the lower-right inset.
+Open **Eufy Wall** from the TV launcher. The app discovers `_eufy-wall._tcp` (HTTP port 3000, TXT `rtsp=<RTSP port>`) or accepts a bridge hostname or IP address. Enter `homebridge.lan` to save `http://homebridge.lan:3000` and use that hostname for camera URLs advertised by the bridge. The name must resolve through the device's network resolver; `.lan` is normally supplied by LAN DNS, while mDNS hostnames normally end in `.local`. It ignores a service that resolves to `127.0.0.1` or another loopback address. Add cameras or motion tiles and choose **Start wall**. **Layout** selects the automatic portrait arrangement or a custom 1–6 column × 1–6 row grid. Select a tile card to edit its source, watched cameras, dwell/blank timers, spans, order, or removal. Tile sizes apply in custom grid mode. Press Back to return to setup. The selection and bridge are saved locally. Each dual-lens camera has its own **View: Split/PiP** button in setup. Changing it sends a command to the camera through the bridge, restarts that camera's stream, and persists on the bridge. PiP uses the lower-right inset.
 
 Launcher artwork lives in `assets/icon.svg` and `assets/banner.svg`. The manifest
 supplies both a square icon and a 16:9 banner, with an adaptive square icon on
@@ -28,6 +28,18 @@ working decoder limit, enable bridge transcoding and set `go2rtc.max_height`
 to the highest shared ceiling verified with all displays and concurrent tiles.
 The cap preserves aspect ratio and does not enlarge smaller native streams.
 This requires FFmpeg with a suitable encoder; hardware is tried before software.
+
+## Motion and battery cameras
+
+Fixed battery/on-demand tiles are passive: they show the bridge’s retained snapshot while asleep or waking, and switch to video when the bridge reports live frames. Viewing a fixed tile does not take a camera hold. Missing snapshots show a labeled empty tile. These are retained pictures, not a live view; snapshot loading does not wake the camera.
+
+Add a **Motion tile** to follow the most recent motion among its watched cameras (an empty watch list means all cameras). Minimum dwell prevents rapid switching. **Blank after no motion** releases the selected camera’s hold and blanks that tile; zero keeps the selection visible. Selection uses the TV’s monotonic clock and survives a control reconnect.
+
+On the live wall, use the D-pad to focus a tile and press OK. Battery-camera actions offer **Wake for 2 minutes**; this is an explicit finite lease. Active motion tiles take holds only for their selected non-always-on cameras. Holds are deduplicated by camera, renewed every 20 seconds, and released when no tile needs them or the app enters the background. Serialized asynchronous requests prevent queued renewals from waking a camera after deselection. Always-on cameras rely on the bridge policy.
+
+The setup screen uses focus highlights, descriptive tile cards, and remote-operated dialogs. Back returns to setup. Existing saved camera selections migrate into fixed tiles without changing their order or bridge. Versioned wall settings are saved locally; malformed/future settings fall back to the legacy selection.
+
+Snapshots are fetched on availability/motion changes, not continuously polled. Decoding, pending work, and the cache are bounded. An older response cannot replace a different camera or overwrite resumed live playback.
 
 ## Live playback
 
