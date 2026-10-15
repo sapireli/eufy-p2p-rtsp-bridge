@@ -154,3 +154,37 @@ test("API native rendition advertises learned HEVC geometry while compatible RTS
   assert.equal(api.rtsp,"rtsp://client.test:8554/garage");
   assert.deepEqual(api.nativeRendition,{rtsp:"rtsp://client.test:8554/garage_native",codec:"h265",width:1280,height:1440,freshness:{version:2,mode:"observe",clockUrl:"http://client.test:3000/api/clock"}});
 });
+
+
+test("imported passthrough camera is listed without SDK lookup, source secrets or SDK freshness", async () => {
+  const ctx = ctxWith([wired], { wyze_cam: { name: "Wyze camera", codec: "h264" } });
+  ctx.cfg.go2rtcImported = { streams: { wyze_cam: "wyze://192.0.2.5?enr=synthetic-secret" } };
+  ctx.freshness = { capability: cam => cam.external ? undefined : { mode: "observe" } };
+  const registry = createCameras(ctx);
+  const cameras = await registry.refreshCameras();
+  assert.equal(cameras.length, 2);
+  const cam = registry.getCamera("wyze_cam");
+  assert.equal(cam.external, true);
+  assert.equal(cam.transcode, "never");
+  const api = registry.apiShape(cam, "192.0.2.10");
+  assert.equal(api.rtsp, "rtsp://192.0.2.10:8554/wyze_camera");
+  assert.equal(api.codec, "h264");
+  assert.equal(api.stream, null);
+  assert.equal(api.freshness, undefined);
+  assert.doesNotMatch(JSON.stringify(api), /synthetic-secret|wyze:\/\//);
+});
+
+
+test("imported camera never opens an SDK feed or applies SDK pins", async () => {
+  const { createStreamManager } = await import("../src/stream-manager.mjs");
+  const { createPins } = await import("../src/pins.mjs");
+  const { createFreshness } = await import("../src/freshness.mjs");
+  const ctx = ctxWith([], { wyze_cam: { quality: "HD" } });
+  ctx.cfg.go2rtcImported = { streams: { wyze_cam: "wyze://192.0.2.5?enr=synthetic" } };
+  ctx.sdk = new Proxy({}, { get: () => { throw new Error("external camera reached SDK"); } });
+  Object.assign(ctx, createCameras(ctx));
+  await ctx.refreshCameras();
+  await createStreamManager(ctx).ensureWarm("wyze_cam");
+  assert.deepEqual(await createPins(ctx).applyPins("wyze_cam"), { dualView: "skip", quality: "skip" });
+  assert.equal(createFreshness(ctx).enabledFor(ctx.getCamera("wyze_cam")), false);
+});

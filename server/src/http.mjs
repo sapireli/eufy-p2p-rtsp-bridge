@@ -87,7 +87,7 @@ export function createHttpHandler(ctx) {
     // DELETE /hold/<sn>?owner=<id>             release it early (a tile that stopped showing the camera)
     if (kind === "hold" && arg) {
       const cam = ctx.getCamera?.(arg);
-      if (!cam || !cam.enabled) return json(res, 404, { error: "unknown or disabled camera" });
+      if (!cam || !cam.enabled || cam.external) return json(res, 404, { error: "unknown, disabled or RTSP-only camera" });
       const owner = url.searchParams.get("owner") || `client:${req.socket.remoteAddress ?? "?"}`;
       if (req.method === "DELETE") {
         ctx.holds.release(arg, owner);
@@ -184,7 +184,7 @@ export function createHttpHandler(ctx) {
     // its camera is asleep or still waking, instead of a black rectangle. Never wakes the camera.
     if (kind === "snapshot" && arg) {
       const cam = ctx.getCamera?.(arg);
-      if (!cam || !cam.enabled) return json(res, 404, { error: "unknown or disabled camera" });
+      if (!cam || !cam.enabled || cam.external) return json(res, 404, { error: "unknown, disabled or RTSP-only camera" });
       const jpeg = await ctx.sdk.snapshotStored(arg);
       if (!jpeg) return json(res, 404, { error: "no retained snapshot yet for this camera" });
       res.writeHead(200, {
@@ -199,7 +199,7 @@ export function createHttpHandler(ctx) {
 
     if (kind === "stream" && arg) {
       const cam = ctx.getCamera(arg);
-      if (!cam || !cam.enabled) return json(res, 404, { error: "unknown or disabled camera" });
+      if (!cam || !cam.enabled || cam.external) return json(res, 404, { error: "unknown, disabled or RTSP-only camera" });
       if (ctx.isBlocked(arg)) return json(res, 423, { error: `blocked: ${state.blocked.get(arg)}` });
       const format = url.searchParams.get("format") ?? "annexb";
       if (!["annexb", "mpegts"].includes(format)) return json(res, 400, { error: "unsupported stream format" });

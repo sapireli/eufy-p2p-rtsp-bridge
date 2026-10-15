@@ -14,7 +14,7 @@ export function createFreshness(ctx, { epoch = randomBytes(8), clock = () => pro
   if (!Buffer.isBuffer(epoch) || epoch.length !== 8) throw new Error("freshness epoch must contain 8 bytes");
   const serverEpoch = Buffer.from(epoch);
   function enabledFor(cam) {
-    if (!enabled) return false;
+    if (!enabled || cam?.external) return false;
     const mode = cam?.transcode ?? ctx.cfg.go2rtcTranscode;
     return mode === "never" || (ctx.platform ?? process.platform) === "linux";
   }

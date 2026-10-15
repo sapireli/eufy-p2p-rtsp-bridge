@@ -28,3 +28,17 @@ preventing later packets from continuing a damaged stream. There is no experimen
 enable flag. Updates build or verify the cache before installing atomically. See
 the [server runbook](docs/runbook-server.md) and
 [writer decision and live evidence](docs/evidence/go2rtc-writer-decision-2026-10-12.md).
+
+
+To include a configured Wyze or RTSP camera, set `go2rtc.sources_file` to a private YAML file containing its go2rtc `streams` entries. Imported streams appear alongside Eufy cameras in the wall and use direct passthrough; global Eufy transcoding settings do not apply. Name and codec overrides use the imported stream key:
+
+```yaml
+go2rtc:
+  sources_file: /etc/eufy-wall-external.yaml
+cameras:
+  wyze_cam:
+    name: Wyze Cam
+    codec: h264
+```
+
+Keep the source file and generated go2rtc configuration private: source URLs may contain camera encryption keys. Only stream entries are imported; account passwords and API keys are unnecessary for an already-configured native Wyze source. Imported cameras use RTSP directly and do not advertise Eufy controls or SDK receipt-based freshness. The source file is read at bridge startup, and imported streams survive generated-config refreshes.

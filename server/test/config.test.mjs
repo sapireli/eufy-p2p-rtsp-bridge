@@ -111,3 +111,13 @@ test("VA-API decoding defaults to hardware first and explicit false disables it"
   assert.equal(loadConfig({ env: {}, configPath: unset }).cfg.go2rtcVaapiDecode, true);
   assert.equal(loadConfig({ env: { BRIDGE_GO2RTC_VAAPI_DECODE: "true" }, configPath: unset }).cfg.go2rtcVaapiDecode, true);
 });
+
+
+test("imports private Wyze sources without accepting listener overrides", () => {
+  const sources = tmpYaml('api: {listen: ":1984"}\nstreams: {wyze_cam: "wyze://192.0.2.5?enr=synthetic"}\nwyze: {synthetic: {api_key: synthetic}}\n');
+  const p = tmpYaml(`eufy: {email: a@b.c, password: synthetic}\ngo2rtc: {sources_file: ${JSON.stringify(sources)}}\n`);
+  const { cfg } = loadConfig({ env: {}, configPath: p });
+  assert.equal(cfg.go2rtcImported.streams.wyze_cam, "wyze://192.0.2.5?enr=synthetic");
+  assert.equal(cfg.go2rtcImported.api, undefined);
+  assert.equal(cfg.go2rtcApiPort, 1984);
+});

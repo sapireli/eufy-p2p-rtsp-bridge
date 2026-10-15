@@ -70,6 +70,14 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
   const raw = existsSync(configPath) ? (parse(readFileSync(configPath, "utf8")) ?? {}) : {};
   const dataDir = resolve(env.BRIDGE_DATA_DIR || raw.data_dir || "./data");
   const lanRaw = raw.lan ?? {};
+  const sourcesPath = raw.go2rtc?.sources_file;
+  const imported = sourcesPath ? (parse(readFileSync(resolve(sourcesPath), "utf8")) ?? {}) : {};
+  for (const [key, source] of Object.entries(imported.streams ?? {})) {
+    const urls = Array.isArray(source) ? source : [source];
+    if (!urls.length || urls.some((url) => typeof url !== "string" || !/^(wyze|rtsp|rtsps):\/\//.test(url))) {
+      throw new Error(`imported go2rtc stream ${key} requires a Wyze or RTSP source`);
+    }
+  }
   const cfg = {
     email: env.EUFY_EMAIL || raw.eufy?.email,
     password: env.EUFY_PASSWORD || raw.eufy?.password,
@@ -82,6 +90,7 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     dataDir,
     session: resolve(dataDir, ".eufy-session.json"),
     go2rtcConfig: resolve(dataDir, "go2rtc.yaml"),
+    go2rtcImported: { streams: imported.streams ?? {} },
     go2rtcBin: env.GO2RTC_BIN || raw.go2rtc_bin || "go2rtc",
     // How go2rtc should egress each camera. "never" (default) passes the device bitstream through with
     // -c:v copy: the wall decodes H.265 in hardware, so there is nothing to gain from re-encoding on the

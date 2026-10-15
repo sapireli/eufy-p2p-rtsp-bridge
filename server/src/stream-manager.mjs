@@ -169,7 +169,7 @@ export function createStreamManager(ctx) {
    */
   async function ensureWarm(sn) {
     const cam = ctx.getCamera?.(sn);
-    if (cam && !cam.enabled) return;
+    if (cam && (!cam.enabled || cam.external)) return;
     if (!wanted(sn)) return;
     const slot = slotFor(sn);
     if (slot.feed || slot.opening) return;
@@ -259,6 +259,7 @@ export function createStreamManager(ctx) {
   }
 
   function streamStatus(sn) {
+    if (ctx.getCamera?.(sn)?.external) return ctx.go2rtcStreamStatus?.(sn) ?? { streaming: false, stalls: 0 };
     const s = state.slots.get(sn);
     if (!s) return { streaming: false, stalls: 0, consumers: 0, failures: 0 };
     return {
@@ -284,6 +285,7 @@ export function createStreamManager(ctx) {
   /** Every 2 s: stall → restart; gap → drop consumers so go2rtc reconnects cleanly; long failure → exit. */
   function streamTick(now = Date.now()) {
     for (const slot of state.slots.values()) {
+      if (ctx.getCamera?.(slot.sn)?.external) continue;
       // A reopened feed gets a fresh stallMs window from startedAt — lastBytesAt from a prior
       // (now-closed) feed must not count as silence against the new one.
       const since = Math.max(slot.lastBytesAt, slot.startedAt);

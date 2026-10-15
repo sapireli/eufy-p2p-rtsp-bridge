@@ -69,6 +69,16 @@ export function createCameras(ctx) {
         dualView: isDual ? (ctx.viewModes?.get(m.sn) ?? c.dualView ?? ctx.cfg.defaults.dualView) : null,
       });
     }
+    for (const key of Object.keys(ctx.cfg.go2rtcImported?.streams ?? {})) {
+      if (out.some((camera) => camera.sn === key)) throw new Error(`imported camera id conflicts with SDK camera: ${key}`);
+      const c = ctx.cfg.cameras[key] ?? {};
+      if (c.mode && c.mode !== "always") throw new Error(`imported camera ${key} supports always mode only`);
+      if (c.transcode && c.transcode !== "never") throw new Error(`imported camera ${key} uses direct passthrough`);
+      out.push({ sn: key, name: c.name ?? key, model: "external", modelName: "go2rtc camera",
+        external: true, enabled: c.enabled ?? true, powered: true, powerOverride: "auto", mode: "always",
+        holdSeconds: ctx.cfg.defaults.holdSeconds, quality: null, codec: c.codec, transcode: "never",
+        isDual: false, dualView: null });
+    }
     cache = out;
     return out;
   }
@@ -101,7 +111,7 @@ export function createCameras(ctx) {
       dual: cam.isDual,
       dualView: cam.dualView,
       quality: cam.quality,
-      codec: st.codec,
+      codec: st.codec ?? cam.codec,
       width: st.width,
       height: st.height,
       streaming: Boolean(st.streaming),
@@ -119,7 +129,7 @@ export function createCameras(ctx) {
       ...(nativeRenditionFor(ctx, cam, host) ? { nativeRendition: nativeRenditionFor(ctx, cam, host) } : {}),
       ...(st.freshness ? { freshnessStatus: st.freshness } : {}),
       ...(st.sourceReceipt ? { sourceReceipt: st.sourceReceipt } : {}),
-      stream: `/stream/${cam.sn}`,
+      stream: cam.external ? null : `/stream/${cam.sn}`,
     };
   }
 

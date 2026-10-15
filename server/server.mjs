@@ -108,7 +108,7 @@ ctx.completeBoot = async function completeBoot() {
     ctx.holds.start();
     const onMotion = enabled.filter((c) => c.mode === "on_motion").map((c) => c.sn);
     if (onMotion.length) console.log(`[bridge] on-motion cameras (idle until an event): ${onMotion.join(", ")}`);
-    timers.stream ??= setInterval(() => ctx.streamTick(), 2000);
+    timers.stream ??= setInterval(() => { ctx.streamTick(); void ctx.refreshExternalStreams(); }, 2000);
     timers.watchdog ??= setInterval(() => void ctx.watchdogTick(), 2 * 60_000);
     console.log(`[bridge] ready — ${enabled.length} always-on camera(s); RTSP at rtsp://<this-host>:${cfg.rtspPort}/<sn>`);
   } finally {

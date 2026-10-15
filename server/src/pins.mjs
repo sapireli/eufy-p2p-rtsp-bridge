@@ -21,7 +21,7 @@ export function createPins(ctx) {
   async function applyPins(sn, { force = false } = {}) {
     const cam = ctx.getCamera(sn);
     const result = { dualView: "skip", quality: "skip" };
-    if (!cam || !cam.enabled) return result;
+    if (!cam || !cam.enabled || cam.external) return result;
     const last = lastPinnedAt.get(sn) ?? 0;
     if (!force && Date.now() - last < REPIN_MIN_GAP_MS) return { dualView: "recent", quality: "recent" };
     lastPinnedAt.set(sn, Date.now());

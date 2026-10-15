@@ -32,7 +32,7 @@ export function createWsHub(ctx) {
         .filter((c) => c.enabled)
         .map(async (c) => ({
           camera: c,
-          still: Boolean(await ctx.sdk?.snapshotStored?.(c.sn).catch(() => undefined)),
+          still: !c.external && Boolean(await ctx.sdk?.snapshotStored?.(c.sn).catch(() => undefined)),
         })),
     );
     // Read live state after asynchronous thumbnail lookups. Otherwise a live

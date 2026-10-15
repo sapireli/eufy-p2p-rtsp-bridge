@@ -43,7 +43,7 @@ export function createLanUpgrade(ctx) {
   const machine = (station) => st.get(station) ?? st.set(station, { mode: "relay", attempts: 0, deadline: 0, nextTryAt: 0, sawLan: false }).get(station);
   const stationsOf = () => {
     const m = new Map(); // stationSn -> [camSn] (enabled cams only)
-    for (const c of ctx.listCameras?.() ?? []) if (c.enabled) (m.get(c.stationSn) ?? m.set(c.stationSn, []).get(c.stationSn)).push(c.sn);
+    for (const c of ctx.listCameras?.() ?? []) if (c.enabled && !c.external) (m.get(c.stationSn) ?? m.set(c.stationSn, []).get(c.stationSn)).push(c.sn);
     return m;
   };
   const anyStreaming = (cams) => cams.some((sn) => state.streaming.has(sn));

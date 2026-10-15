@@ -130,7 +130,7 @@ export function createGo2rtc(ctx) {
   /** The egress suffix each enabled camera should get right now, keyed by sn. */
   function egressPlan(cameras = ctx.listCameras().filter((x) => x.enabled)) {
     const plan = {};
-    for (const c of cameras) plan[c.sn] = egressFor(codecOf(c.sn), c.transcode ?? cfg.go2rtcTranscode, cfg.go2rtcMaxHeight, platform, cfg.go2rtcVaapiDevice);
+    for (const c of cameras) if (!c.external) plan[c.sn] = egressFor(codecOf(c.sn), c.transcode ?? cfg.go2rtcTranscode, cfg.go2rtcMaxHeight, platform, cfg.go2rtcVaapiDevice);
     return plan;
   }
   let lastPlan = {}, lastNativePlan = "";
@@ -140,7 +140,7 @@ export function createGo2rtc(ctx) {
     const stagingPath = `${cfg.go2rtcConfig}.${randomUUID()}.tmp`;
     try {
     const cameras = ctx.listCameras().filter((c) => c.enabled);
-    const devices = cameras.map((c) => ({ sn: c.sn, stream: `/stream/${c.sn}` }));
+    const devices = cameras.filter((c) => !c.external).map((c) => ({ sn: c.sn, stream: `/stream/${c.sn}` }));
     const sns = await writeGo2rtcConfig({ ...cfg, go2rtcConfig: stagingPath }, devices);
     // The vendored generator always emits "#video=copy"; rewrite each source to this camera's egress mode.
     const plan = egressPlan(cameras), nativeSnapshot = nativePlan(cameras);
@@ -193,13 +193,18 @@ export function createGo2rtc(ctx) {
     text = withNamedStreams(text, cameras);
     {
       const doc = parseDocument(text);
+      const imported = cfg.go2rtcImported ?? {};
+      const namedKeys = streamKeys(cameras);
+      for (const camera of cameras.filter((c) => c.external)) {
+        doc.setIn(["streams", namedKeys.get(camera.sn)], imported.streams[camera.sn]);
+      }
       const keys = nativeStreamKeys(cameras);
       for (const sn of nativeSnapshot.split("|").filter(Boolean)) {
         doc.setIn(["streams", keys.get(sn)], `http://${cfg.selfHost}:${cfg.port}/timed-stream/${sn}?rendition=native`);
       }
       text = doc.toString();
     }
-    await writeFile(stagingPath, text, "utf8");
+    await writeFile(stagingPath, text, { encoding: "utf8", mode: 0o600 });
     await rename(stagingPath, cfg.go2rtcConfig);
     lastNativePlan = nativeSnapshot;
     lastPlan = plan;
@@ -229,6 +234,51 @@ export function createGo2rtc(ctx) {
     await ctx.ws?.broadcastSnapshot?.();
   });
 
+  const importedStatus = new Map();
+  let importedPollRunning = false;
+
+  /** Direct-source liveness is measured from go2rtc bytes, independently of SDK media state. */
+  async function refreshExternalStreams() {
+    const cameras = ctx.listCameras().filter((c) => c.enabled && c.external);
+    if (!cameras.length || importedPollRunning) return;
+    importedPollRunning = true;
+    try {
+      const response = await fetch(`http://127.0.0.1:${cfg.go2rtcApiPort ?? 1984}/api/streams`, { signal: AbortSignal.timeout(1500) });
+      if (!response.ok) throw new Error("go2rtc stream status unavailable");
+      const streams = await response.json();
+      const keys = streamKeys(ctx.listCameras().filter((c) => c.enabled));
+      for (const camera of cameras) {
+        const previous = importedStatus.get(camera.sn);
+        const producers = streams[keys.get(camera.sn)]?.producers ?? [];
+        const video = producers.flatMap((p) => p.receivers ?? []).find((r) => r.codec?.codec_type === "video");
+        const bytes = producers.flatMap((p) => p.receivers ?? []).filter((r) => r.codec?.codec_type === "video")
+          .reduce((total, receiver) => total + (receiver.bytes ?? 0), 0);
+        const now = Date.now();
+        const lastProgressAt = bytes > 0 && bytes !== previous?.bytes ? now : (previous?.lastProgressAt ?? 0);
+        const streaming = Boolean(video) && lastProgressAt > 0 && now - lastProgressAt < 6000;
+        importedStatus.set(camera.sn, { bytes, lastProgressAt, streaming, codec: video?.codec?.codec_name ?? camera.codec });
+        if (streaming) state.streaming.add(camera.sn);
+        else state.streaming.delete(camera.sn);
+        if (streaming !== Boolean(previous?.streaming)) ctx.broadcastEvent?.({ type: "streamState", sn: camera.sn, state: streaming ? "live" : "idle" });
+      }
+    } catch {
+      for (const camera of cameras) {
+        const previous = importedStatus.get(camera.sn);
+        if (previous?.streaming) ctx.broadcastEvent?.({ type: "streamState", sn: camera.sn, state: "idle" });
+        importedStatus.set(camera.sn, { ...previous, streaming: false });
+        state.streaming.delete(camera.sn);
+      }
+    } finally {
+      importedPollRunning = false;
+    }
+  }
+
+  /** Public status omits source URLs and transport credentials. */
+  function go2rtcStreamStatus(sn) {
+    const status = importedStatus.get(sn);
+    return { streaming: status?.streaming ?? false, codec: status?.codec, stalls: 0 };
+  }
+
   function startGo2rtc() {
     if (state.flags.go2rtcProc || stopping) return;
     const proc = spawn(cfg.go2rtcBin, ["-config", cfg.go2rtcConfig], { stdio: ["ignore", "inherit", "inherit"] });
@@ -251,5 +301,5 @@ export function createGo2rtc(ctx) {
     state.flags.go2rtcProc?.kill();
   }
 
-  return { writeGo2rtc, syncGo2rtc, startGo2rtc, stopGo2rtc };
+  return { writeGo2rtc, syncGo2rtc, startGo2rtc, stopGo2rtc, refreshExternalStreams, go2rtcStreamStatus };
 }

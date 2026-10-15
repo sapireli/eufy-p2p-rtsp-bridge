@@ -207,3 +207,32 @@ test("failed config generation never replaces the last valid published config", 
   assert.deepEqual(readdirSync(dir),["go2rtc.yaml"]);
   fail=false;await g.writeGo2rtc();assert.equal(readFileSync(cfg.go2rtcConfig,"utf8"),prior,"a failed queue item does not poison future updates");
 });
+
+
+test("imported camera stays direct across config regeneration and reports actual go2rtc progress", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ewb-imported-"));
+  const source = "wyze://192.0.2.5?enr=synthetic-secret";
+  const cfg = { go2rtcConfig: join(dir, "go2rtc.yaml"), selfHost: "127.0.0.1", port: 3000,
+    go2rtcTranscode: "always", go2rtcImported: { streams: { WYZE: source } } };
+  const state = createState();
+  const cameras = [{sn: "EUFY", name: "Eufy", enabled: true}, {sn: "WYZE", name: "Wyze", enabled: true, external: true, codec: "h264"}];
+  const g = createGo2rtc({ cfg, state, listCameras: () => cameras });
+  for (let i = 0; i < 2; i++) {
+    await g.writeGo2rtc();
+    const doc = parse(readFileSync(cfg.go2rtcConfig, "utf8"));
+    assert.equal(doc.streams.wyze, source);
+    assert.doesNotMatch(doc.streams.wyze, /ffmpeg|timed-stream/);
+    assert.equal(doc.api.listen, "127.0.0.1:1984");
+  }
+  const oldFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => ({ok: true, json: async () => ({wyze: {producers: [{receivers: [{bytes: 100, codec: {codec_type: "video", codec_name: "h264"}}]}]}})});
+    await g.refreshExternalStreams();
+    assert.deepEqual(g.go2rtcStreamStatus("WYZE"), {streaming: true, codec: "h264", stalls: 0});
+    assert.equal(state.streaming.has("WYZE"), true);
+    globalThis.fetch = async () => { throw new Error("offline"); };
+    await g.refreshExternalStreams();
+    assert.equal(g.go2rtcStreamStatus("WYZE").streaming, false);
+    assert.equal(state.streaming.has("WYZE"), false);
+  } finally { globalThis.fetch = oldFetch; }
+});
