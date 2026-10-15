@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -70,13 +71,40 @@ func RunWithFallback(ctx context.Context, bin string, args, fallback []string, r
 			log(fmt.Sprintf("start failed: %v", err))
 		} else {
 			log(fmt.Sprintf("started pid %d", cmd.Process.Pid))
-			go pump(stdout, log)
-			go pump(stderr, log)
+			fatal := make(chan struct{}, 1)
+			output := func(line string) {
+				log(line)
+				// gst-launch can hang while tearing down a failed hardware pipeline.
+				// A fatal bus error already ended playback; warnings are recoverable.
+				if strings.HasPrefix(line, "ERROR:") {
+					select {
+					case fatal <- struct{}{}:
+					default:
+					}
+				}
+			}
+			go pump(stdout, output)
+			go pump(stderr, output)
 			waited := make(chan error, 1)
 			go func() { waited <- cmd.Wait() }()
 			select {
 			case err := <-waited:
 				log(fmt.Sprintf("exited after %s: %v", time.Since(start).Round(time.Second), err))
+			case <-fatal:
+				// Allow normal teardown first, then bound TERM-resistant drivers.
+				select {
+				case <-waited:
+				case <-time.After(5 * time.Second):
+					log("fatal pipeline error: teardown stalled; terminating process")
+					_ = cmd.Process.Signal(syscall.SIGTERM)
+					select {
+					case <-waited:
+					case <-time.After(5 * time.Second):
+						log("fatal pipeline error: teardown ignored TERM; killing process")
+						_ = cmd.Process.Kill()
+						<-waited
+					}
+				}
 			case <-ctx.Done():
 				_ = cmd.Process.Signal(syscall.SIGTERM)
 				select {

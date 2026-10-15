@@ -138,6 +138,57 @@ func TestBackoffSchedule(t *testing.T) {
 	}
 }
 
+func TestFatalErrorRestartsProcessThatIgnoresTerm(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{}, 8)
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, "sh", []string{"-c", "trap '' TERM; echo 'ERROR: from element /GstPipeline: Watchdog triggered' >&2; exec sleep 60"}, config.Restart{}, func(line string) {
+			if strings.HasPrefix(line, "started pid ") {
+				started <- struct{}{}
+			}
+		})
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(13 * time.Second):
+			cancel()
+			<-done
+			t.Fatal("fatal pipeline stayed alive instead of restarting")
+		}
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(12 * time.Second):
+		t.Fatal("supervisor did not stop")
+	}
+}
+
+func TestWarningDoesNotRestartRunningProcess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{}, 8)
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, "sh", []string{"-c", "echo 'WARNING: recoverable decoder message' >&2; exec sleep 60"}, config.Restart{}, func(line string) {
+			if strings.HasPrefix(line, "started pid ") {
+				started <- struct{}{}
+			}
+		})
+	}()
+	<-started
+	select {
+	case <-started:
+		t.Error("warning restarted a running pipeline")
+	case <-time.After(6 * time.Second):
+	}
+	cancel()
+	<-done
+}
+
 func TestNativeFailureFallsBackOnceAndRetriesCompatible(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "player")
