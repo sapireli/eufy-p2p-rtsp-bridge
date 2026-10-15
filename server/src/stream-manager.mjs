@@ -1,7 +1,6 @@
 import { hevcProfileTierLevel } from "./codec-capability.mjs";
 // Always-on media core. One Slot per enabled camera holds the SDK's Annex-B Readable ("feed"), fans its
-// chunks out to HTTP consumers (go2rtc), and is watched for stalls. Watchdog thresholds are ported from
-// eufy-frigate-bridge (12 s stall / 45 s gap / 300 s exit), which were calibrated over a 19 h run.
+// chunks out to HTTP consumers (go2rtc), and is watched for startup and playback stalls.
 import { newSlot } from "./state.mjs";
 import { newVideoMpegTsMuxer } from "./video-mpegts.mjs";
 
@@ -37,6 +36,7 @@ export function createStreamManager(ctx) {
       slot.lastReceipt = receipt;
     }
     slot.lastBytesAt = now;
+    slot.receivedMedia = true;
     slot.firstFailureAt = 0;
     slot.failures = 0;
     slot.backoffIdx = 0;
@@ -219,6 +219,7 @@ export function createStreamManager(ctx) {
       }
       slot.feed = feed;
       slot.startedAt = Date.now();
+      slot.receivedMedia = false;
       feed.on("data", (chunk) => {
         try { onChunk(slot, chunk); } catch (error) { feed.destroy(error); }
       });
@@ -290,7 +291,9 @@ export function createStreamManager(ctx) {
       // (now-closed) feed must not count as silence against the new one.
       const since = Math.max(slot.lastBytesAt, slot.startedAt);
       const silent = since ? now - since : 0;
-      const stallMs = globalThis.__ewStallMs ?? cfg.stall.stallMs; // runtime-tunable for multi-channel tests
+      const stallMs = globalThis.__ewStallMs ?? (slot.receivedMedia
+        ? cfg.stall.stallMs
+        : (cfg.stall.startupStallMs ?? cfg.stall.stallMs));
       if (slot.feed && silent >= stallMs && !wanted(slot.sn)) {
         closeFeed(slot); // its hold went away mid-stream; stopping is not a stall
         continue;

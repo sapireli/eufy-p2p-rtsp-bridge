@@ -239,6 +239,35 @@ test("stall → feed destroyed and reopened with backoff; gap → consumers ende
   }
 });
 
+test("playback stalls after five seconds while reopened feeds retain their first-media window", async () => {
+  const f1 = new PassThrough(), f2 = new PassThrough();
+  const ctx = ctxWith({ feeds: [() => f1, () => f2] });
+  ctx.cfg.stall.stallMs = 5000;
+  ctx.cfg.stall.startupStallMs = 30000;
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    const slot = ctx.state.slots.get("A");
+    const start = slot.startedAt;
+    sm.streamTick(start + 6000);
+    assert.equal(f1.destroyed, false, "new feed must not use the playback deadline");
+    f1.write(KEY);
+    const mediaAt = slot.lastBytesAt;
+    sm.streamTick(mediaAt + 4999);
+    assert.equal(f1.destroyed, false);
+    sm.streamTick(mediaAt + 5000);
+    assert.equal(f1.destroyed, true, "established feed must restart after five seconds of silence");
+    await waitUntil(() => ctx.opens() === 2);
+    assert.equal(slot.feed, f2);
+    sm.streamTick(slot.startedAt + 6000);
+    assert.equal(f2.destroyed, false, "previous feed media must not shorten the new startup window");
+    sm.streamTick(slot.startedAt + 30000);
+    assert.equal(f2.destroyed, true, "startup window remains bounded");
+  } finally {
+    await sm.stopAll();
+  }
+});
+
 test("reopened feed gets a fresh stall window instead of being re-stalled immediately", async () => {
   const f1 = new PassThrough(), f2 = new PassThrough();
   const ctx = ctxWith({ feeds: [() => f1, () => f2] });

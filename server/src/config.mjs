@@ -145,11 +145,10 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     },
     cameras: Object.fromEntries(Object.entries(raw.cameras ?? {}).map(([sn, c]) => [sn, cameraEntry(sn, c ?? {})])),
     stall: {
-      // 30 s, not 12 s: a HomeBase-attached camera can briefly go silent while the station favours a
-      // sibling channel, and the SDK's own LiveStream re-assert recovers it within a few seconds. Tearing
-      // the feed down too eagerly fights that recovery and makes co-located cameras flap. A truly dead
-      // session is caught faster by the SDK's heartbeat (feed error/close), not this timer.
-      stallMs: Number(raw.stall?.stall_ms ?? 30_000),
+      // Bound silence during playback separately from opening a feed. A new feed
+      // needs time for connection/keyframe negotiation before its first media.
+      stallMs: Number(raw.stall?.stall_ms ?? 5_000),
+      startupStallMs: Number(raw.stall?.startup_stall_ms ?? 30_000),
       gapMs: Number(raw.stall?.gap_ms ?? 45_000),
       exitAfterMs: Number(raw.stall?.exit_after_ms ?? 300_000),
       // Tear the whole STATION session down only after this many consecutive failures (0 = never). A
