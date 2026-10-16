@@ -44,6 +44,16 @@ test("hardware decoding avoids frame-thread delay without limiting software fall
   }
 });
 
+test("explicit output geometry remains identical across hardware and software attempts", () => {
+  const attempts = transcodeAttempts(args, { outputGeometry: { width: 1920, height: 1080 } });
+  assert.ok(attempts[0].args.includes("scale_vaapi=w=1920:h=1080:format=nv12"));
+  assert.ok(attempts[1].args.includes("scale=1920:1080,format=nv12,hwupload"));
+  assert.ok(attempts[2].args.includes("scale=1920:1080,format=yuv420p"));
+  for (const outputGeometry of [{width:0,height:1080},{width:1921,height:1080},{width:1920,height:20000}]) {
+    assert.throws(() => transcodeAttempts(args, { outputGeometry }), /geometry/);
+  }
+});
+
 test("no-resize and explicit decoder override still retain encoder fallback", () => {
   const a = [...args]; a[a.indexOf("--eufy-vaapi") + 2] = "0";
   assert.ok(transcodeAttempts(a)[0].args.includes("scale_vaapi=format=nv12"));

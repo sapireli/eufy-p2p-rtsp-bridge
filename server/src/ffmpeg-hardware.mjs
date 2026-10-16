@@ -10,11 +10,14 @@ export function renderNodes() {
   catch { return []; }
 }
 
-export function transcodeAttempts(argv, { devices = renderNodes() } = {}) {
+export function transcodeAttempts(argv, { devices = renderNodes(), outputGeometry } = {}) {
   const at = argv.indexOf("--eufy-vaapi");
   if (at < 0) return [{ name: "passthrough", args: argv }];
   const [device, heightText, preference] = argv.slice(at + 1, at + 4);
   const height = Number(heightText);
+  if (outputGeometry && (![outputGeometry.width, outputGeometry.height].every((n) => Number.isInteger(n) && n >= 2 && n <= 16384 && n % 2 === 0))) {
+    throw new Error("Invalid stable output geometry");
+  }
   if (!device || !Number.isInteger(height) || height < 0 || !["auto", "encode"].includes(preference)) {
     throw new Error("Invalid --eufy-vaapi device/height/preference");
   }
@@ -32,13 +35,13 @@ export function transcodeAttempts(argv, { devices = renderNodes() } = {}) {
   };
   // A maximum is a ceiling: smaller native streams keep their dimensions.
   const cappedHeight = `min(ih,${height})`;
-  const resize = height ? `scale=-2:'${cappedHeight}':eval=frame,` : "";
+  const resize = outputGeometry ? `scale=${outputGeometry.width}:${outputGeometry.height},` : height ? `scale=-2:'${cappedHeight}':eval=frame,` : "";
   const nodes = device === "auto" ? devices : [device];
   // Frame threading holds future frames even with VAAPI decoding. Slice-only
   // threading retains automatic intra-frame parallelism without that hold.
   const hardware = nodes.map((node) => ({ ...build("hardware-decode-encode", ["-init_hw_device", `vaapi=ewb_vaapi:${node}`,
     "-filter_hw_device", "ewb_vaapi", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-hwaccel_device", "ewb_vaapi", "-thread_type:v", "slice"],
-    `scale_vaapi=${height ? `w=-2:h='${cappedHeight}':` : ""}format=nv12`, "h264_vaapi"), device: node }));
+    `scale_vaapi=${outputGeometry ? `w=${outputGeometry.width}:h=${outputGeometry.height}:` : height ? `w=-2:h='${cappedHeight}':` : ""}format=nv12`, "h264_vaapi"), device: node }));
   const mixed = nodes.map((node) => ({ ...build("software-decode-hardware-encode", ["-vaapi_device", node],
     `${resize}format=nv12,hwupload`, "h264_vaapi"), device: node }));
   const software = build("software-decode-encode", [], `${resize}format=yuv420p`, "libx264",

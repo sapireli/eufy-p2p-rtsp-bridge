@@ -76,8 +76,20 @@ test("fresh encoder arguments retain hardware-first software fallback, copyts an
   assert.deepEqual(attempts.map((a) => a.name), ["hardware-decode-encode", "software-decode-hardware-encode", "software-decode-encode"]);
   for (const { args: expanded } of attempts) {
     assert.ok(expanded.includes("-copyts"));
+    assert.ok(expanded.includes("-noautoscale"));
+    assert.equal(expanded[expanded.indexOf("-reinit_filter")+1], "1");
     for (const [name, value] of [["-fps_mode:v","passthrough"],["-enc_time_base:v","1:90000"],["-stats_mux_pre_fmt","{n} {pts} {tb} {size}"],["-f","data"]]) assert.equal(expanded[expanded.lastIndexOf(name)+1], value);
   }
+});
+
+test("production egress pins explicit canvas before hardware encoder startup", () => {
+  let launched;
+  const h = harness({ mode: "always", spawnFn: (_bin, args) => { launched=args; return fakeProcess(); } });
+  h.ctx.cfg.go2rtcMaxHeight=1080;
+  h.feed();
+  assert.ok(launched.includes("scale_vaapi=w=1440:h=1080:format=nv12"));
+  assert.ok(launched.includes("-noautoscale"));
+  h.stop();
 });
 test("direct copy retains expired reference stamps so a fresh inter frame recovers without another keyframe", () => {
   const h = harness();
@@ -168,6 +180,8 @@ test("encoder input queue has a hard bound instead of silently dropping referenc
   assert.equal(h.res.writes.length,0);
   assert.equal(child.stdin.writableLength,0,"oversized input is rejected before queueing bytes");
 });
+
+
 test("real continuously fed production transcoder delivers stamped frames before stdin EOF", async (t) => {
   if(spawnSync("ffmpeg",["-version"]).status!==0)return t.skip("ffmpeg unavailable");
   const dir=mkdtempSync(join(tmpdir(),"ewb-fresh-continuous-"));
