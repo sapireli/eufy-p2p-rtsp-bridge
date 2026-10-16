@@ -99,8 +99,7 @@ final server run passed 241 of 242 tests. The unchanged observer clock-stall
 fixture emitted 240 pictures in 6.2 seconds and failed its `>250` count guard;
 it reported zero invalid transport pictures. The fixture and observer script
 were unchanged from the pre-investigation revision. Repeating that test in
-isolation and in a serial suite still failed the count guard. This was not
-hidden or changed to make the suite green. Server test output is retained in
+a focused group and in a serial suite still failed the count guard. Server test output is retained in
 `server-tests-serial.log` with the private records.
 
 The final live bridge configuration restores hardware-first attempts after the
