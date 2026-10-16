@@ -118,3 +118,66 @@ Source SHA-256: `d16c9f15f1d087a4b980f7e36b223ad5e9c68636ef3b56ac6fe98138906afd1
 114-picture excerpt: `db93bc1787d925da27f2c9fcd26b2dc1eb17dec7c0d687e8066f2d72cb9295af`.
 Production Matroska: `eafa893b91611cf60e2d704c5d1db878486a8198de33b80a09bdb1d7890894a5`.
 TV APK: `50978453185fbc2327fb8cc3133b2f1da120cab91b0e0abe1270599edb38c3c4`.
+
+
+## Follow-up: reduced TV load and transcode-stage comparison
+
+At approximately 18:41 EDT on October 16, both TVs displayed Front Door,
+Balcony, and Garage. Front Door and Balcony used hardware AVC decoding;
+Garage used software decoding. In a 32-second observation, every sampled
+camera decoder queue stayed at zero. Balcony decode-pending time was
+0–39 ms, while its bridge-ingress age rose to 4.6–4.7 seconds on both TVs.
+The previous Balcony TV software-decoder backlog was absent in this check.
+
+The live bridge still had exactly three FFmpeg processes, one per active
+compatible Eufy stream, and Balcony restarted about every 24 seconds after
+its 120-picture outstanding-work bound was exceeded. That bound covers
+input/demux, decoding, filtering, encoding, and output/stats joining; its
+name alone does not localize the slow stage to the encoder.
+
+Bounded replay used the previously retained 114-picture Matroska fixture.
+The following comparisons ran alongside the three live transcoders and wrote
+encoded data to `/dev/null` and packet statistics to local files. Every run
+finished with 114 pictures, exit zero, and no FFmpeg error output.
+
+| Pipeline | Wall seconds | Pictures per wall second |
+| --- | ---: | ---: |
+| Exact production hardware decode/scale/encode | 7.948 | 14.34 |
+| Hardware decode/scale, no encoder | 0.935 | 121.90 |
+| Software decode, hardware encode | 9.062 | 12.58 |
+| Production with encoder async depth 4 | 7.470 | 15.26 |
+| Production with encoder async depth 8 | 8.249 | 13.82 |
+| Fixed-1080 fixture, production scaling | 8.739 | 13.05 |
+| Same fixed-1080 fixture, direct decode/encode without scaling | 9.188 | 12.41 |
+
+These comparisons localize the large added cost to hardware encoding/output
+rather than decoding/scaling alone. They reproduce the slowdown without HTTP
+output or player backpressure. Removing scaling and changing async depth did
+not establish a useful improvement; neither change was retained.
+
+A final controlled comparison briefly stopped the bridge, confirmed there
+were no remaining FFmpeg processes, and replayed the identical production
+fixture and arguments. It completed 114 pictures in 5.480 seconds, exit zero,
+without errors. FFmpeg reported 23.12 fps at completion; the whole-process
+rate including initialization was 20.80 fps. Thus competition worsened this
+short replay, but removing it did not establish adequate single-stream
+throughput. The service was restarted in a `finally` block; health subsequently
+reported authentication OK, go2rtc running, and all three Eufy sources active.
+Balcony backlog restarts subsequently recurred.
+
+These short fixtures include initialization and resolution-change costs.
+They do not establish a sustained standalone GPU ceiling or prove an intrinsic
+silicon limit rather than a driver/encoder-path limitation. No performance
+fix passed this iteration, and playback is not declared fixed.
+
+A three-picture debug run showed actual VA-API H.264 CQP settings of QP20 for
+IDR/P pictures, not lossless QP0. The driver exposed the normal EncSlice path.
+There is no evidence here that an accidentally lossless configuration or an
+explicit highest-quality speed preset caused the slowdown. Quantization,
+resolution, frame rate, hardware-first order, and software fallback were left
+unchanged.
+
+Private records: `encoder-stage-results.tgz`,
+`encoder-stage-shared-load.tar.gz`, remote `stage-default-debug.log`, and
+`/tmp/tv-current-load-20261016/` on the workstation. No SDK, client, or server
+runtime source was changed in this follow-up.
