@@ -75,6 +75,7 @@ class MainActivity : Activity() {
     }
     private val states = mutableMapOf<String, String>()
     private val players = mutableMapOf<String, LowLatencyRtspPlayer>()
+    private val playbackContracts = mutableMapOf<String, PlaybackContract>()
     private val nativeFallback = NativeFallback()
     private var nativeProfileProbeUntil = 0L
     private val frameWatchdogs = mutableMapOf<String, Runnable>()
@@ -561,11 +562,8 @@ class MainActivity : Activity() {
                 }
                 return
             }
-            val native = cam.nativeRendition?.takeIf { nativeFallback.permits(cam.sn) }
-            val hardware = native?.let { nativeHardwareDecoder(it, BuildConfig.DEBUG && SystemClock.elapsedRealtime() < nativeProfileProbeUntil) }
-            val playback = if (native != null && hardware != null) cam.copy(rtsp = native.rtsp,
-                width = native.width, height = native.height, freshness = native.freshness,
-                nativeDecoderName = hardware, rtspTcpPacketSize = null) else cam
+            val playback = selectPlayback(cam)
+            val hardware = playback.nativeDecoderName
             android.util.Log.i("EufyWallTV", "Rendition $sn: ${if (playback.nativeDecoderName != null) "native HEVC hardware=$hardware ${playback.width}x${playback.height}" else "compatibility (native absent, unsupported, or failed)"}")
             label.text = "${cam.name} • connecting"
             val startedAt = SystemClock.elapsedRealtime()
@@ -601,6 +599,7 @@ class MainActivity : Activity() {
                 onFailure = { message, decoder -> retry(message, decoder) },
                 onFreshnessState = { message -> if (players[sn] === player) label.text = "${cam.name} • ${message ?: "capture age unverified"}" })
             players[sn] = player
+            playbackContracts[sn] = playback.playbackContract()
             surfaces[sn]?.addView(player.view, FrameLayout.LayoutParams(-1, -1))
             var lastLogAt = 0L
             val decoderWatchdog = DecoderProgressWatchdog(firstFrameTimeoutMs, liveFrameTimeoutMs)
@@ -638,7 +637,19 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun selectPlayback(camera: Camera): Camera = selectedPlayback(camera, nativeFallback.permits(camera.sn)) {
+        nativeHardwareDecoder(it, BuildConfig.DEBUG && SystemClock.elapsedRealtime() < nativeProfileProbeUntil)
+    }
+
+    private fun releaseChangedPlayback(camera: Camera, reason: String) {
+        val tiles = resolvedTiles.filterValues { it.camera == camera.sn }.keys.filter { players.containsKey(it) }
+        if (tiles.isEmpty()) return
+        val selected = selectPlayback(camera).playbackContract()
+        tiles.filter { playbackContracts[it] != selected }.forEach { release(it, reason) }
+    }
+
     private fun release(sn: String, reason: String) {
+        playbackContracts.remove(sn)
         frameWatchdogs.remove(sn)?.let { ui.removeCallbacks(it) }
         val player = players.remove(sn) ?: return
         android.util.Log.i("EufyWallTV", "Player released sn=$sn reason=$reason decodedFrames=${player.decodedFrames.get()} receivedUnits=${player.receivedUnits.get()}")
@@ -703,7 +714,7 @@ class MainActivity : Activity() {
                                                 hasStill = item.optBoolean("still"), rtsp = item.optString("rtsp", camera.rtsp), freshness = cap,
                                                 nativeRendition = parseNativeRendition(item.optJSONObject("nativeRendition")))
                                             if (updated.rtsp != camera.rtsp || updated.freshness != camera.freshness || updated.nativeRendition != camera.nativeRendition)
-                                                resolvedTiles.filterValues { it.camera == sn }.keys.toList().forEach { release(it, "hello-metadata-changed") }
+                                                releaseChangedPlayback(updated, "hello-metadata-changed")
                                             updated
                                         }
                                     }
@@ -727,7 +738,7 @@ class MainActivity : Activity() {
                                 if (event.has("nativeRendition")) cameras = cameras.map { camera ->
                                     if (camera.sn != sn) camera else {
                                         val updated = camera.copy(nativeRendition = parseNativeRendition(event.optJSONObject("nativeRendition")))
-                                        if (updated != camera) resolvedTiles.filterValues { it.camera == sn }.keys.toList().forEach { release(it, "stream-metadata-changed") }
+                                        if (updated != camera) releaseChangedPlayback(updated, "stream-metadata-changed")
                                         updated
                                     }
                                 }
