@@ -663,11 +663,11 @@ public class RtspClient {
                 }
                 : null;
 
-        byte[] nalUnitSps = (sdpInfo.videoTrack != null ? sdpInfo.videoTrack.sps : null);
-        byte[] nalUnitPps = (sdpInfo.videoTrack != null ? sdpInfo.videoTrack.pps : null);
-        byte[] nalUnitSei = EMPTY_ARRAY;
-        byte[] nalUnitAud = EMPTY_ARRAY;
-        int videoSeqNum = 0;
+        com.alexvas.rtsp.parser.AvcRtpAccessUnitAssembler avcAccessUnits =
+                new com.alexvas.rtsp.parser.AvcRtpAccessUnitAssembler(
+                        sdpInfo.videoTrack != null ? sdpInfo.videoTrack.sps : null,
+                        sdpInfo.videoTrack != null ? sdpInfo.videoTrack.pps : null,
+                        4 * 1024 * 1024, 4096);
         HevcAccessUnitAssembler hevcAccessUnits = new HevcAccessUnitAssembler(4 * 1024 * 1024);
 
         long keepAliveSent = System.currentTimeMillis();
@@ -700,94 +700,25 @@ public class RtspClient {
 
             // Video
             if (sdpInfo.videoTrack != null && header.payloadType == sdpInfo.videoTrack.payloadType) {
-                if (videoSeqNum > header.sequenceNumber)
-                    Log.w(TAG, "Invalid video seq num " + videoSeqNum + "/" + header.sequenceNumber);
-                videoSeqNum = header.sequenceNumber;
-
-                byte[] nalUnit;
-                // If extendion bit set in header, skip extension data
-                if (header.extension == 1) {
-                    int skipBytes = ((data[2] & 0xFF) << 8 | (data[3] & 0xFF)) * 4 + 4;
-                    nalUnit = videoParser.processRtpPacketAndGetNalUnit(Arrays.copyOfRange(data, skipBytes, data.length),
-                            header.payloadSize - skipBytes, header.marker == 1);
-                } else {
-                    nalUnit = videoParser.processRtpPacketAndGetNalUnit(data, header.payloadSize, header.marker == 1);
-                }
-
                 boolean isH265 = sdpInfo.videoTrack.videoCodec == VIDEO_CODEC_H265;
-                if (isH265) {
-                    nalUnit = hevcAccessUnits.push(nalUnit, header.getTimestampMsec(), header.marker == 1, ((RtpH265Parser) videoParser).getLastPacketMalformed());
+                int skipBytes = 0;
+                if (header.extension == 1) {
+                    if (header.payloadSize < 4) throw new IOException("Truncated RTP extension");
+                    skipBytes = ((data[2] & 0xFF) << 8 | (data[3] & 0xFF)) * 4 + 4;
+                    if (skipBytes > header.payloadSize) throw new IOException("Invalid RTP extension size");
                 }
-                if (nalUnit != null) {
-                    byte type = VideoCodecUtils.INSTANCE.getNalUnitType(nalUnit, 0, nalUnit.length, isH265);
-//                  Log.i(TAG, "NAL u: " + VideoCodecUtils.INSTANCE.getH265NalUnitTypeString(type));
-                    // HEVC NAL values overlap AVC SPS/PPS/SEI values. Do not route
-                    // HEVC VCL through the AVC cache/drop switch below.
-                    if (isH265) {
-                        deliverObservedVideo(listener, readObservation, nalUnit, 0, nalUnit.length, header.getTimestampMsec());
-                    } else switch (type) {
-                        case VideoCodecUtils.NAL_SPS:
-                            nalUnitSps = nalUnit;
-                            // Looks like there is NAL_IDR_SLICE as well. Send it now.
-                            if (nalUnit.length > VideoCodecUtils.MAX_NAL_SPS_SIZE)
-                                deliverObservedVideo(listener, readObservation, nalUnit, 0, nalUnit.length, header.getTimestampMsec());
-                            break;
-
-                        case VideoCodecUtils.NAL_PPS:
-                            nalUnitPps = nalUnit;
-                            // Looks like there is NAL_IDR_SLICE as well. Send it now.
-                            if (nalUnit.length > VideoCodecUtils.MAX_NAL_SPS_SIZE)
-                                deliverObservedVideo(listener, readObservation, nalUnit, 0, nalUnit.length, header.getTimestampMsec());
-                            break;
-
-                        case VideoCodecUtils.NAL_AUD:
-                            nalUnitAud = nalUnit;
-                            break;
-
-                        case VideoCodecUtils.NAL_SEI:
-                            nalUnitSei = nalUnit;
-                            break;
-
-                        case VideoCodecUtils.NAL_IDR_SLICE:
-                            // Combine IDR with SPS/PPS
-                            if (nalUnitSps != null && nalUnitPps != null) {
-                                byte[] nalUnitSpsPpsIdr = new byte[nalUnitAud.length + nalUnitSps.length + nalUnitPps.length + nalUnitSei.length + nalUnit.length];
-                                int offset = 0;
-                                System.arraycopy(nalUnitSps, 0, nalUnitSpsPpsIdr, offset, nalUnitSps.length);
-                                offset += nalUnitSps.length;
-                                System.arraycopy(nalUnitPps, 0, nalUnitSpsPpsIdr, offset, nalUnitPps.length);
-                                offset += nalUnitPps.length;
-                                System.arraycopy(nalUnitAud, 0, nalUnitSpsPpsIdr, offset, nalUnitAud.length);
-                                offset += nalUnitAud.length;
-                                System.arraycopy(nalUnitSei, 0, nalUnitSpsPpsIdr, offset, nalUnitSei.length);
-                                offset += nalUnitSei.length;
-                                System.arraycopy(nalUnit, 0, nalUnitSpsPpsIdr, offset, nalUnit.length);
-                                deliverObservedVideo(listener, readObservation, nalUnitSpsPpsIdr, 0, nalUnitSpsPpsIdr.length, header.getTimestampMsec());
-//                              listener.onRtspVideoNalUnitReceived(nalUnitSppPpsIdr, 0, nalUnitSppPpsIdr.length, System.currentTimeMillis());
-                                // Send it only once
-                                nalUnitSps = null;
-                                nalUnitPps = null;
-                                nalUnitSei = EMPTY_ARRAY;
-                                nalUnitAud = EMPTY_ARRAY;
-                                break;
-                            }
-
-                        default:
-                            if (nalUnitSei.length == 0 && nalUnitAud.length == 0) {
-                                deliverObservedVideo(listener, readObservation, nalUnit, 0, nalUnit.length, header.getTimestampMsec());
-                            } else {
-                                byte[] nalUnitAudSeiSlice = new byte[nalUnitAud.length + nalUnitSei.length + nalUnit.length];
-                                int offset = 0;
-                                System.arraycopy(nalUnitAud, 0, nalUnitAudSeiSlice, offset, nalUnitAud.length);
-                                offset += nalUnitAud.length;
-                                System.arraycopy(nalUnitSei, 0, nalUnitAudSeiSlice, offset, nalUnitSei.length);
-                                offset += nalUnitSei.length;
-                                System.arraycopy(nalUnit, 0, nalUnitAudSeiSlice, offset, nalUnit.length);
-                                deliverObservedVideo(listener, readObservation, nalUnitAudSeiSlice, 0, nalUnitAudSeiSlice.length, header.getTimestampMsec());
-                                nalUnitSei = EMPTY_ARRAY;
-                                nalUnitAud = EMPTY_ARRAY;
-                            }
-                    }
+                byte[] payload = skipBytes == 0 ? data : Arrays.copyOfRange(data, skipBytes, header.payloadSize);
+                byte[] accessUnit;
+                if (isH265) {
+                    byte[] nal = videoParser.processRtpPacketAndGetNalUnit(payload, header.payloadSize - skipBytes, header.marker == 1);
+                    accessUnit = hevcAccessUnits.push(nal, header.timeStamp, header.marker == 1,
+                            ((RtpH265Parser) videoParser).getLastPacketMalformed());
+                } else {
+                    accessUnit = avcAccessUnits.push(payload, header.payloadSize - skipBytes,
+                            header.timeStamp, header.sequenceNumber, header.marker == 1);
+                }
+                if (accessUnit != null) {
+                    deliverObservedVideo(listener, readObservation, accessUnit, 0, accessUnit.length, header.getTimestampMsec());
                 }
 
                 readObservation.packetCompleted(System.nanoTime());
