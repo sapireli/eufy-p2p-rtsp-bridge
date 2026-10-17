@@ -9,7 +9,8 @@ headroom again. This establishes a load-induced client backlog; it does not
 establish an immutable hardware decoding limit or prove that further software
 optimization is impossible.
 
-No quality-preserving playback fix was deployed during this investigation. The
+No fix preserving all three streams at their existing quality was deployed
+during this investigation. The
 existing decoded-picture queue cannot bound work retained before decoding, and
 the freeze watchdog does not detect continuously arriving old pictures.
 
@@ -102,3 +103,24 @@ three-stream workload. A proposed remedy must demonstrate lower processing
 cost at equivalent delivered video, then pass sustained three-stream playback.
 Restarting old sessions, hiding stale video, or increasing queues does not
 establish such an improvement. No SDK change follows from this evidence.
+
+## Subsequent two-camera deployment
+
+The user selected Front Door and Garage side by side. GaragePi's persistent
+`/etc/eufy-wall.yaml` now uses `layout: 2x1`, those two cameras only, and planes
+98 and 120. Front Door occupies the left 960×1080 rectangle and Garage the
+right 960×1080 rectangle. The previous configuration is retained under
+`/var/backups/eufy-wall/two-eufy-20261017-143020/`.
+
+The existing client binary, compatible stream quality, `decoder: auto`, TCP
+packet size and latency settings remain unchanged. Both live pipelines select
+`v4l2h264dec`. This implements the selected two-camera workload; it does not
+establish a three-camera performance repair.
+
+The subsequent 97-second live check retained the same two player PIDs
+(9169/9170), with no missing stamp observations or unknown-clock observations.
+At its final sample, bridge-ingress-to-KMS-return upper ages were 76 ms for
+Front Door and 263 ms for Garage; the earlier Garage sample was 611 ms, rather
+than an accumulating multi-second backlog. The final five-second census showed
+225 idle ticks of 492 total (45.7% idle), with 0.74% observer CPU cost. This is
+a bounded playback check, not a guarantee of uninterrupted future operation.
