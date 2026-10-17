@@ -35,6 +35,8 @@ This requires FFmpeg with a suitable encoder; hardware is tried before software.
 
 ## Motion and battery cameras
 
+**Edit wall → Flash on motion** turns the effect on or off and saves the choice across restarts; it defaults to On. Turning it off clears any active pulse immediately. A new motion event flashes a blue outline twice around every tile currently showing that camera: 250 ms on, 250 ms off, then 250 ms on. Repeated events restart the pulse. The focused tile briefly uses a thicker outline, then returns to its normal focus border. Camera changes and leaving the wall cancel pending pulses; reconnecting does not replay old events. The effect does not restart playback or change stream quality.
+
 Fixed battery/on-demand tiles are passive: they show the bridge’s retained snapshot while asleep or waking, and switch to video when the bridge reports live frames. Viewing a fixed tile does not take a camera hold. Missing snapshots show a labeled empty tile. These are retained pictures, not a live view; snapshot loading does not wake the camera.
 
 Choose **Add motion view** to follow the most recent motion among its watched cameras (an empty watch list means all cameras). Minimum dwell prevents rapid switching. **Hide after quiet** releases the selected camera’s hold and blanks that tile; zero keeps the selection visible. Selection uses the TV’s monotonic clock and survives a control reconnect.

@@ -19,7 +19,8 @@ data class WallConfiguration(
     val layout: WallLayoutMode = WallLayoutMode.AUTO,
     val columns: Int = 2,
     val rows: Int = 2,
-    val tiles: List<ConfiguredWallTile> = emptyList()
+    val tiles: List<ConfiguredWallTile> = emptyList(),
+    val motionFlash: Boolean = true
 ) {
     fun validationErrors(): List<String> {
         val errors = mutableListOf<String>()
@@ -43,7 +44,7 @@ data class WallConfiguration(
     fun encode(): String {
         require(validationErrors().isEmpty()) { validationErrors().joinToString("; ") }
         return JSONObject().put("version", 1).put("layout", layout.name)
-            .put("columns", columns).put("rows", rows).put("tiles", JSONArray().apply {
+            .put("motionFlash", motionFlash).put("columns", columns).put("rows", rows).put("tiles", JSONArray().apply {
                 tiles.forEach { tile ->
                     put(JSONObject().put("id", tile.spec.id).put("camera", tile.spec.camera)
                         .put("motion", tile.spec.motion).put("watch", JSONArray(tile.spec.watch))
@@ -72,7 +73,7 @@ data class WallConfiguration(
                             tile.optLong("dwellMs", 5000), tile.optLong("blankAfterMs", 30000)),
                             tile.optInt("column", -1), tile.optInt("row", -1),
                             tile.optInt("columnSpan", 1), tile.optInt("rowSpan", 1))
-                    })
+                    }, root.optBoolean("motionFlash", true))
                 require(config.validationErrors().isEmpty())
                 config
             }

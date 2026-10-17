@@ -81,6 +81,23 @@ class MainActivity : Activity() {
     private val frameWatchdogs = mutableMapOf<String, Runnable>()
     private val labels = mutableMapOf<String, TextView>()
     private val surfaces = mutableMapOf<String, FrameLayout>()
+    private val tileFrames = mutableMapOf<String, FrameLayout>()
+    private val motionOutline = MotionOutline()
+    private val outlineTick = Runnable { refreshOutlines() }
+
+    private fun refreshOutlines() {
+        ui.removeCallbacks(outlineTick)
+        motionOutline.enabled = wallConfig.motionFlash
+        if (!wallVisible) return
+        val now = SystemClock.elapsedRealtime()
+        tileFrames.forEach { (id, tile) ->
+            val stroke = motionOutline.stroke(id, tile.hasFocus(), now)
+            tile.foreground = if (stroke > 0) GradientDrawable().apply {
+                setColor(0x00000000); setStroke(stroke, 0xff55b6ff.toInt())
+            } else null
+        }
+        motionOutline.nextDelayMs(now)?.let { ui.postDelayed(outlineTick, it) }
+    }
     private var socket: WebSocket? = null
     private var wallVisible = false
     private var editingWall = false
@@ -168,6 +185,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, message, Toast.LENGTH_LONG).show(); return false
         }
         wallConfig = next
+        refreshOutlines()
         chosen.clear(); chosen.addAll(next.tiles.filterNot { it.spec.motion }.map { it.spec.camera })
         prefs.edit().putString("configuration", next.encode()).putString("chosen", chosen.joinToString(",")).apply()
         return true
@@ -321,6 +339,13 @@ class MainActivity : Activity() {
         actions.addView(button("Choose cameras") { chooseCameras() })
         actions.addView(button("Add motion view") { chooseWatched(null) })
         actions.addView(button("Layout") { editLayout() }); root.addView(actions)
+        val flash = button("Flash on motion: ${if (wallConfig.motionFlash) "On" else "Off"}") {}
+        flash.setOnClickListener {
+            if (saveConfiguration(wallConfig.copy(motionFlash = !wallConfig.motionFlash))) {
+                flash.text = "Flash on motion: ${if (wallConfig.motionFlash) "On" else "Off"}"
+            }
+        }
+        root.addView(flash)
         root.addView(text(if (wallConfig.layout == WallLayoutMode.AUTO) "Automatic layout" else "${wallConfig.columns} columns · ${wallConfig.rows} rows", 18f))
         wallConfig.tiles.forEachIndexed { index, tile ->
             val description = if (tile.spec.motion) {
@@ -492,7 +517,8 @@ class MainActivity : Activity() {
             tile.addView(image, FrameLayout.LayoutParams(-1, -1)); images[id] = image
             val label = text("Waiting for motion", 16f).apply { setBackgroundColor(0xaa000000.toInt()) }
             tile.addView(label, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM)); labels[id] = label
-            tile.setOnFocusChangeListener { _, focused -> tile.foreground = if (focused) GradientDrawable().apply { setColor(0x00000000); setStroke(4, 0xff55b6ff.toInt()) } else null }
+            tileFrames[id] = tile
+            tile.setOnFocusChangeListener { _, _ -> refreshOutlines() }
             tile.setOnClickListener { showLiveActions(id) }
             wall.addView(tile)
         }
@@ -515,6 +541,7 @@ class MainActivity : Activity() {
         next.forEach { selection ->
             val previous = resolvedTiles[selection.id]
             if (previous?.camera != selection.camera) {
+                motionOutline.cancel(selection.id)
                 release(selection.id, "tile-camera-changed"); snapshots.cancel(selection.id); snapshotKeys.remove(selection.id)
                 images[selection.id]?.setImageDrawable(null)
             }
@@ -526,6 +553,7 @@ class MainActivity : Activity() {
         (held - needed).forEach { hold(it, "DELETE") }
         (needed - held).forEach { hold(it, "POST") }
         held.clear(); held.addAll(needed)
+        refreshOutlines()
     }
 
     private fun wantsLive(id: String) = wallVisible && resolvedTiles[id]?.content == WallContent.LIVE
@@ -728,9 +756,16 @@ class MainActivity : Activity() {
                             }
                             "motion" -> {
                                 val sn = event.optString("sn")
-                                wallPolicy.onMotion(sn, SystemClock.elapsedRealtime(), event.optBoolean("still"))
+                                val now = SystemClock.elapsedRealtime()
+                                wallPolicy.onMotion(sn, now, event.optBoolean("still"))
                                 snapshotVersions[sn] = (snapshotVersions[sn] ?: 0L) + 1
                                 refreshWall()
+                                if (sn.isNotBlank()) {
+                                    val matching = resolvedTiles.values.filter { it.camera == sn }
+                                    matching.forEach { motionOutline.motion(it.id, now) }
+                                    android.util.Log.d("EufyWallTV", "Motion outline camera=$sn tiles=${matching.size} enabled=${wallConfig.motionFlash}")
+                                }
+                                refreshOutlines()
                             }
                             "streamState" -> {
                                 val sn = event.optString("sn")
@@ -812,6 +847,7 @@ class MainActivity : Activity() {
 
     private fun stopWall() {
         ui.removeCallbacks(reconnect); ui.removeCallbacks(holdRefresh); ui.removeCallbacks(wallTick)
+        ui.removeCallbacks(outlineTick); motionOutline.clear(); tileFrames.clear()
         socket?.cancel(); socket = null
         players.keys.toList().forEach { release(it, "wall-stopped") }
         images.keys.toList().forEach { snapshots.cancel(it) }
