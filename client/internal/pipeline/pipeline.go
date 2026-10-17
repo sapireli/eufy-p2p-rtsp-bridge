@@ -25,15 +25,18 @@ type Caps struct {
 	// ConnectorID is the DRM connector this instance renders on (0 = let kmssink pick the first connected
 	// output). Naming it is what keeps a two-monitor wall on the cheap path: each instance drives its own
 	// CRTC with its own planes, instead of one pipeline compositing a framebuffer spanned across both.
-	ConnectorID       int
-	DRMFD             int // inherited shared DRM descriptor (0 = let kmssink open the device)
-	Freshness         map[string]freshness.Capability
-	ClockFile         string
-	UnavailableMarker func()
-	StampReader       bool
-	ObservePacing     bool   // installed pacing plugin accepts observe-only telemetry
-	TimingDiagnostics string // optional bounded private per-frame phase metadata
-	DecodedPacing     bool   // installed eufypacing raw-video clock mapper
+	ConnectorID        int
+	DRMFD              int // inherited shared DRM descriptor (0 = let kmssink open the device)
+	Freshness          map[string]freshness.Capability
+	ClockFile          string
+	UnavailableMarker  func()
+	MotionBorderPixels int // reserved primary-plane gutter; zero when motion feedback is disabled
+	MotionFlash        func(tileIndex int)
+	MotionClear        func(tileIndex int)
+	StampReader        bool
+	ObservePacing      bool   // installed pacing plugin accepts observe-only telemetry
+	TimingDiagnostics  string // optional bounded private per-frame phase metadata
+	DecodedPacing      bool   // installed eufypacing raw-video clock mapper
 }
 
 // kmssinkArgs is the sink plus the output it renders on, shared by every sink strategy.
@@ -237,13 +240,17 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 	switch caps.Sink {
 	case "planes":
 		for i, t := range tiles {
+			border := caps.MotionBorderPixels
+			if border < 0 || 2*border >= t.W || 2*border >= t.H {
+				return nil, fmt.Errorf("motion border does not fit tile %d", t.Index)
+			}
 			args = append(args, src(i, t)...)
 			args = append(args, "!")
 			tileClockArgs := clockArgs
 			if cap, strict := caps.Freshness[t.Camera]; strict && cap.Enforced() && cap.BoundTo(t.URL) && t.StillURL == "" {
 				tileClockArgs = []string{"sync=false", "processing-deadline=0"}
 			} // Strict pacer owns wait and synchronized plane updates.
-			args = append(args, caps.kmssinkArgs(append([]string{fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]), fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X, t.Y, t.W, t.H)}, tileClockArgs...)...)...)
+			args = append(args, caps.kmssinkArgs(append([]string{fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]), fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X+border, t.Y+border, t.W-2*border, t.H-2*border)}, tileClockArgs...)...)...)
 		}
 	case "compositor", "window":
 		for i, t := range tiles {

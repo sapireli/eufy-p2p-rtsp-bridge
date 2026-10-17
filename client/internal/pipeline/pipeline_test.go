@@ -18,6 +18,26 @@ func two() (*config.Config, []layout.Placed) {
 	return c, tiles
 }
 
+func TestMotionBorderReservesOnlyVideoGutter(t *testing.T) {
+	c, tiles := two()
+	args, err := Build(c, tiles, Caps{Decoder: "v4l2", Sink: "planes", MotionBorderPixels: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := String(args)
+	for _, rect := range []string{"render-rectangle=<4,4,952,1072>", "render-rectangle=<964,4,952,1072>"} {
+		if !strings.Contains(got, rect) {
+			t.Fatalf("missing %s in %s", rect, got)
+		}
+	}
+	if tiles[0].X != 0 || tiles[0].W != 960 {
+		t.Fatal("layout identity changed")
+	}
+	if _, err := Build(c, tiles, Caps{Decoder: "v4l2", Sink: "planes", MotionBorderPixels: 600}); err == nil {
+		t.Fatal("oversized inset accepted")
+	}
+}
+
 func TestPlanesPipeline(t *testing.T) {
 	c, tiles := two()
 	args, err := Build(c, tiles, Caps{Decoder: "v4l2", Sink: "planes", Screen: config.Screen{Width: 1920, Height: 1080}})

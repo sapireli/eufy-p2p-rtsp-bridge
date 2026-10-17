@@ -1,4 +1,4 @@
-// Package drmbackground owns one static black primary plane behind independent video overlays.
+// Package drmbackground owns the black primary image and optional motion outlines behind video overlays.
 // It uses the caller's shared DRM master; it never writes the console framebuffer or runs a renderer.
 package drmbackground
 
@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
+	"time"
 )
 
 // UAPI layouts and operations come from Linux include/uapi/drm/{drm,drm_mode}.h.
@@ -54,14 +56,18 @@ type Info struct {
 }
 
 type Background struct {
-	d         device
-	info      Info
-	handle    uint32
-	pitch     uint32
-	mapping   []byte
-	previous  []byte // exact legacy SETPLANE layout, reconstructed from plane properties
-	installed bool
-	closed    bool
+	mu               sync.Mutex
+	d                device
+	info             Info
+	handle           uint32
+	pitch            uint32
+	mapping          []byte
+	previous         []byte // exact legacy SETPLANE layout, reconstructed from plane properties
+	installed        bool
+	closed           bool
+	motion           map[MotionRect]*motionOverlay
+	motionGeneration uint64
+	motionAfter      func(time.Duration, func()) motionTimer
 }
 
 // Open attaches one black image to the selected active HDMI output. connectorID=0 selects the
@@ -167,10 +173,16 @@ func open(d device, connectorID uint32) (_ *Background, err error) {
 // Close restores the previous primary-plane image, then releases this client's image. Call it
 // only after all children sharing the DRM descriptor have stopped. It is safe to call repeatedly.
 func (b *Background) Close() error {
-	if b == nil || b.closed {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
 		return nil
 	}
 	b.closed = true
+	b.cancelMotionLocked(false)
 	var errs []error
 	retain := false
 	if b.installed {

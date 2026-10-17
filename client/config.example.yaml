@@ -23,6 +23,7 @@ decoder: auto                          # auto | v4l2 (Pi) | va (x86 VAAPI) | sof
 sink: auto                             # auto | planes (Pi, one kmssink per tile) | compositor | window (dev)
 # planes: [31, 32, 33, 34, 35, 36]     # DRM overlay plane ids for sink=planes → `modetest -M vc4 -p`
 latency_ms: 0                           # TCP; eufypacing supplies one bounded 67ms decoded-frame allowance
+motion_flash: true                      # DRM planes: flash the matching camera tile on each motion event
 # Omit to use the bridge's per-camera RTSP/TCP packet-size hint for generated URLs.
 # Explicit tile URLs stay unchanged unless this override is set. This changes
 # packetization, not video quality, frame rate, or buffering. Requires server support.

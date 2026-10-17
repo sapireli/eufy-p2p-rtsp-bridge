@@ -9,7 +9,12 @@ import (
 // pixels, behind a tile's video rectangle. A live overlay covers the caption;
 // disabling that overlay exposes it without another renderer or per-frame work.
 func (b *Background) MarkUnavailable(x, y, w, h int) error {
-	if b == nil || b.closed || b.mapping == nil || x < 0 || y < 0 || w <= 0 || h <= 0 || x+w > int(b.info.Width) || y+h > int(b.info.Height) {
+	if b == nil {
+		return fmt.Errorf("DRM caption: invalid tile rectangle")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || b.mapping == nil || x < 0 || y < 0 || w <= 0 || h <= 0 || x+w > int(b.info.Width) || y+h > int(b.info.Height) {
 		return fmt.Errorf("DRM caption: invalid tile rectangle")
 	}
 	const text = "VIDEO UNAVAILABLE"
@@ -19,6 +24,7 @@ func (b *Background) MarkUnavailable(x, y, w, h int) error {
 	}
 	left := x + (w-(len(text)*6-1)*scale)/2
 	top := y + (h-7*scale)/2
+	b.restoreMotionLocked()
 	for i, ch := range text {
 		rows, ok := captionGlyphs[ch]
 		if !ok {
@@ -42,6 +48,8 @@ func (b *Background) MarkUnavailable(x, y, w, h int) error {
 			}
 		}
 	}
+	b.refreshMotionLocked()
+	b.paintMotionLocked()
 	return nil
 }
 

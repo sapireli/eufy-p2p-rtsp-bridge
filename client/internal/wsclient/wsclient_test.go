@@ -14,6 +14,49 @@ import (
 	"eufy-wall/internal/wallstate"
 )
 
+func TestEveryLiveMotionNotifiesAfterSelectionWithoutHelloReplay(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		for _, msg := range []string{`{"type":"hello","cameras":[{"sn":"FRONT","state":"live"}]}`, `{"type":"motion","sn":"FRONT"}`, `{"type":"motion","sn":"FRONT"}`, `{"type":"motion","sn":""}`} {
+			if c.Write(r.Context(), websocket.MessageText, []byte(msg)) != nil {
+				return
+			}
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var changed atomic.Int32
+	got := make(chan int32, 4)
+	go RunWithMotion(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), wallstate.New(), func() { changed.Add(1) }, func(sn string) {
+		if sn != "FRONT" {
+			got <- -1
+			return
+		}
+		got <- changed.Load()
+	}, func(string) {})
+	for _, want := range []int32{2, 3} {
+		select {
+		case count := <-got:
+			if count != want {
+				t.Fatalf("motion before selection or hello replay: %d want %d", count, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("motion missing")
+		}
+	}
+	select {
+	case count := <-got:
+		t.Fatalf("unexpected motion: %d", count)
+	case <-time.After(30 * time.Millisecond):
+	}
+}
+
 func TestEventURLDerivesTheChannelFromRtspBase(t *testing.T) {
 	// The wall already knows where the bridge is; making the operator repeat it would be one more
 	// thing to get wrong.

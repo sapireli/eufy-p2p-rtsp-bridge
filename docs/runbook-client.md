@@ -14,6 +14,28 @@ Camera power claims and LAN peer policy are set on the bridge server. The wall c
 camera's mode and stream state: a battery camera can show its retained snapshot while asleep, and an
 always-on camera keeps its tile through a brief reconnect.
 
+## Motion outlines
+
+With the independent DRM-plane renderer, each bridge motion notification flashes
+the matching camera tile blue twice (250 ms on, 250 ms off, 250 ms on). Another
+event restarts that tile's pulse; different cameras pulse independently. Fixed
+tiles and motion-following tiles use the camera currently assigned to the tile.
+Hello snapshots and stream-state changes do not flash a border.
+
+The feature defaults to on. To disable it, set `motion_flash: false` in
+`/etc/eufy-wall.yaml` and restart `eufy-wall.service`; use `true` to enable it
+again. This setting is separate from motion-following camera selection.
+
+The border uses the existing primary-plane background and a four-pixel gutter
+inside each tile. Only border pixels change during the short pulse. There is no
+continuous renderer, decoded-picture copy, or motion-triggered player restart.
+The compositor/window backends do not currently draw motion outlines. Cameras
+must supply motion events through the bridge; a plain external RTSP stream alone
+does not provide motion detection.
+
+Android TV exposes the corresponding saved setting under **Edit wall → Flash on
+motion**. Disabling it preserves the remote's ordinary blue focus outline.
+
 ## Install
 The install script expects the repo layout (`deploy/` next to `client/`), so copy both directories:
 

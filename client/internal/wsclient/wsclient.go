@@ -65,9 +65,15 @@ func APIBase(rtspBase string) string {
 // Run follows the channel until ctx is cancelled, applying every message to `store` and calling
 // `changed` whenever a tile could care. Store synchronizes updates with concurrent renderer reads.
 func Run(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), log func(string)) {
+	RunWithMotion(ctx, endpoint, store, changed, nil, log)
+}
+
+// RunWithMotion delivers each live motion notification after selection changes
+// have been applied. Hello snapshots never replay an old motion flash.
+func RunWithMotion(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), motion func(string), log func(string)) {
 	backoff := minBackoff
 	for ctx.Err() == nil {
-		err := follow(ctx, endpoint, store, changed)
+		err := follow(ctx, endpoint, store, changed, motion)
 		if ctx.Err() != nil {
 			return
 		}
@@ -91,7 +97,7 @@ func reason(err error) string {
 	return err.Error()
 }
 
-func follow(ctx context.Context, endpoint string, store *wallstate.Store, changed func()) error {
+func follow(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), motion func(string)) error {
 	dialCtx, cancelDial := context.WithTimeout(ctx, 10*time.Second)
 	defer cancelDial()
 	c, _, err := websocket.Dial(dialCtx, endpoint, &websocket.DialOptions{HTTPClient: &http.Client{}})
@@ -113,8 +119,13 @@ func follow(ctx context.Context, endpoint string, store *wallstate.Store, change
 		if err := json.Unmarshal(data, &msg); err != nil {
 			continue // a message this client does not understand is not a reason to drop the connection
 		}
-		if store.Apply(msg) && changed != nil {
-			changed()
+		if store.Apply(msg) {
+			if changed != nil {
+				changed()
+			}
+			if msg.Type == "motion" && msg.SN != "" && motion != nil && ctx.Err() == nil {
+				motion(msg.SN)
+			}
 		}
 	}
 }

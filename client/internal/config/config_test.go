@@ -7,6 +7,18 @@ import (
 	"testing"
 )
 
+func TestMotionFlashToggleDefaultsAndExplicitFalse(t *testing.T) {
+	for _, tc := range []struct {
+		option string
+		want   bool
+	}{{"", true}, {"motion_flash: true\n", true}, {"motion_flash: false\n", false}} {
+		c, err := Parse([]byte("rtsp_base: rtsp://bridge:8554\ntiles: [{camera: FRONT}]\n" + tc.option))
+		if err != nil || c.MotionFlash != tc.want {
+			t.Fatalf("option %q: config=%+v err=%v", tc.option, c, err)
+		}
+	}
+}
+
 func TestRTSPPacketSizeConfigBounds(t *testing.T) {
 	for _, value := range []int{0, 256, 8192, 65535, -1, 1, 255, 65536} {
 		c, err := Parse([]byte(fmt.Sprintf("rtsp_base: rtsp://bridge:8554\nrtsp_packet_size: %d\ntiles: [{camera: FRONT}]\n", value)))

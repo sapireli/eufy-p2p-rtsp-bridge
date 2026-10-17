@@ -71,6 +71,7 @@ type Config struct {
 	Sink            string  `yaml:"sink"`
 	Planes          []int   `yaml:"planes"`
 	Latency         int     `yaml:"latency_ms"`
+	MotionFlash     bool    `yaml:"motion_flash"` // briefly outline the camera reporting motion
 	Tiles           []Tile  `yaml:"tiles"`
 	Restart         Restart `yaml:"restart"`
 }
@@ -106,7 +107,7 @@ func Load(path string) (*Config, error) {
 }
 
 func Parse(data []byte) (*Config, error) {
-	c := &Config{Decoder: "auto", Sink: "auto", Latency: 0, Restart: Restart{1, 30, 60}}
+	c := &Config{Decoder: "auto", Sink: "auto", Latency: 0, MotionFlash: true, Restart: Restart{1, 30, 60}}
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}

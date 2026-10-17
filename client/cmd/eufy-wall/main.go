@@ -224,6 +224,26 @@ func main() {
 		}
 		info := background.Info()
 		caps.ConnectorID = int(info.ConnectorID)
+		if c.MotionFlash {
+			caps.MotionBorderPixels = drmbackground.MotionBorderPixels
+			rects := make(map[int]drmbackground.MotionRect, len(tiles))
+			for _, t := range tiles {
+				rects[t.Index] = drmbackground.MotionRect{X: t.X, Y: t.Y, W: t.W, H: t.H}
+			}
+			caps.MotionFlash = func(index int) {
+				if rect, ok := rects[index]; ok {
+					if err := background.FlashMotion(rect); err != nil {
+						log.Printf("[motion] tile %d outline: %v", index, err)
+					}
+				}
+			}
+			caps.MotionClear = func(index int) {
+				if rect, ok := rects[index]; ok {
+					background.ClearMotionRect(rect)
+				}
+			}
+			log.Printf("[motion] camera outlines enabled: two 250ms pulses; motion_flash: false disables them")
+		}
 		// Pin the video sinks to the same connector chosen for the background, even for output=auto.
 		plans, err = pipeline.Plans(c, tiles, caps)
 		if err != nil {
@@ -501,6 +521,9 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		now := time.Now()
 		for _, sel := range sels {
 			if showing[sel.TileIndex] != sel.Camera {
+				if caps.MotionClear != nil {
+					caps.MotionClear(sel.TileIndex)
+				}
 				showing[sel.TileIndex] = sel.Camera
 				switchedAt[sel.TileIndex] = now
 			}
@@ -569,7 +592,17 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	}
 
 	apply()
-	go wsclient.Run(ctx, endpoint, store, apply, func(line string) { log.Printf("[wall] %s", line) })
+	go wsclient.RunWithMotion(ctx, endpoint, store, apply, func(camera string) {
+		if caps.MotionFlash == nil || ctx.Err() != nil {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for _, index := range motionTileIndices(tiles, showing, camera) {
+			caps.MotionFlash(index)
+			log.Printf("[motion] flash tile=%d camera=%s", index, camera)
+		}
+	}, func(line string) { log.Printf("[wall] %s", line) })
 
 	// A hold is deliberately short-lived on the server, so a wall that is still showing a camera has to
 	// say so. Refreshing well inside that window keeps the picture up without ever pinning a battery
