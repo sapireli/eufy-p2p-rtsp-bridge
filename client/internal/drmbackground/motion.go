@@ -9,8 +9,9 @@ import (
 // MotionBorderPixels is the margin video overlays must leave inside each tile.
 const MotionBorderPixels = 4
 
-// MotionPulse is the duration of each step: blue, black, blue, then black.
+// MotionPulse is the duration of each step: alternating blue and black for five seconds.
 const MotionPulse = 250 * time.Millisecond
+const motionPhases = 20
 
 // MotionRect uses the full tile rectangle, before the video inset.
 type MotionRect struct{ X, Y, W, H int }
@@ -25,7 +26,7 @@ type motionOverlay struct {
 	timer      motionTimer
 }
 
-// FlashMotion paints two short blue pulses into the existing primary image.
+// FlashMotion flashes a blue outline for five seconds into the existing primary image.
 // Only outline pixels change; there is no renderer or per-video-frame work.
 // Retriggering the same tile restarts its pulse sequence.
 func (b *Background) FlashMotion(rect MotionRect) error {
@@ -123,7 +124,7 @@ func (b *Background) scheduleMotionLocked(rect MotionRect, entry *motionOverlay)
 		}
 		b.restoreMotionLocked()
 		current.phase++
-		if current.phase == 3 {
+		if current.phase == motionPhases {
 			delete(b.motion, rect)
 		} else {
 			b.scheduleMotionLocked(rect, current)
@@ -184,7 +185,7 @@ func (b *Background) refreshMotionLocked() {
 
 func (b *Background) paintMotionLocked() {
 	for _, entry := range b.motion {
-		if entry.phase == 1 {
+		if entry.phase%2 == 1 {
 			continue
 		}
 		for _, patch := range entry.patches {

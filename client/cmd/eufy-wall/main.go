@@ -242,7 +242,7 @@ func main() {
 					background.ClearMotionRect(rect)
 				}
 			}
-			log.Printf("[motion] camera outlines enabled: two 250ms pulses; motion_flash: false disables them")
+			log.Printf("[motion] camera outlines enabled: five seconds of 250ms flashes; motion_flash: false disables them")
 		}
 		// Pin the video sinks to the same connector chosen for the background, even for output=auto.
 		plans, err = pipeline.Plans(c, tiles, caps)

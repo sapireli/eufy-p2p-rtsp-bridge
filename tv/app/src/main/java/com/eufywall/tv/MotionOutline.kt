@@ -1,6 +1,6 @@
 package com.eufywall.tv
 
-/** Short tile-keyed pulses; no playback state or continuously running animation. */
+/** Five-second tile-keyed flashes; no playback state or continuously running animation. */
 internal class MotionOutline {
     var enabled = true
         set(value) {
@@ -9,7 +9,7 @@ internal class MotionOutline {
         }
     private val started = mutableMapOf<String, Long>()
     private val phaseMs = 250L
-    private val durationMs = phaseMs * 3
+    private val durationMs = 5_000L
 
     fun motion(tile: String, nowMs: Long) {
         if (enabled && tile.isNotBlank()) started[tile] = nowMs

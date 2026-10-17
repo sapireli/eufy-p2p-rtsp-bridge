@@ -14,9 +14,11 @@ class MotionOutlineTest {
         assertEquals(4, pulse.stroke("door", true, 1250))
         assertEquals(8, pulse.stroke("door", true, 1500))
         assertEquals(8, pulse.stroke("door", false, 1700))
-        assertEquals(0, pulse.stroke("door", false, 1750))
-        assertEquals(4, pulse.stroke("door", true, 1750))
-        assertNull(pulse.nextDelayMs(1750))
+        assertEquals(0, pulse.stroke("door", false, 5750))
+        assertEquals(4, pulse.stroke("door", true, 6000))
+        assertEquals(8, pulse.stroke("door", false, 5500))
+        assertEquals(0, pulse.stroke("door", false, 6000))
+        assertNull(pulse.nextDelayMs(6000))
     }
 
     @Test fun repeatedMotionRestartsPulseWithoutCancellingOtherCamera() {

@@ -17,7 +17,7 @@ always-on camera keeps its tile through a brief reconnect.
 ## Motion outlines
 
 With the independent DRM-plane renderer, each bridge motion notification flashes
-the matching camera tile blue twice (250 ms on, 250 ms off, 250 ms on). Another
+the matching camera tile blue for five seconds (alternating 250 ms on and off). Another
 event restarts that tile's pulse; different cameras pulse independently. Fixed
 tiles and motion-following tiles use the camera currently assigned to the tile.
 Hello snapshots and stream-state changes do not flash a border.

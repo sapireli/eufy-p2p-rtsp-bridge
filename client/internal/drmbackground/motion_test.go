@@ -44,13 +44,16 @@ func isMotionBlue(b *Background, x, y int) bool {
 	return binary.LittleEndian.Uint32(b.mapping[at:]) == 0x0055b6ff
 }
 
-func TestMotionHasTwoPulsesAndRestoresImage(t *testing.T) {
+func TestMotionFlashesForFiveSecondsAndRestoresImage(t *testing.T) {
 	for _, format := range []uint32{rgb565, xrgb8888} {
 		b, c := motionBackground(format)
 		for i := range b.mapping {
 			b.mapping[i] = byte(i * 13)
 		}
 		original := bytes.Clone(b.mapping)
+		if time.Duration(motionPhases)*MotionPulse != 5*time.Second {
+			t.Fatal("wrong flash duration")
+		}
 		if err := b.FlashMotion(MotionRect{10, 10, 100, 50}); err != nil {
 			t.Fatal(err)
 		}
@@ -71,8 +74,10 @@ func TestMotionHasTwoPulsesAndRestoresImage(t *testing.T) {
 		if !isMotionBlue(b, 10, 10) {
 			t.Fatal("second blue pulse missing")
 		}
-		c.timers[2].callback()
-		if !bytes.Equal(original, b.mapping) || len(b.motion) != 0 || len(c.timers) != 3 {
+		for phase := 2; phase < motionPhases; phase++ {
+			c.timers[phase].callback()
+		}
+		if !bytes.Equal(original, b.mapping) || len(b.motion) != 0 || len(c.timers) != motionPhases {
 			t.Fatal("pulse did not finish without idle timers")
 		}
 	}
