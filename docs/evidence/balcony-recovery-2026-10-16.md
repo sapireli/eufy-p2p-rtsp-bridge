@@ -181,3 +181,16 @@ Private records: `encoder-stage-results.tgz`,
 `encoder-stage-shared-load.tar.gz`, remote `stage-default-debug.log`, and
 `/tmp/tv-current-load-20261016/` on the workstation. No SDK, client, or server
 runtime source was changed in this follow-up.
+
+
+## Subsequent encoder result
+
+The encoder preset investigation subsequently isolated a supported software
+configuration fix on the existing hardware. Identical stable 1080p input ran
+at 24.49 fps with the omitted setting and 49.78 fps with explicit VA-API driver
+default mode. All three live Eufy streams then passed the five-minute check
+without accumulating encoder backlog. See
+[cherryview-encoder-preset-2026-10-16.md](cherryview-encoder-preset-2026-10-16.md)
+for the source path, controlled measurements, live-control confound, fidelity
+comparison, and remaining limits. Earlier unresolved statements above describe
+the state before that follow-up, not the final encoder result.
