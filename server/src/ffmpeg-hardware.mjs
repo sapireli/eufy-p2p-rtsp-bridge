@@ -37,13 +37,17 @@ export function transcodeAttempts(argv, { devices = renderNodes(), outputGeometr
   const cappedHeight = `min(ih,${height})`;
   const resize = outputGeometry ? `scale=${outputGeometry.width}:${outputGeometry.height},` : height ? `scale=-2:'${cappedHeight}':eval=frame,` : "";
   const nodes = device === "auto" ? devices : [device];
+  // Explicit VA-API quality level 0 requests the driver default. Omitting it
+  // leaves i965 Cherryview on its expensive initial motion-search preset; this
+  // control is separate from quantization, frame rate, and output geometry.
+  const driverDefault = ["-quality:v", "0"];
   // Frame threading holds future frames even with VAAPI decoding. Slice-only
   // threading retains automatic intra-frame parallelism without that hold.
   const hardware = nodes.map((node) => ({ ...build("hardware-decode-encode", ["-init_hw_device", `vaapi=ewb_vaapi:${node}`,
     "-filter_hw_device", "ewb_vaapi", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-hwaccel_device", "ewb_vaapi", "-thread_type:v", "slice"],
-    `scale_vaapi=${outputGeometry ? `w=${outputGeometry.width}:h=${outputGeometry.height}:` : height ? `w=-2:h='${cappedHeight}':` : ""}format=nv12`, "h264_vaapi"), device: node }));
+    `scale_vaapi=${outputGeometry ? `w=${outputGeometry.width}:h=${outputGeometry.height}:` : height ? `w=-2:h='${cappedHeight}':` : ""}format=nv12`, "h264_vaapi", driverDefault), device: node }));
   const mixed = nodes.map((node) => ({ ...build("software-decode-hardware-encode", ["-vaapi_device", node],
-    `${resize}format=nv12,hwupload`, "h264_vaapi"), device: node }));
+    `${resize}format=nv12,hwupload`, "h264_vaapi", driverDefault), device: node }));
   const software = build("software-decode-encode", [], `${resize}format=yuv420p`, "libx264",
     ["-preset:v", "superfast", "-tune:v", "zerolatency"]);
   return preference === "encode" ? [...mixed, software] : [...hardware, ...mixed, software];

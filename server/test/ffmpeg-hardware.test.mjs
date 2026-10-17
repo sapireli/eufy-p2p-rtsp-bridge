@@ -44,6 +44,21 @@ test("hardware decoding avoids frame-thread delay without limiting software fall
   }
 });
 
+test("hardware encoding requests the driver default without changing software or quantization", () => {
+  for (const preference of ["auto", "encode"]) {
+    const template = [...args];
+    template[template.indexOf("--eufy-vaapi") + 3] = preference;
+    for (const attempt of transcodeAttempts(template)) {
+      const quality = attempt.args.indexOf("-quality:v");
+      if (attempt.args.includes("h264_vaapi")) {
+        assert.ok(quality > attempt.args.indexOf("-i"));
+        assert.equal(attempt.args[quality + 1], "0");
+      } else assert.equal(quality, -1);
+      assert.ok(!attempt.args.includes("-qp") && !attempt.args.includes("-qp:v"));
+    }
+  }
+});
+
 test("explicit output geometry remains identical across hardware and software attempts", () => {
   const attempts = transcodeAttempts(args, { outputGeometry: { width: 1920, height: 1080 } });
   assert.ok(attempts[0].args.includes("scale_vaapi=w=1920:h=1080:format=nv12"));
