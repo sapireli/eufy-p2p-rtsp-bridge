@@ -1,6 +1,8 @@
 package layout
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"eufy-wall/internal/config"
@@ -8,6 +10,79 @@ import (
 
 func cfg(layout, pos string, tiles ...config.Tile) *config.Config {
 	return &config.Config{RTSPBase: "rtsp://s:8554", Layout: layout, PrimaryPosition: pos, Tiles: tiles}
+}
+
+func TestTwoTallThreeWideSharesSeventyThirtyAtEveryTileCount(t *testing.T) {
+	for count := 2; count <= 5; count++ {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			tiles := make([]config.Tile, count)
+			for i := range tiles {
+				tiles[i] = config.Tile{Camera: fmt.Sprintf("CAM%d", i), Codec: "h264"}
+			}
+			// Conflicting aspect/role hints must not override preset order.
+			tiles[0].Aspect, tiles[1].Role = "wide", "primary"
+			placed, err := Place(cfg(config.LayoutTwoTallThreeWide, "right", tiles...), config.Screen{Width: 1920, Height: 1080})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, want := range [][4]int{{0, 0, 672, 1080}, {672, 0, 672, 1080}} {
+				if rect(placed[i]) != want {
+					t.Fatalf("tile%d: got%v want%v", i, rect(placed[i]), want)
+				}
+			}
+			for i, p := range placed {
+				if p.Index != i || p.Camera != tiles[i].Camera || p.Codec != "h264" || p.URL != "rtsp://s:8554/"+tiles[i].Camera {
+					t.Fatalf("identity changed: %+v", p)
+				}
+				if i >= 2 {
+					want := [4]int{1344, (i - 2) * 1080 / (count - 2), 576, 1080 / (count - 2)}
+					if rect(p) != want {
+						t.Fatalf("right tile%d: got%v want%v", i, rect(p), want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestTwoTallThreeWideOddScreenHasNoGapsOrOverlaps(t *testing.T) {
+	for count := 3; count <= 5; count++ {
+		tiles := make([]config.Tile, count)
+		placed, err := Place(cfg(config.LayoutTwoTallThreeWide, "", tiles...), config.Screen{Width: 1919, Height: 1079})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if placed[0].X != 0 || placed[0].W != 671 || placed[1].X != 671 || placed[1].W != 672 {
+			t.Fatalf("incorrect percentage rounding: %+v", placed)
+		}
+		bottom := 0
+		for _, p := range placed[2:] {
+			if p.X != 1343 || p.X+p.W != 1919 || p.Y != bottom || p.W <= 0 || p.H <= 0 {
+				t.Fatalf("right-column gap/overlap: %+v", p)
+			}
+			bottom = p.Y + p.H
+		}
+		if bottom != 1079 {
+			t.Fatalf("right column does not reach screen bottom: %d", bottom)
+		}
+	}
+}
+
+func TestTwoTallThreeWideRejectsInvalidStandalonePlacement(t *testing.T) {
+	for _, count := range []int{0, 1, 6} {
+		if _, err := Place(cfg(config.LayoutTwoTallThreeWide, "", make([]config.Tile, count)...), config.Screen{Width: 1920, Height: 1080}); err == nil {
+			t.Fatalf("accepted%d tiles", count)
+		}
+	}
+	for _, screen := range []config.Screen{{Width: 0, Height: 1080}, {Width: 2, Height: 1080}, {Width: 1920, Height: 0}, {Width: 1920, Height: 2}} {
+		if _, err := Place(cfg(config.LayoutTwoTallThreeWide, "", make([]config.Tile, 5)...), screen); err == nil {
+			t.Fatalf("accepted invalid screen %+v", screen)
+		}
+	}
+	tiles := []config.Tile{{Camera: "A", Span: &config.Span{Cols: 1, Rows: 1}}, {Camera: "B"}}
+	if _, err := Place(cfg(config.LayoutTwoTallThreeWide, "", tiles...), config.Screen{Width: 1920, Height: 1080}); err == nil || !strings.Contains(err.Error(), "span") {
+		t.Fatalf("accepted explicit span: %v", err)
+	}
 }
 
 func rect(p Placed) [4]int { return [4]int{p.X, p.Y, p.W, p.H} }

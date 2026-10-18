@@ -62,6 +62,9 @@ func (g *grid) firstFit(cols, rows int) (col, row int, ok bool) {
 
 // Place assigns every tile a cell block and a pixel rectangle on `screen`.
 func Place(c *config.Config, screen config.Screen) ([]Placed, error) {
+	if c.Layout == config.LayoutTwoTallThreeWide {
+		return placeTwoTallThreeWide(c, screen)
+	}
 	cols, rows := c.GridDims()
 	g := &grid{cols: cols, rows: rows, used: make([]bool, cols*rows)}
 	out := make([]Placed, len(c.Tiles))
@@ -123,6 +126,42 @@ func Place(c *config.Config, screen config.Screen) ([]Placed, error) {
 		p.Col, p.Row, p.Cols, p.Rows = col, row, want.Cols, want.Rows
 		g.take(col, row, want.Cols, want.Rows)
 		toPixels(&p)
+		out[i] = p
+	}
+	return out, nil
+}
+
+func placeTwoTallThreeWide(c *config.Config, screen config.Screen) ([]Placed, error) {
+	count := len(c.Tiles)
+	if count < 2 || count > 5 {
+		return nil, fmt.Errorf("layout %s requires 2-5 tiles", c.Layout)
+	}
+	sideCount := count - 2
+	if screen.Width < 3 || screen.Height < max(1, sideCount) {
+		return nil, fmt.Errorf("layout %s: screen %dx%d is too small", c.Layout, screen.Width, screen.Height)
+	}
+	// Calculate shared boundaries rather than rounding each tile independently.
+	// Division first also avoids overflowing an int on ARMv6.
+	boundary := func(size, part, total int) int { return size/total*part + size%total*part/total }
+	leftEnd, centerEnd := boundary(screen.Width, 35, 100), boundary(screen.Width, 70, 100)
+	out := make([]Placed, count)
+	for i, tile := range c.Tiles {
+		if tile.Span != nil {
+			return nil, fmt.Errorf("layout %s fixes tile positions; remove tile %d span", c.Layout, i)
+		}
+		p := Placed{Index: i, Camera: tile.Camera, Codec: tile.Codec, URL: c.TileURL(tile)}
+		switch i {
+		case 0:
+			p.Cols, p.Rows, p.W, p.H = 7, 6, leftEnd, screen.Height
+		case 1:
+			p.Col, p.Cols, p.Rows = 7, 7, 6
+			p.X, p.W, p.H = leftEnd, centerEnd-leftEnd, screen.Height
+		default:
+			row := i - 2
+			p.Col, p.Row, p.Cols, p.Rows = 14, row*(6/sideCount), 6, 6/sideCount
+			p.X, p.Y = centerEnd, boundary(screen.Height, row, sideCount)
+			p.W, p.H = screen.Width-centerEnd, boundary(screen.Height, row+1, sideCount)-p.Y
+		}
 		out[i] = p
 	}
 	return out, nil

@@ -7,6 +7,39 @@ import (
 	"testing"
 )
 
+func TestTwoTallThreeWideConfigLimitsAndMotionTile(t *testing.T) {
+	for count := 1; count <= 6; count++ {
+		y := "rtsp_base: rtsp://bridge:8554\nlayout: 2tall+3wide\ntiles:\n"
+		for i := 0; i < count; i++ {
+			y += fmt.Sprintf("  - camera: CAM%d\n", i)
+		}
+		c, err := Parse([]byte(y))
+		if count < 2 || count > 5 {
+			if err == nil {
+				t.Fatalf("accepted%d tiles", count)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cols, rows := c.GridDims(); cols != 20 || rows != 6 {
+			t.Fatalf("wrong preset grid: %dx%d", cols, rows)
+		}
+	}
+	_, err := Parse([]byte("rtsp_base: rtsp://bridge\nlayout: 2tall+3wide\ntiles: [{camera: A, span: {cols: 1, rows: 1}}, {camera: B}]\n"))
+	if err == nil || !strings.Contains(err.Error(), "span") {
+		t.Fatalf("accepted explicit span: %v", err)
+	}
+	c, err := Parse([]byte("rtsp_base: rtsp://bridge\nlayout: 2tall+3wide\ntiles:\n  - camera: FRONT\n  - camera: GARAGE\n  - camera: BALCONY\n  - motion: latest\n    watch: [BATTERY_A, BATTERY_B]\n    blank_after_seconds: 30\n    dwell_seconds: 10\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Tiles[3].Motion != "latest" || len(c.Tiles[3].Watch) != 2 || c.Tiles[3].BlankAfterSeconds != 30 {
+		t.Fatalf("motion tile changed: %+v", c.Tiles[3])
+	}
+}
+
 func TestMotionFlashToggleDefaultsAndExplicitFalse(t *testing.T) {
 	for _, tc := range []struct {
 		option string

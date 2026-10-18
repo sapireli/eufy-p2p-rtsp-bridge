@@ -80,7 +80,11 @@ type Config struct {
 // limited to the shapes someone thought to name: "2x1" is two tiles side by side at full height (the
 // natural fit for two portrait dual-lens cameras on a 16:9 screen), "3x1" is three across, "1x2" stacks
 // a pair for a rotated panel.
-var layouts = map[string][2]int{"1": {1, 1}, "1+5": {3, 3}}
+const LayoutTwoTallThreeWide = "2tall+3wide"
+
+// The asymmetric preset uses 7+7+6 columns and six rows so all supported
+// right-hand stacks (one, two, or three tiles) have integral cell spans.
+var layouts = map[string][2]int{"1": {1, 1}, "1+5": {3, 3}, LayoutTwoTallThreeWide: {20, 6}}
 
 const maxGridSide = 6
 
@@ -124,7 +128,7 @@ func Parse(data []byte) (*Config, error) {
 		c.PrimaryPosition = "left"
 	}
 	if _, _, ok := gridFor(c.Layout); !ok {
-		return nil, fmt.Errorf("config: layout must be 1, 1+5, or <cols>x<rows> with each side 1-%d, e.g. 2x1 (two side by side), 2x2, 3x1 (got %q)", maxGridSide, c.Layout)
+		return nil, fmt.Errorf("config: layout must be 1, 1+5, 2tall+3wide, or <cols>x<rows> with each side 1-%d, e.g. 2x1 (two side by side), 2x2, 3x1 (got %q)", maxGridSide, c.Layout)
 	}
 	if c.Layout == "1+5" {
 		switch c.PrimaryPosition {
@@ -154,11 +158,17 @@ func Parse(data []byte) (*Config, error) {
 	if len(c.Tiles) == 0 {
 		return nil, fmt.Errorf("config: at least one tile is required")
 	}
+	if c.Layout == LayoutTwoTallThreeWide && (len(c.Tiles) < 2 || len(c.Tiles) > 5) {
+		return nil, fmt.Errorf("config: layout %s requires 2-5 tiles", c.Layout)
+	}
 	cols, rows := c.GridDims()
 	if len(c.Tiles) > cols*rows {
 		return nil, fmt.Errorf("config: %d tiles do not fit layout %s (%d cells)", len(c.Tiles), c.Layout, cols*rows)
 	}
 	for i, t := range c.Tiles {
+		if c.Layout == LayoutTwoTallThreeWide && t.Span != nil {
+			return nil, fmt.Errorf("config: layout %s fixes tile positions; remove tiles[%d].span", c.Layout, i)
+		}
 		if t.Camera == "" && t.URL == "" && t.Motion == "" {
 			return nil, fmt.Errorf("config: tiles[%d] needs camera, url, or motion: latest", i)
 		}

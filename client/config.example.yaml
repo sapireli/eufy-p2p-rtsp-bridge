@@ -8,7 +8,7 @@ rtsp_base: auto   # discover _eufy-wall._tcp; or use a hostname, e.g. rtsp://hom
 # framebuffer across both — DRM overlay planes belong to a single CRTC, so spanning forces the
 # compositor path and roughly doubles the composite work. List connectors with:
 #   ls /sys/class/drm/            (card0-HDMI-A-1, card0-HDMI-A-2, card0-DP-1, ...)
-layout: 2x1                            # 1 | 1+5 | any <cols>x<rows> (sides 1-6)
+layout: 2x1                            # 1 | 1+5 | 2tall+3wide | <cols>x<rows> (sides 1-6)
 # Common shapes on a 16:9 screen:
 #   2x1  two side by side, full height. The fit for two dual-lens cameras: they compose a PORTRAIT
 #        stream (e.g. 1600x2200, 1920x2160), and two of those fill ~91% of the width — a third will
@@ -17,6 +17,10 @@ layout: 2x1                            # 1 | 1+5 | any <cols>x<rows> (sides 1-6)
 #   2x2  four tiles; a tile with `aspect: tall` takes a full-height column
 #   1x2  stacked pair, for a rotated panel
 #   1+5  one 2x2 primary plus five 1x1 tiles in a 3x3 grid (see primary_position)
+#   2tall+3wide  first two tiles each take 35% width at full height; the remaining
+#        1-3 tiles share the right 30% equally from top to bottom. Requires 2-5 tiles;
+#        with two tiles the right column is black. Positions follow tiles order;
+#        aspect/role do not reorder tiles and explicit span overrides are rejected.
 primary_position: left                 # 1+5 only: left | right
 # screen: { width: 1920, height: 1080 }  # omit → auto-detect from /sys/class/drm
 decoder: auto                          # auto | v4l2 (Pi) | va (x86 VAAPI) | software

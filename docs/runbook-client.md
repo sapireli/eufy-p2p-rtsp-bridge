@@ -58,12 +58,43 @@ overlays. It allocates one static image at startup; no background video player o
 continuous image processing is required.
 
 ## Layouts
+
 `1`, `2x2`, `3x3`, `1+5` (primary 2×2 at `left` or `right` of a 3×3 grid; `center` is not possible with 3
 columns). A tile with `aspect: tall` (an E340 in split-view) takes 1 column × 2 rows — in `1+5` that is the
 side column next to the primary; if there is no room it is letterboxed in one cell.
 For a fixed camera with no `aspect` setting, the client reads `/api/cameras` at startup and marks a
 portrait stream `tall` automatically. An explicit `aspect: tall` or `aspect: wide` overrides detection.
 If the bridge is unavailable during startup, the client keeps the configured/default layout.
+
+`2tall+3wide` reserves 35% of the screen width for each of the first two tiles,
+both at full height. The remaining 30% holds the next one, two, or three tiles
+from top to bottom, with equal heights. It accepts 2-5 tiles; with two tiles,
+the right column remains black. Tile order determines placement. `aspect`,
+`role`, and `primary_position` do not change this preset; remove explicit `span`
+settings before selecting it.
+
+For example, this puts Front Door left, Garage center, Balcony at the upper
+right, and a motion-following tile at the lower right:
+
+```yaml
+layout: 2tall+3wide
+tiles:
+  - camera: T8214510242321E6  # Front Door
+  - camera: T8425T1124130A0C  # Garage CLE
+  - camera: T8423T60241702B1  # Balcony CLE
+  - motion: latest          # Magic Box: the watched battery cameras
+    watch:
+      - T821451023461C88     # Garage Interior Door
+      - T81A0P1024190D5C     # Front Yard
+      - T81A0P1024080C44     # Solar Wall
+    blank_after_seconds: 30
+    dwell_seconds: 10
+```
+
+The motion tile follows only its `watch` list. A fifth tile gets
+the bottom third of the right column, while the other two use the top and middle
+thirds. This changes display placement, not stream resolution or decoder demand.
+Verify playback capacity before adding live feeds on a resource-limited device.
 
 ## RTSP packet processing
 
