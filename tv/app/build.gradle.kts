@@ -8,8 +8,8 @@ android {
         applicationId = "com.eufywall.viewer"
         minSdk = 24
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.6.4"
+        versionCode = 14
+        versionName = "0.6.5"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

@@ -10,7 +10,18 @@ data class WallTileBounds(val tile: ConfiguredWallTile, val x: Double, val y: Do
 object WallLayout {
     fun calculate(config: WallConfiguration, portraitCameraIds: Set<String> = emptySet()): List<WallTileBounds> {
         require(config.validationErrors().isEmpty()) { config.validationErrors().joinToString("; ") }
-        return if (config.layout == WallLayoutMode.GRID) grid(config) else automatic(config.tiles, portraitCameraIds)
+        return when (config.layout) {
+            WallLayoutMode.GRID -> grid(config)
+            WallLayoutMode.TWO_TALL_RIGHT -> twoTallRight(config.tiles)
+            WallLayoutMode.AUTO -> automatic(config.tiles, portraitCameraIds)
+        }
+    }
+
+    /** First two selected cameras are full height; remaining feeds stack on the right. */
+    private fun twoTallRight(tiles: List<ConfiguredWallTile>): List<WallTileBounds> {
+        val wideCount = tiles.size - 2
+        return tiles.take(2).mapIndexed { i, tile -> WallTileBounds(tile, i * .35, 0.0, .35, 1.0) } +
+            tiles.drop(2).mapIndexed { i, tile -> WallTileBounds(tile, .7, i.toDouble() / wideCount, .3, 1.0 / wideCount) }
     }
 
     private fun automatic(tiles: List<ConfiguredWallTile>, portraits: Set<String>): List<WallTileBounds> {

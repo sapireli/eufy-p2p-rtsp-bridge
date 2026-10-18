@@ -171,3 +171,7 @@ Freshness observation logs both ingress-age bounds and clock interval width. An
 upper bound beyond the budget means freshness is uncertified; only a lower bound
 beyond the budget establishes a late bridge-ingress frame under the clock model.
 This still does not measure sensor capture age or physical panel latency.
+
+### Two tall cameras with a right stack
+
+Choose **Edit wall → Layout → Two tall + right stack (up to 3)**. The first two tiles fill the left and center columns at 35% width each. The remaining one to three tiles share the right 30%, stacked at equal heights. Reorder tiles to choose their positions. Two to five tiles are supported; with only two, the right column stays black. Motion-following tiles work in the right stack. Explicit grid coordinates and spans are retained for switching back to Grid but are not used by this preset. Camera image mode is a bridge setting shared by all clients; use Stacked views for dual-lens cameras.

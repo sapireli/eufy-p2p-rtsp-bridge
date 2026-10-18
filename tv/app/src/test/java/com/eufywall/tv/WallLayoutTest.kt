@@ -17,6 +17,25 @@ class WallLayoutTest {
         assertEquals(1.0, bounds[0].height, .000001)
     }
 
+    @Test fun twoTallRightStacksOneToThreeLandscapeFeedsAndPersists() {
+        for (count in 2..5) {
+            val config = WallConfiguration(layout = WallLayoutMode.TWO_TALL_RIGHT, tiles = (0 until count).map { tile("$it") })
+            assertEquals(config, WallConfiguration.decode(config.encode()))
+            val bounds = WallLayout.calculate(config)
+            assertEquals(.35, bounds[0].width, .000001)
+            assertEquals(.35, bounds[1].x, .000001)
+            assertEquals(1.0, bounds[1].height, .000001)
+            bounds.drop(2).forEachIndexed { i, b ->
+                assertEquals(.7, b.x, .000001)
+                assertEquals(.3, b.width, .000001)
+                assertEquals(1.0 / (count - 2), b.height, .000001)
+                assertEquals(i.toDouble() / (count - 2), b.y, .000001)
+            }
+        }
+        for (count in listOf(0, 1, 6)) assertFalse(WallConfiguration(layout = WallLayoutMode.TWO_TALL_RIGHT,
+            tiles = (0 until count).map { tile("$it") }).validationErrors().isEmpty())
+    }
+
     @Test fun thirtySixTilesFitWithoutOverlap() {
         val bounds = WallLayout.calculate(WallConfiguration(tiles = (0 until 36).map { tile("$it") }))
         assertEquals(36, bounds.size)

@@ -346,7 +346,7 @@ class MainActivity : Activity() {
             }
         }
         root.addView(flash)
-        root.addView(text(if (wallConfig.layout == WallLayoutMode.AUTO) "Automatic layout" else "${wallConfig.columns} columns · ${wallConfig.rows} rows", 18f))
+        root.addView(text(if (wallConfig.layout == WallLayoutMode.AUTO) "Automatic layout" else if (wallConfig.layout == WallLayoutMode.TWO_TALL_RIGHT) "Two tall + right stack · first two cameras fill left and center" else "${wallConfig.columns} columns · ${wallConfig.rows} rows", 18f))
         wallConfig.tiles.forEachIndexed { index, tile ->
             val description = if (tile.spec.motion) {
                 if (tile.spec.watch.isEmpty()) "Shows the camera with the most recent motion" else
@@ -438,12 +438,16 @@ class MainActivity : Activity() {
 
     private fun editLayout() {
         AlertDialog.Builder(this).setTitle("Choose a layout")
-            .setItems(arrayOf("Automatic · fits your cameras", "2 columns", "3 columns", "4 columns", "6 columns", "Custom grid (advanced)")) { _, i ->
-                if (i == 5) { editCustomGrid(); return@setItems }
+            .setItems(arrayOf("Automatic · fits your cameras", "2 columns", "3 columns", "4 columns", "6 columns", "Two tall + right stack (up to 3)", "Custom grid (advanced)")) { _, i ->
+                if (i == 6) { editCustomGrid(); return@setItems }
                 try {
-                    val next = if (i == 0) wallConfig.copy(layout = WallLayoutMode.AUTO) else WallEditing.presetColumns(wallConfig, listOf(2, 3, 4, 6)[i - 1])
+                    val next = when (i) {
+                        0 -> wallConfig.copy(layout = WallLayoutMode.AUTO)
+                        5 -> wallConfig.copy(layout = WallLayoutMode.TWO_TALL_RIGHT)
+                        else -> WallEditing.presetColumns(wallConfig, listOf(2, 3, 4, 6)[i - 1])
+                    }
                     if (saveConfiguration(next)) showWallEditor("Layout saved")
-                } catch (_: IllegalArgumentException) { Toast.makeText(this, "Choose more columns to fit these cameras.", Toast.LENGTH_LONG).show() }
+                } catch (e: IllegalArgumentException) { Toast.makeText(this, e.message ?: "These cameras do not fit this layout.", Toast.LENGTH_LONG).show() }
             }.setNegativeButton("Cancel", null).show()
     }
 

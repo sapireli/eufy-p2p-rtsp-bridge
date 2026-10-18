@@ -3,7 +3,7 @@ package com.eufywall.tv
 import org.json.JSONArray
 import org.json.JSONObject
 
-enum class WallLayoutMode { AUTO, GRID }
+enum class WallLayoutMode { AUTO, GRID, TWO_TALL_RIGHT }
 
 /** A negative column and row requests automatic placement in the configured grid. */
 data class ConfiguredWallTile(
@@ -25,6 +25,7 @@ data class WallConfiguration(
     fun validationErrors(): List<String> {
         val errors = mutableListOf<String>()
         if (columns !in 1..6 || rows !in 1..6) errors += "Grid dimensions must be between 1 and 6"
+        if (layout == WallLayoutMode.TWO_TALL_RIGHT && tiles.size !in 2..5) errors += "This layout needs two tall cameras and up to three landscape cameras"
         if (tiles.size > 36) errors += "A wall supports at most 36 tiles"
         if (tiles.map { it.spec.id }.distinct().size != tiles.size) errors += "Tile IDs must be unique"
         tiles.forEach { tile ->
