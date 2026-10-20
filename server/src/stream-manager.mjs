@@ -159,7 +159,14 @@ export function createStreamManager(ctx) {
       console.log(`[bridge] ${slot.sn}: stopped`);
       ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "idle" });
     }
-    if (f) { f.removeAllListeners(); f.destroy(); }
+    if (f) {
+      // A reopened feed starts a new coded reference chain, even when its SDK
+      // sourceId survives. Consumers must not retain the old decoder or PTS map.
+      const consumers = [...slot.consumers];
+      slot.consumers.clear();
+      for (const consumer of consumers) consumer.end();
+      f.removeAllListeners(); f.destroy();
+    }
   }
 
   /**
@@ -221,6 +228,7 @@ export function createStreamManager(ctx) {
       slot.startedAt = Date.now();
       slot.receivedMedia = false;
       feed.on("data", (chunk) => {
+        if (slot.feed !== feed) return;
         try { onChunk(slot, chunk); } catch (error) { feed.destroy(error); }
       });
       const onEnd = (why) => () => {

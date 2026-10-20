@@ -576,3 +576,55 @@ test("opt-in consumer clocks separate bridge arrival from synchronous parameter 
     assert.equal(extraClockReads,2,"disabled diagnostics add no bridge clock reads");
   } finally {await sm.stopAll();}
 });
+
+
+for (const retirement of ["end", "stall"]) {
+  test(`camera feed ${retirement} retires its consumers before a new coded chain, preserving siblings`, async () => {
+    const first = new PassThrough();
+    const replacement = new PassThrough();
+    const ctx = ctxWith({ feeds: [() => first, () => replacement] });
+    ctx.cfg.stall.stallMs = 5000;
+    const manager = createStreamManager(ctx);
+    const old = fakeRes();
+    const sibling = fakeRes();
+    const siblingFeed = new PassThrough();
+    try {
+      manager.attachConsumer("A", old);
+      await manager.ensureWarm("A");
+      await waitUntil(() => ctx.state.slots.get("A").feed === first);
+      // Add an independently active camera without altering the target's open sequence.
+      const siblingSlot = { sn: "B", feed: siblingFeed, consumers: new Set([sibling]), lastBytesAt: Date.now(), startedAt: Date.now(), receivedMedia: true };
+      ctx.state.slots.set("B", siblingSlot);
+      ctx.state.streaming.add("B");
+      first.write(KEY);
+      const oldData = first.listeners("data")[0];
+      const oldEnd = first.listeners("end")[0];
+      assert.deepEqual(old.chunks, [KEY]);
+      if (retirement === "end") first.end();
+      else {
+        const tick = Date.now() + 5001;
+        siblingSlot.lastBytesAt = tick; // The sibling is still receiving media.
+        manager.streamTick(tick);
+      }
+      await waitUntil(() => ctx.state.slots.get("A").feed === replacement);
+      assert.equal(ctx.opens(), 2);
+      assert.equal(old.destroyed, true, "old decoder/mux consumer ends at feed retirement");
+      assert.equal(sibling.destroyed, false, "another camera's consumer is retained");
+      assert.equal(siblingFeed.destroyed, false);
+      const fresh = fakeRes();
+      manager.attachConsumer("A", fresh);
+      oldData(KEY); // A callback already captured by a producer must not enter the new chain.
+      oldEnd();
+      assert.equal(ctx.state.slots.get("A").feed, replacement);
+      assert.equal(fresh.destroyed, false);
+      replacement.write(DELTA);
+      assert.deepEqual(fresh.chunks, [], "a new coded chain cannot start from an old reference picture");
+      replacement.write(KEY);
+      replacement.write(DELTA);
+      assert.deepEqual(fresh.chunks, [KEY, DELTA]);
+      assert.deepEqual(old.chunks, [KEY], "retired consumer receives no replacement pictures");
+    } finally {
+      await manager.stopAll();
+    }
+  });
+}
