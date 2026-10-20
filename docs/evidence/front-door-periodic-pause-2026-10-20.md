@@ -251,6 +251,44 @@ without this SDK. This is not a current equal-condition comparison or proof of
 the present root cause. Capture-filter provenance is unknown; absence of a
 heartbeat in this archive cannot establish that no heartbeat was sent.
 
+### Picture-header cadence comparison from Downloads
+
+A fresh `tshark` extraction of both iPhone PCAPs reproduced the previously
+retained private TSVs byte for byte. Both captures end in a truncated final
+packet; extraction reports that error and retains preceding complete records.
+The archives are historical October 9 observations, not a current controlled
+app/SDK comparison.
+
+For incoming VIDEO (`d101`) datagrams, this census selects visible XZYH command
+1300 headers on channel 2 with geometry 1600×2200. It deduplicates header starts
+by source timestamp and video-header sequence, so repeated headers/chunks do not
+inflate the picture count. These are visible picture-header starts, not proof
+of complete, decodable pictures or actual display cadence. The SDK comparison
+uses its retained complete native-picture delivery records on the independent Mac.
+
+| Recording and observation stage | Distinct picture starts/deliveries | Span | Largest arrival gap | Source timestamp advance across that gap | Gaps >500 / >750 / >1000 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `eufy-iphone.pcap`, first header packet | 395 | 26.278 s | 484.146 ms | 67 ms | 0 / 0 / 0 |
+| `eufy-iphone2.pcap`, first header packet | 1516 | 103.099 s | 1065.235 ms | 66 ms | 11 / 2 / 1 |
+| Independent SDK Mac, complete delivery | 677 | 44.850 s | 1541.376 ms | 69 ms | 6 / 4 / 2 |
+
+The long iPhone recording contains the same type of uneven arrival: approximately
+one second elapses between pictures whose source timestamps advance one nominal
+frame. It is therefore useful as a first-party transport reference, rather than
+a proven smooth reference. Different dates, conditions and observation stages
+prevent interpreting the gap counts as an SDK regression or equivalence result.
+The PCAP alone does not show whether app buffering concealed its arrival gaps.
+
+The two additional Downloads archives do not provide another media comparison:
+`br0.pcap` covers 119.351 seconds on July 23, 2025 with Eufy discovery/handshake
+packets but no identified DATA/video; `br0 2.pcap` covers 28.483 seconds with no
+identified Eufy packets. Both have 128-byte snapshots and truncated final packets.
+
+The sanitized comparison is retained under ignored
+`.evidence/front-door-pause-2026-10-20/picture-cadence-comparison.json` (SHA-256
+`c3c68fa4685ec17b10cb0cfa140580f110ab23fd8169ef765926cd252722bb07`). The source `eufy-iphone2.pcap` SHA-256 is
+`7936bc93c2290f858faad805d111d59e8ee8f385d3136101942b61b1b2c48b15`.
+
 Raw artifacts are private local files, not committed packet captures:
 
 | Artifact | SHA-256 |
