@@ -135,3 +135,31 @@ changes SDK lifecycle/budget policy, not firmware capabilities or media-start
 request fields. Existing archived iPhone captures contain no matching
 channel-5/1600×2300 T8213 reference, so a different vendor request has not been
 established and no request-field change was made.
+
+## Control telemetry cross-check
+
+The independent eufy-security-client implementation decodes command 1032 as
+an `int32LE` RSSI notification in `src/p2p/session.ts` (master, lines 2536–2543):
+https://github.com/bropat/eufy-security-client/blob/master/src/p2p/session.ts .
+This supports interpreting the notification as signal telemetry, but does not
+establish the units or the meaning of the -100 sentinel for this device.
+
+Deduplicating repeated station reports across sessions within 100 ms gave eight
+channel-5 reports over the complete SDK observation: -70 once, -75 three times,
+-74 once and -100 three times. Seven reports overlapped the packet capture.
+Only one of the three -100 reports fell inside a long media gap (4286.683 ms).
+The other two arrived while video delivery advanced normally. The largest
+6106.480 ms media gap overlapped a -70 report. Two other gaps over two seconds
+had no -100 report. Channel 1 reported -61 through -63 without a media gap over
+500 ms in that window. This association does not establish RF failure as the
+cause of the target camera's pauses.
+
+A later bounded inspector read used only the retained Device-state weak
+reference, without a new SDK session or network property refresh. The target
+Device object was no longer retained, so battery and charging state remained
+unknown. The inspector was closed; port 9229 had no listener and the bridge
+PID remained 135966. An absent cached Device is not a zero battery reading.
+
+No new configuration or SDK intervention was supported by this control audit.
+A same-model first-party reference, or a controlled camera-to-HomeBase link
+change, is still needed to separate the remaining upstream explanations.
