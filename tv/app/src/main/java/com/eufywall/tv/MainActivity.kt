@@ -6,8 +6,6 @@ import android.graphics.drawable.StateListDrawable
 import android.widget.ImageView
 import android.widget.Toast
 import android.app.Activity
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
@@ -15,7 +13,6 @@ import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.Process
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
@@ -116,8 +113,6 @@ class MainActivity : Activity() {
     private var multicast: WifiManager.MulticastLock? = null
     private var status: TextView? = null
     private var ipEntry: EditText? = null
-    private var decoderFailures = 0
-    private var decoderRecoveryScheduled = false
     private val reconnect = Runnable { if (wallVisible) connectEvents() }
     private val controlRecovery = ControlChannelRecovery(
         reportLoss = { reason -> android.util.Log.i("EufyWallTV", "Control socket lost reason=$reason; preserving ${players.size} RTSP players; reconnect in 5000ms") },
@@ -581,7 +576,6 @@ class MainActivity : Activity() {
     }
 
     private fun updateTile(sn: String) {
-        if (decoderRecoveryScheduled) return
         val selection = resolvedTiles[sn] ?: return
         val cam = cameras.firstOrNull { it.sn == selection.camera }
         val label = labels[sn] ?: return
@@ -606,7 +600,7 @@ class MainActivity : Activity() {
             val startedAt = SystemClock.elapsedRealtime()
             lateinit var player: LowLatencyRtspPlayer
             var retryScheduled = false
-            fun retry(message: String, decoder: Boolean) {
+            fun retry(message: String) {
                 if (!wallVisible || players[sn] !== player || retryScheduled) return
                 retryScheduled = true
                 label.text = "${cam.name} • $message, reconnecting"
@@ -614,26 +608,26 @@ class MainActivity : Activity() {
                 if (playback.nativeDecoderName != null) {
                     nativeFallback.fail(cam.sn)
                     android.util.Log.w("EufyWallTV", "Native rendition failed for $sn; switching to compatibility URL: $message")
-                } else if (decoder) {
-                    decoderFailures++
-                    if (decoderFailures >= 2) { recoverDecoder(); return }
                 }
-                ui.postDelayed({
-                    if (wantsLive(sn) && players[sn] === player) {
-                        release(sn, "rtsp-retry"); updateTile(sn)
-                    }
-                }, 1_000)
+                // A decoder failure or hardware handoff belongs to this player.
+                // Other tiles retain their surfaces, sockets, and decoder leases.
+                TilePlaybackRecovery(
+                    current = { players[it] },
+                    wantsLive = ::wantsLive,
+                    schedule = { action -> ui.postDelayed(action, 1_000) },
+                    release = { release(it, "rtsp-retry") },
+                    reconnect = ::updateTile,
+                ).retry(sn, player)
             }
             player = LowLatencyRtspPlayer(this, playback,
                 onFirstFrame = {
                     if (players[sn] === player) {
                         snapshots.cancel(sn); snapshotKeys.remove(sn); images[sn]?.visibility = View.GONE
                         label.text = if(playback.freshness?.enforces == true) "${cam.name} • capture time unverified" else cam.name
-                        decoderFailures = 0
                         android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn} after ${SystemClock.elapsedRealtime() - startedAt}ms; ${player.diagnostics()}")
                     }
                 },
-                onFailure = { message, decoder -> retry(message, decoder) },
+                onFailure = { message, _ -> retry(message) },
                 hardwarePinned = cam.sn in wallConfig.hardwarePinnedCameraIds,
                 onFreshnessState = { message -> if (players[sn] === player) label.text = "${cam.name} • ${message ?: "capture age unverified"}" })
             players[sn] = player
@@ -655,7 +649,7 @@ class MainActivity : Activity() {
                         lastLogAt = now
                     }
                     if (stalledForMs != null) {
-                        retry("No decoder output for ${stalledForMs}ms", false)
+                        retry("No decoder output for ${stalledForMs}ms")
                     } else {
                         ui.postDelayed(this, 1_000)
                     }
@@ -692,39 +686,6 @@ class MainActivity : Activity() {
         val player = players.remove(sn) ?: return
         android.util.Log.i("EufyWallTV", "Player released sn=$sn reason=$reason decodedFrames=${player.decodedFrames.get()} receivedUnits=${player.receivedUnits.get()}")
         player.release()
-    }
-
-    private fun recoverDecoder() {
-        if (decoderRecoveryScheduled) return
-        decoderRecoveryScheduled = true
-        players.keys.toList().forEach { release(it, "decoder-recovery") }
-        val last = prefs.getLong("decoder_restart_at", 0)
-        val now = System.currentTimeMillis()
-        if (now - last < 5 * 60_000) {
-            labels.values.forEach { it.text = "Hardware decoder busy • retrying" }
-            android.util.Log.e("EufyWallTV", "Decoder recovery already attempted recently")
-            ui.postDelayed({
-                if (wallVisible) {
-                    decoderRecoveryScheduled = false
-                    decoderFailures = 0
-                    refreshWall()
-                }
-            }, 30_000)
-            return
-        }
-        prefs.edit().putLong("decoder_restart_at", now).commit()
-        labels.values.forEach { it.text = "Restarting video decoder…" }
-        val intent = packageManager.getLaunchIntentForPackage(packageName) ?: return
-        val pending = PendingIntent.getActivity(
-            this, 1, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val alarms = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val whenToRestart = SystemClock.elapsedRealtime() + 2_000
-        try { alarms.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, whenToRestart, pending) }
-        catch (_: SecurityException) { alarms.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, whenToRestart, pending) }
-        android.util.Log.w("EufyWallTV", "Restarting app to release stuck hardware decoders")
-        ui.postDelayed({ Process.killProcess(Process.myPid()) }, 250)
     }
 
     private fun connectEvents() {
