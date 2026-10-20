@@ -409,6 +409,11 @@ class MainActivity : Activity() {
                 AlertDialog.Builder(this).setTitle("Show this camera").setItems(cameras.map { it.name }.toTypedArray()) { _, i -> applyTile(tile, tile.copy(spec = tile.spec.copy(camera = cameras[i].sn))) }.show()
             }
             val cam = cameras.firstOrNull { it.sn == tile.spec.camera }
+            options += "Hardware priority: ${if (tile.spec.camera in wallConfig.hardwarePinnedCameraIds) "Pinned" else "Automatic"}" to {
+                val pins = wallConfig.hardwarePinnedCameraIds.toMutableSet()
+                if (!pins.add(tile.spec.camera)) pins.remove(tile.spec.camera)
+                if (saveConfiguration(wallConfig.copy(hardwarePinnedCameraIds = pins))) showWallEditor("Hardware priority saved")
+            }
             if (cam?.dual == true) options += "Camera image: ${if (cam.dualView?.startsWith("pip-") == true) "Picture in picture" else "Stacked views"}" to {
                 AlertDialog.Builder(this).setTitle("Camera image").setItems(arrayOf("Stacked views", "Picture in picture")) { _, i ->
                     if ((i == 1) != (cam.dualView?.startsWith("pip-") == true)) setDualView(cam.sn, null)
@@ -629,6 +634,7 @@ class MainActivity : Activity() {
                     }
                 },
                 onFailure = { message, decoder -> retry(message, decoder) },
+                hardwarePinned = cam.sn in wallConfig.hardwarePinnedCameraIds,
                 onFreshnessState = { message -> if (players[sn] === player) label.text = "${cam.name} • ${message ?: "capture age unverified"}" })
             players[sn] = player
             playbackContracts[sn] = playback.playbackContract()

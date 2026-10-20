@@ -5,23 +5,24 @@ import java.util.concurrent.TimeUnit
 
 /** Rebalance only after a real hardware allocation failure, using parsed coded pixel area. */
 internal class HardwareDecoderPool {
-    class Lease internal constructor(val codec: String, val pixels: Long) {
+    class Lease internal constructor(val codec: String, val pixels: Long, val pinned: Boolean) {
         @Volatile var revoked = false
             internal set
         private val released = CountDownLatch(1)
         internal fun signalRelease() = released.countDown()
         fun awaitRelease(timeoutMs: Long): Boolean = released.await(timeoutMs, TimeUnit.MILLISECONDS)
     }
-    val allocationLock = Any()
+    private val allocationLock = Any()
+    fun <T> allocate(block: () -> T): T = synchronized(allocationLock, block)
     private val leases = mutableSetOf<Lease>()
 
-    @Synchronized fun register(codec: String, pixels: Long): Lease =
-        Lease(codec, pixels).also { leases.add(it) }
+    @Synchronized fun register(codec: String, pixels: Long, pinned: Boolean = false): Lease =
+        Lease(codec, pixels, pinned).also { leases.add(it) }
 
-    /** Equal-cost feeds never evict one another. The victim retains ownership until release. */
-    @Synchronized fun reclaim(codec: String, pixels: Long): Lease? =
-        leases.filter { it.codec == codec && !it.revoked && it.pixels < pixels }
-            .minByOrNull { it.pixels }?.also { it.revoked = true }
+    /** Pinned owners cannot be evicted; equal-cost automatic feeds never evict each other. The victim retains ownership until release. */
+    @Synchronized fun reclaim(codec: String, pixels: Long, pinned: Boolean = false): Lease? =
+        leases.filter { it.codec == codec && !it.revoked && !it.pinned && (pinned || it.pixels < pixels) }
+            .minWithOrNull(compareBy<Lease> { it.pinned }.thenBy { it.pixels })?.also { it.revoked = true }
 
     @Synchronized fun release(lease: Lease) {
         leases.remove(lease)

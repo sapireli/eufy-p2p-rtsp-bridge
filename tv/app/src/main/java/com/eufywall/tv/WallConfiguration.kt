@@ -20,12 +20,14 @@ data class WallConfiguration(
     val columns: Int = 2,
     val rows: Int = 2,
     val tiles: List<ConfiguredWallTile> = emptyList(),
-    val motionFlash: Boolean = true
+    val motionFlash: Boolean = true,
+    val hardwarePinnedCameraIds: Set<String> = emptySet()
 ) {
     fun validationErrors(): List<String> {
         val errors = mutableListOf<String>()
         if (columns !in 1..6 || rows !in 1..6) errors += "Grid dimensions must be between 1 and 6"
         if (layout == WallLayoutMode.TWO_TALL_RIGHT && tiles.size !in 2..5) errors += "This layout needs two tall cameras and up to three landscape cameras"
+        if (hardwarePinnedCameraIds.size > 36 || hardwarePinnedCameraIds.any { it.isBlank() }) errors += "Hardware priorities require valid camera IDs (up to 36)"
         if (tiles.size > 36) errors += "A wall supports at most 36 tiles"
         if (tiles.map { it.spec.id }.distinct().size != tiles.size) errors += "Tile IDs must be unique"
         tiles.forEach { tile ->
@@ -45,7 +47,7 @@ data class WallConfiguration(
     fun encode(): String {
         require(validationErrors().isEmpty()) { validationErrors().joinToString("; ") }
         return JSONObject().put("version", 1).put("layout", layout.name)
-            .put("motionFlash", motionFlash).put("columns", columns).put("rows", rows).put("tiles", JSONArray().apply {
+            .put("hardwarePinnedCameraIds", JSONArray(hardwarePinnedCameraIds.sorted())).put("motionFlash", motionFlash).put("columns", columns).put("rows", rows).put("tiles", JSONArray().apply {
                 tiles.forEach { tile ->
                     put(JSONObject().put("id", tile.spec.id).put("camera", tile.spec.camera)
                         .put("motion", tile.spec.motion).put("watch", JSONArray(tile.spec.watch))
@@ -74,7 +76,9 @@ data class WallConfiguration(
                             tile.optLong("dwellMs", 5000), tile.optLong("blankAfterMs", 30000)),
                             tile.optInt("column", -1), tile.optInt("row", -1),
                             tile.optInt("columnSpan", 1), tile.optInt("rowSpan", 1))
-                    }, root.optBoolean("motionFlash", true))
+                    }, root.optBoolean("motionFlash", true), root.optJSONArray("hardwarePinnedCameraIds")?.let { pins ->
+                        (0 until pins.length()).map { pins.getString(it) }.toSet()
+                    } ?: emptySet())
                 require(config.validationErrors().isEmpty())
                 config
             }

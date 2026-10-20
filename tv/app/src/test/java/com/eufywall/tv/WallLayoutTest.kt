@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WallLayoutTest {
+    @Test fun hardwarePinsPersistAndSurviveEditsWithLegacyDefaultEmpty() {
+        val original = WallConfiguration(hardwarePinnedCameraIds = setOf("door", "balcony"))
+        assertEquals(original, WallConfiguration.decode(original.encode()))
+        assertEquals(setOf("door", "balcony"), original.copy(motionFlash = false).hardwarePinnedCameraIds)
+        val old = """{"version":1,"layout":"AUTO","columns":2,"rows":2,"tiles":[]}"""
+        assertTrue(WallConfiguration.decode(old)!!.hardwarePinnedCameraIds.isEmpty())
+    }
     private fun tile(id: String, column: Int = -1, row: Int = -1, cs: Int = 1, rs: Int = 1) =
         ConfiguredWallTile(WallTileSpec(id = id, camera = "camera-$id"), column, row, cs, rs)
 

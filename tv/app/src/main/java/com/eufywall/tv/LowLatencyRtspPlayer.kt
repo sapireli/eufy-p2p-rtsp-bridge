@@ -30,6 +30,7 @@ internal class LowLatencyRtspPlayer(
     private val onFirstFrame: () -> Unit,
     private val onFailure: (String, Boolean) -> Unit,
     private val onFreshnessState: (String?) -> Unit = {},
+    private val hardwarePinned: Boolean = false,
 ) {
     val view = FrameLayout(context).apply { setBackgroundColor(0xff000000.toInt()); keepScreenOn = true }
     private val surface = SurfaceView(context)
@@ -134,7 +135,7 @@ internal class LowLatencyRtspPlayer(
         // before allocating the decoder. Bridge metadata can describe a different rendition.
         val initialWidth = if (camera.nativeDecoderName != null) camera.width else surface.width.takeIf { it > 0 } ?: 1920
         val initialHeight = if (camera.nativeDecoderName != null) camera.height else surface.height.takeIf { it > 0 } ?: 1080
-        object : DrainingVideoDecoder(mime, initialWidth, initialHeight, rotation, frames, monitoredListener, type, camera.nativeDecoderName) {
+        object : DrainingVideoDecoder(mime, initialWidth, initialHeight, rotation, frames, monitoredListener, type, camera.nativeDecoderName, hardwarePinned) {
             override fun hardwareReallocated() {
                 fail("Hardware decoder reassigned to a larger stream", false)
             }

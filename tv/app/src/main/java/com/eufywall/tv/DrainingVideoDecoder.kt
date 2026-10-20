@@ -23,6 +23,7 @@ internal abstract class DrainingVideoDecoder(
     mime: String, width: Int, height: Int, rotation: Int,
     frames: VideoFrameQueue, listener: VideoDecoderListener, type: DecoderType,
     private val requiredHardwareName: String? = null,
+    private val hardwarePinned: Boolean = false,
 ) : VideoDecodeThread(mime, width, height, rotation, frames, listener, type) {
     private var codedWidth = width
     private var codedHeight = height
@@ -36,7 +37,7 @@ internal abstract class DrainingVideoDecoder(
     }
     protected open fun beforeInputFrame(frame: FrameQueue.VideoFrame) {}
     private fun createDecoder(type: DecoderType): MediaCodec =
-        if (type == DecoderType.HARDWARE) synchronized(HardwareDecoderPool.shared.allocationLock) { createDecoderUnlocked(type) }
+        if (type == DecoderType.HARDWARE) HardwareDecoderPool.shared.allocate { createDecoderUnlocked(type) }
         else createDecoderUnlocked(type)
 
     private fun createDecoderUnlocked(type: DecoderType): MediaCodec {
@@ -65,8 +66,8 @@ internal abstract class DrainingVideoDecoder(
             decoderCreated(decoder, format)
             decoder.start()
             videoDecoderType = type
-            if (type == DecoderType.HARDWARE) hardwareLease = HardwareDecoderPool.shared.register(decoder.name, codedWidth.toLong() * codedHeight)
-            Log.i("EufyWallTV", "Live decoder ${decoder.name} started ($type)")
+            if (type == DecoderType.HARDWARE) hardwareLease = HardwareDecoderPool.shared.register(decoder.name, codedWidth.toLong() * codedHeight, hardwarePinned)
+            Log.i("EufyWallTV", "Live decoder ${decoder.name} started ($type, pinned=$hardwarePinned)")
             return decoder
         } catch (error: Throwable) {
             decoder.release()
@@ -107,12 +108,15 @@ internal abstract class DrainingVideoDecoder(
                     if (initialization.configOnly) pending = null
                 }
             }
-            decoder = try { createDecoder(videoDecoderType) } catch (error: Exception) {
+            // Keep the reclaimed slot reserved through release and retry; another
+            // stream must not steal it from a pinned camera during that handoff.
+            decoder = HardwareDecoderPool.shared.allocate {
+              try { createDecoder(videoDecoderType) } catch (error: Exception) {
                 if (exitFlag.get() || videoDecoderType == DecoderType.SOFTWARE || requiredHardwareName != null) throw error
                 Log.w("EufyWallTV", "Hardware allocation failed for ${codedWidth}x$codedHeight; checking smaller hardware owners", error)
                 val codecName = hardwareCodecNameForRequest()
                 val victim = if (error is MediaCodec.CodecException && hardwareResourcesExhausted(error.errorCode))
-                    codecName?.let { HardwareDecoderPool.shared.reclaim(it, codedWidth.toLong() * codedHeight) } else null
+                    codecName?.let { HardwareDecoderPool.shared.reclaim(it, codedWidth.toLong() * codedHeight, hardwarePinned) } else null
                 val retried = if (victim != null) {
                     Log.i("EufyWallTV", "Rebalancing hardware $codecName: ${codedWidth}x$codedHeight replaces ${victim.pixels} coded pixels")
                     if (victim.awaitRelease(3_000)) runCatching { createDecoder(DecoderType.HARDWARE) }.getOrNull() else null
@@ -121,6 +125,7 @@ internal abstract class DrainingVideoDecoder(
                     Log.w("EufyWallTV", "Hardware decoder unavailable; trying software", error)
                     createDecoder(DecoderType.SOFTWARE)
                 }
+            }
             }
             val output = MediaCodec.BufferInfo()
             while (!exitFlag.get()) {
