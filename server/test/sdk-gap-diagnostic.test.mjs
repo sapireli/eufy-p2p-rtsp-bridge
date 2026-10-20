@@ -90,6 +90,40 @@ test("duration restores wrappers/listeners and stops sampling", () => {
   assert.equal(h.session.listenerCount("data"), 0); assert.equal(h.session.listenerCount("videoGap"), 1);
   assert.equal(h.closed(), 1); const count = h.output.length; h.tick(); h.stop(); assert.equal(h.output.length, count);
 });
+test("command 1032 records only signed metadata with session and clocks", () => {
+  const h = harness(), data = Buffer.alloc(20, 0x58);
+  data.writeInt32LE(-100);
+  h.session.emit("data", { commandId: 1032, channel: 2, data });
+  const row = h.output.at(-1);
+  assert.deepEqual(row, { monotonicUs: "3", wallMs: 10, kind: "command-1032",
+    session: "session-1", channel: 2, rawSignedValue: -100 });
+  assert.equal("data" in row, false);
+  h.tick();
+  assert.equal(h.output.at(-1).inventory[0].data, 0);
+  h.end();
+  const count = h.output.length;
+  h.session.emit("data", { commandId: 1032, channel: 2, data });
+  assert.equal(h.output.length, count);
+  assert.equal(h.session.listenerCount("data"), 0);
+});
+test("command 1032 ignores malformed channel or payload without disturbing media", () => {
+  const h = harness(), before = h.output.length;
+  for (const frame of [undefined, {}, { commandId: 1032, channel: -1, data: Buffer.alloc(4) },
+    { commandId: 1032, channel: 256, data: Buffer.alloc(4) },
+    { commandId: 1032, channel: 1.5, data: Buffer.alloc(4) },
+    { commandId: 1032, channel: 2, data: Buffer.alloc(3) },
+    { commandId: 1032, channel: 2, data: new Uint8Array(4) },
+    { commandId: 1032, channel: 2 }]) h.session.emit("data", frame);
+  assert.equal(h.output.length, before);
+  h.session.emit("data", { commandId: 1300, channel: 2 }); h.tick();
+  assert.equal(h.output.at(-1).streams[0].acceptedData, 1); h.stop();
+});
+test("command 1032 shares diagnostic row cap and removes its listener", () => {
+  const h = harness({ rows: 3 });
+  h.session.emit("data", { commandId: 1032, channel: 0, data: Buffer.alloc(4) });
+  assert.equal(h.output.length, 3); assert.equal(h.closed(), 1);
+  assert.equal(h.session.listenerCount("data"), 0);
+});
 test("row cap stops all hooks without an extra row", () => {
   const h = harness({ rows: 3 }); h.tick();
   assert.equal(h.output.length, 3); assert.equal(h.closed(), 1); assert.strictEqual(h.owner.units.push, h.original);

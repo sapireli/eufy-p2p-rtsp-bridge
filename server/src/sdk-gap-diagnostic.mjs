@@ -67,9 +67,19 @@ export function initializeSdkGapDiagnostic(ctx, {
     const info = { id: `session-${sessions.size + 1}`, owner: session, gaps: 0, data: 0, channels: {} };
     sessions.set(session, info);
     const onData = frame => {
-      if (stopped || frame?.commandId !== 1300) return;
-      const channel = frame.channel;
+      if (stopped) return;
+      const channel = frame?.channel;
       if (!Number.isInteger(channel) || channel < 0 || channel > 255) return;
+      if (frame.commandId === 1032) {
+        if (Buffer.isBuffer(frame.data) && frame.data.length >= 4) {
+          // Preserve the wire value: units, sentinel values and link attribution
+          // are not established by this observation alone.
+          put({ kind: "command-1032", session: info.id, channel,
+            rawSignedValue: frame.data.readInt32LE(0) });
+        }
+        return;
+      }
+      if (frame.commandId !== 1300) return;
       info.data++; info.channels[channel] = (info.channels[channel] ?? 0) + 1;
       for (const s of streams.values()) if (s.session === info && s.source.stream === s.owner) {
         if (s.owner.mediaChannel === undefined) s.unknownChannelData++;
