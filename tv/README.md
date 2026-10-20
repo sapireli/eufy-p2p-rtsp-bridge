@@ -182,8 +182,23 @@ Every live tile attempts hardware decoding first and falls back to software if h
 
 The compressed video queue remains bounded at 60 frames. If it overflows, it clears the dependent picture chain and waits for an actual IDR, restoring cached codec parameter sets if needed. It never resumes with arbitrary P pictures after dropping their references. Audio queue behavior is unchanged. See [live comparison](../docs/evidence/2026-10-20-balcony-decoder-contention.md).
 
+Decoder failure recovery is confined to the failed tile. Retrying one camera or
+reassigning a hardware slot retains the other players and their surfaces. Delayed
+retry callbacks check that the tile still owns the failed player before replacing
+it. A pair of decoder errors no longer triggers an app-wide release and restart.
+Hardware preference, native compatibility fallback, and software fallback remain
+unchanged. See [the device regression](../docs/evidence/android-isolated-decoder-recovery-2026-10-20.md).
+
+For the optional connected-device regression, use a saved wall with four active
+fixed tiles, two pinned and two automatic. The test invokes failures in the two
+automatic players and verifies that pinned player identities and decoding survive:
+
+```sh
+gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.eufywall.tv.TilePlaybackRecoveryInstrumentedTest
+```
+
 ### Pin a camera to hardware priority
 
 Open **Edit wall → camera → Hardware priority** and choose **Pinned**. The preference belongs to the camera, persists across app restarts, and applies wherever that camera is displayed. A pinned camera may reclaim an unpinned owner's slot after a resource-exhaustion error, even when its coded picture is smaller. Once allocated, its hardware slot cannot be reclaimed by another camera, including another pinned camera. Automatic cameras continue to prefer hardware and use picture-size rebalancing for unpinned slots.
 
-Pins express priority, not a hardware-only requirement: if hardware cannot initialize, the stream can still use software fallback. Pinning more cameras than the device can accommodate does not create additional hardware capacity. Front Door and Balcony are pinned on the deployed Fire TVs; GaragePi retains two hardware-decoded streams side by side.
+Pins express priority, not a hardware-only requirement: if hardware cannot initialize, the stream can still use software fallback. Pinning more cameras than the device can accommodate does not create additional hardware capacity. Front Door and Garage Doorbell are pinned on the deployed Fire TVs; GaragePi retains two hardware-decoded streams side by side.
