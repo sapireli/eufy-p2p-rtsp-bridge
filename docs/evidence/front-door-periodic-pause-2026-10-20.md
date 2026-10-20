@@ -183,6 +183,46 @@ cause. No fix is claimed. Only metadata `result.json` and `analysis.json` are
 preserved under the private evidence directory; configuration, session material,
 and `run.log` must not be copied into the repository.
 
+### Rejected ACK batching experiment
+
+A temporary SDK candidate batched outgoing acknowledgements. The detached SDK
+worktree was `/tmp/eufy-ack-trial-sdk` at `afcbc3fe5a66d488120dd3d29bcadd1e0eba2c77`.
+The manifest records 32 focused tests passing and `npm run build` passing.
+No SDK commit or upstream push was made. The original bundle (`1dee01fc…`)
+was restored after the trial.
+
+| Stage | Source-age samples | Samples over 500 ms | Maximum sampled age | Observer capture statistics |
+| --- | ---: | ---: | ---: | --- |
+| Restarted original | 199 | 23 | 3155.585 ms | `[11450, 0]` |
+| Batched ACK candidate | 199 | 11 | 829.220 ms | `[7974, 16]` |
+| Restored original | 200 | 13 | 2664.981 ms | `[12055, 0]` |
+
+The candidate failed the stated playback criterion of zero samples over 500 ms.
+The restored baseline also improved relative to the initial baseline, so this
+short comparison does not establish a robust playback improvement beyond natural
+variation. It is not a root-cause fix.
+
+The wire measurement does demonstrate reduced ACK packet overhead: Front Door
+had 444 ACK packets carrying 1796 sequence entries during the candidate, versus
+1792 single-entry ACK packets initially and 1866 after restoration. About four
+entries per ACK corresponds to approximately 75% fewer ACK packets per sequence
+entry. This transport result does not establish unchanged latency or prove that
+ACK packet volume caused the playback pauses. Candidate capture statistics
+include 16 observer drops, so unmatched candidate packets cannot be interpreted
+as missing protocol acknowledgements without further evidence.
+
+### Historical first-party keepalive audit
+
+A metadata-only audit of a historical first-party capture found four complete
+outbound command frames on the target flow, with consecutive DATA sequences
+21–24. Existing decrypted metadata identifies start, 6237, 1427, and stop.
+No additional periodic 1139/1152 commands appeared in the approximately
+10.75-second media window. This short historical firmware/network observation
+does not establish whether a keepalive is required today or justify adding one.
+The capture extends beyond that window and eventually ends in a truncated packet;
+reported holes across all control flows must not be attributed to this target
+outbound flow. A fresh first-party comparison on the current path remains needed.
+
 Raw artifacts are private local files, not committed packet captures:
 
 | Artifact | SHA-256 |
@@ -195,6 +235,11 @@ Raw artifacts are private local files, not committed packet captures:
 | `/tmp/front-filtered-acks.json` | `1191b61e00ca9d92979269d12edd44a367cd90bfbe6c4d4556d22909042e55c6` |
 | `/tmp/front-host-trial/result.json` | `f08cb936027f3f5eefe38445509f81d245c80c1b169d56ae3e3b1e8ad1719482` |
 | `/tmp/front-host-trial/analysis.json` | `9e851cd8ae3328d48c71e5fbd8ada1cd32f119ad735c4efd3076bba5b304a8a0` |
+| `/tmp/eufy-ack-trial-artifacts/live-trial.json` | `4e86d6ebfa629728ceee18ff835ead45a2f7d2de294a5ef66ce89c9b0ca769b3` |
+| `/tmp/eufy-ack-trial-artifacts/wire-analysis.json` | `60a6c79a5aafc4a6733a0916b4507aaa055979f28bdc5467c9d635353f2a6423` |
+| `/tmp/eufy-ack-trial-artifacts/manifest.json` | `f9f971f71c909edc11d6e7960defaacd63492d7ac1b64993d185a142712cdb2b` |
+| `/tmp/eufy-ack-trial-artifacts/ack-trial.patch` | `800f05df909a246e5de530b7c27c69cdef4c7f3a051cbe2e4306a0bae3dd9004` |
+| `/tmp/firstparty-keepalive-audit-20261020/summary.json` | `ad5ae7eb4941ca8fd5ed47a28242a6a41fe684b9c7b8542f901135c02015db54` |
 
 The UDP header file has 10,567 rows over 21.990653 seconds. The ACK artifact has
 21,322 retained rows plus its drop statistics. Copies are preserved under ignored
