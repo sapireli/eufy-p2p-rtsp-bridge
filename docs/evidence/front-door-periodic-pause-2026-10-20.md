@@ -14,6 +14,10 @@ found prompt Front Door presentation after 15 matched incoming pauses and a
 misleading codec render-timestamp signal on Fire TV `.85`. It does not identify
 the source-delivery pause cause.
 
+The [current iPhone capture](front-door-current-iphone-capture-2026-10-20.md)
+also contains second-scale arrival gaps. The bridge remained running, so an
+app-only comparison is still needed to isolate concurrent bridge activity.
+
 ## Observation boundaries
 
 - Both Fire TVs showed coincident Front Door receive gaps. This points away from
