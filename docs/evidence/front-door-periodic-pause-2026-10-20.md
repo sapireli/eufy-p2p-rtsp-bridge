@@ -9,6 +9,11 @@ finding is that at least one pause was already visible in incoming UDP traffic;
 the evidence does not establish why the sender paused or identify HomeBase
 forwarding as the cause.
 
+The later [bridge/player recovery check](front-door-recovery-stage-check-2026-10-20.md)
+found prompt Front Door presentation after 15 matched incoming pauses and a
+misleading codec render-timestamp signal on Fire TV `.85`. It does not identify
+the source-delivery pause cause.
+
 ## Observation boundaries
 
 - Both Fire TVs showed coincident Front Door receive gaps. This points away from
