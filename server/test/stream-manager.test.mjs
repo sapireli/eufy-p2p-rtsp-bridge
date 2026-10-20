@@ -628,3 +628,82 @@ for (const retirement of ["end", "stall"]) {
     }
   });
 }
+
+
+test("cached SDK primes cannot reset failures or prove liveness across repeated feed recovery", async () => {
+  const feeds = [];
+  const ctx = ctxWith({ feeds: [() => { const f = new PassThrough({ objectMode: true }); feeds.push(f); return f; }] });
+  ctx.cfg.stall.recreateClientAfter = 8;
+  ctx.cfg.stall.backoffMs = [1];
+  let resets = 0, clock = 1_000_000n;
+  ctx.sdk.dropStreamClient = async () => { resets++; return true; };
+  ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => clock });
+  const manager = createStreamManager(ctx);
+  const frame = { data: KEY, sourceTimestamp: 1000, keyframe: true, codec: "h264" };
+  const receipt = Object.freeze({ sourceId: "same-source", sequence: 10n, monotonicUs: clock });
+  try {
+    await manager.ensureWarm("A");
+    feeds[0].write({ frame, receipt });
+    const slot = ctx.state.slots.get("A");
+    const liveAt = slot.lastBytesAt;
+    for (let failure = 1; failure <= 8; failure++) {
+      const old = feeds.at(-1);
+      old.end();
+      await waitUntil(() => feeds.length === failure + 1 && slot.feed === feeds.at(-1));
+      clock += 5_000_000n;
+      const primed = fakeRes();
+      manager.attachConsumer("A", primed);
+      feeds.at(-1).write({ frame, receipt });
+      assert.deepEqual(primed.chunks, [KEY], "the original stamped keyframe can initialize a new decoder");
+      assert.equal(slot.lastBytesAt, liveAt);
+      assert.equal(slot.failures, failure, "a replay cannot erase accumulated failures");
+      assert.equal(slot.receivedMedia, false);
+      assert.equal(ctx.state.streaming.has("A"), false);
+      assert.equal(slot.lastSourceReceipt, receipt);
+    }
+    assert.equal(resets, 1, "the configured eighth failure really resets this camera source");
+    feeds.at(-1).write({ frame: { ...frame, sourceTimestamp: 1067 }, receipt: { sourceId: "same-source", sequence: 11n, monotonicUs: clock } });
+    assert.equal(slot.failures, 0);
+    assert.equal(slot.receivedMedia, true);
+    assert.equal(ctx.state.streaming.has("A"), true);
+    assert.equal(slot.lastSourceReceipt.sequence, 11n);
+    // An actual replacement source starts at one, rather than inheriting the old counter.
+    clock += 1n;
+    feeds.at(-1).write({ frame, receipt: { sourceId: "replacement-source", sequence: 1n, monotonicUs: clock } });
+    assert.equal(slot.lastSourceReceipt.sourceId, "replacement-source");
+    assert.equal(slot.lastSourceReceipt.sequence, 1n);
+    // Replaying the older source afterwards must not move the observed watermark back.
+    feeds.at(-1).write({ frame, receipt });
+    assert.equal(slot.lastSourceReceipt.sourceId, "replacement-source");
+  } finally { await manager.stopAll(); }
+});
+
+
+test("an established SDK source keeps the five-second live watchdog after a cached prime", async () => {
+  const feeds = [];
+  const ctx = ctxWith({ feeds: [() => { const f = new PassThrough({ objectMode: true }); feeds.push(f); return f; }] });
+  ctx.cfg.stall.stallMs = 5000;
+  ctx.cfg.stall.startupStallMs = 30000;
+  ctx.cfg.stall.backoffMs = [1];
+  let clock = 1_000_000n;
+  ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => clock });
+  const manager = createStreamManager(ctx);
+  const frame = { data: KEY, sourceTimestamp: 1000, keyframe: true, codec: "h264" };
+  const receipt = Object.freeze({ sourceId: "source", sequence: 1n, monotonicUs: clock });
+  try {
+    await manager.ensureWarm("A");
+    const slot = ctx.state.slots.get("A");
+    manager.streamTick(slot.startedAt + 5001);
+    assert.equal(feeds[0].destroyed, false, "a genuinely cold camera retains its thirty-second startup window");
+    feeds[0].write({ frame, receipt });
+    manager.streamTick(slot.startedAt + 5001);
+    await waitUntil(() => feeds.length === 2 && slot.feed === feeds[1]);
+    assert.equal(slot.stalls, 1);
+    clock += 5_001_000n;
+    feeds[1].write({ frame, receipt });
+    assert.equal(slot.receivedMedia, false);
+    manager.streamTick(slot.startedAt + 5001);
+    assert.equal(feeds[1].destroyed, true, "cached prime cannot extend established playback silence to thirty seconds");
+    assert.equal(slot.stalls, 2);
+  } finally { await manager.stopAll(); }
+});

@@ -31,17 +31,25 @@ export function createStreamManager(ctx) {
     const chunk = Buffer.isBuffer(frame) ? frame : frame.data;
     const now = Date.now();
     const receipt = ctx.freshness && !Buffer.isBuffer(frame) ? ctx.freshness.record(frame, sourceReceipt) : undefined;
-    if (sourceReceipt && receipt) {
+    const previousReceipt = slot.lastSourceReceipt;
+    // A cached keyframe retains its original receipt when the SDK primes a
+    // reopened readable. It may initialize a decoder, but proves no new media.
+    const sourceAdvanced = !sourceReceipt || !previousReceipt ||
+      (sourceReceipt.monotonicUs >= previousReceipt.monotonicUs &&
+        (sourceReceipt.sourceId !== previousReceipt.sourceId || sourceReceipt.sequence > previousReceipt.sequence));
+    if (sourceReceipt && receipt && sourceAdvanced) {
       slot.lastSourceReceipt = sourceReceipt;
       slot.lastReceipt = receipt;
     }
-    slot.lastBytesAt = now;
-    slot.receivedMedia = true;
-    slot.firstFailureAt = 0;
-    slot.failures = 0;
-    slot.backoffIdx = 0;
-    slot.gapFired = false; // bytes are flowing again → allow one fresh gap-disconnect if it stalls later
-    if (!state.streaming.has(slot.sn)) {
+    if (sourceAdvanced) {
+      slot.lastBytesAt = now;
+      slot.receivedMedia = true;
+      slot.firstFailureAt = 0;
+      slot.failures = 0;
+      slot.backoffIdx = 0;
+      slot.gapFired = false; // new source media permits a fresh gap-disconnect later
+    }
+    if (sourceAdvanced && !state.streaming.has(slot.sn)) {
       state.starting.delete(slot.sn);
       state.streaming.add(slot.sn);
       console.log(`[bridge] ${slot.sn}: streaming`);
@@ -299,7 +307,9 @@ export function createStreamManager(ctx) {
       // (now-closed) feed must not count as silence against the new one.
       const since = Math.max(slot.lastBytesAt, slot.startedAt);
       const silent = since ? now - since : 0;
-      const stallMs = globalThis.__ewStallMs ?? (slot.receivedMedia
+      // A retained prime does not turn an established camera back into a cold
+      // startup. Its next genuine source frame is still due under the live limit.
+      const stallMs = globalThis.__ewStallMs ?? (slot.receivedMedia || slot.lastSourceReceipt
         ? cfg.stall.stallMs
         : (cfg.stall.startupStallMs ?? cfg.stall.stallMs));
       if (slot.feed && silent >= stallMs && !wanted(slot.sn)) {
