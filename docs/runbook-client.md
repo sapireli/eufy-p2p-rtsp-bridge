@@ -154,6 +154,24 @@ KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the 
 
 ## Bounded playback timing
 
+### Decoder selection and recovery
+
+Linux `decoder: auto` selects an installed hardware decoder first (`v4l2` on the Pi,
+then VA-API), and selects software when neither hardware decoder is available.
+Independent camera pipelines use that selected decoder family; there is no Android
+MediaCodec slot reservation or per-camera hardware priority setting. With two H.264
+cameras on GaragePi, both pipelines use `v4l2h264dec`.
+
+This startup selection is not runtime hardware-to-software failover. A failed
+compatible-stream pipeline restarts with its selected decoder. The separate native
+rendition fallback retries the compatible stream when native playback fails.
+Network failures must not silently move a working hardware pipeline to software.
+
+The leaky queue is after the decoder: Linux drops decoded pictures only, preserving
+the compressed reference pictures needed to decode subsequent frames. Android's
+MediaCodec allocation and compressed-input recovery changes therefore do not require
+an equivalent Linux decoder pool or compressed-frame dropping policy.
+
 The installer builds the `eufypacing` GStreamer element for the destination CPU and installed
 GStreamer ABI (`gcc`, `pkg-config`, `libgstreamer1.0-dev`). The client discovers it through
 `/usr/local/lib/eufy-wall/gstreamer-1.0`. Updates include the plugin source and rebuild it.

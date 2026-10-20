@@ -181,3 +181,9 @@ Choose **Edit wall → Layout → Two tall + right stack (up to 3)**. The first 
 Every live tile attempts hardware decoding first and falls back to software if hardware cannot start. When an OMX/MediaCodec resource-exhaustion error occurs, a larger coded picture can reclaim a hardware slot from a smaller picture using the same decoder. The displaced tile reconnects and attempts hardware before software again. Equal-size pictures do not evict each other. This uses parsed coded pixel area as a cost heuristic; it does not reduce resolution or frame rate, and does not guarantee every concurrent stream can use hardware.
 
 The compressed video queue remains bounded at 60 frames. If it overflows, it clears the dependent picture chain and waits for an actual IDR, restoring cached codec parameter sets if needed. It never resumes with arbitrary P pictures after dropping their references. Audio queue behavior is unchanged. See [live comparison](../docs/evidence/2026-10-20-balcony-decoder-contention.md).
+
+### Pin a camera to hardware priority
+
+Open **Edit wall → camera → Hardware priority** and choose **Pinned**. The preference belongs to the camera, persists across app restarts, and applies wherever that camera is displayed. A pinned camera may reclaim an unpinned owner's slot after a resource-exhaustion error, even when its coded picture is smaller. Once allocated, its hardware slot cannot be reclaimed by another camera, including another pinned camera. Automatic cameras continue to prefer hardware and use picture-size rebalancing for unpinned slots.
+
+Pins express priority, not a hardware-only requirement: if hardware cannot initialize, the stream can still use software fallback. Pinning more cameras than the device can accommodate does not create additional hardware capacity. Front Door and Balcony are pinned on the deployed Fire TVs; GaragePi retains two hardware-decoded streams side by side.

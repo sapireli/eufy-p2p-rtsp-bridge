@@ -66,3 +66,11 @@ Balcony's sampled maximum application queue was 0/.58 and 1/.100; its longest re
 - Camera still produces at its existing rate. The change addresses decoder resource allocation and reference-chain loss; upstream pauses remain a separate cause to investigate when observed.
 - Software-decoded Front Door/Garage still showed individual frame gaps during the live run. This evidence does not establish perfectly smooth playback for the entire wall.
 - Linux was not changed: this issue is in Android MediaCodec allocation and the vendored Android RTSP queue.
+
+## Follow-up: explicit hardware priority (0.6.7)
+
+Front Door must retain hardware even though its compatible coded picture is smaller. Added a persisted, per-camera Hardware priority setting to the TV editor. Pinned owners cannot be preempted; a pinned request can reclaim an unpinned owner's slot regardless of picture size. Hardware remains the first attempt and software fallback is retained. Front Door and Balcony are pinned on both deployed TVs.
+
+The first pin trial exposed the allocation caveat above on .100: Front Door still used software although its saved pin was present. The handoff released its allocation lock between reclaim and retry, allowing a competing stream to obtain the free slot. The final implementation holds the allocation transaction across victim release and retry. Decoder teardown uses a separate pool-state lock, so it can release while the allocation transaction waits. A concurrency regression covers a competing initializer blocked during handoff and confirms teardown can proceed without deadlock. This supersedes the unreserved-slot limitation of the 0.6.6 implementation described above.
+
+Linux parity was audited independently: GaragePi uses hardware v4l2h264dec for both configured feeds and has no leaky compressed-input queue. Its one-buffer leaky queue is after decoding. There is no equivalent MediaCodec allocation race to port. Linux startup hardware/software detection and its native-rendition fallback remain unchanged; the runbook describes their runtime limitations explicitly.
