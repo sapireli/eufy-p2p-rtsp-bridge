@@ -30,7 +30,7 @@ class RtspBackpressureAuditTest {
             // Simulates a paused codec stage after pop, not an actual MediaCodec test.
             assertTrue(pool.submit<Boolean> { queue.push(frame) }.get(1,TimeUnit.SECONDS))
             assertFalse(pool.submit<Boolean> { queue.push(frame) }.get(1,TimeUnit.SECONDS))
-            assertEquals(1,queue.size)
+            assertEquals(0,queue.size) // Overflow discards the broken reference chain.
             releaseConsumer.countDown()
             consumer.get(1,TimeUnit.SECONDS)
         } finally {

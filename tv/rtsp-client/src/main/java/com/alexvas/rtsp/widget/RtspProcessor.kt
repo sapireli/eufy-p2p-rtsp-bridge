@@ -166,7 +166,7 @@ class RtspProcessor(
                     vps.copyInto(data, offset, 0, vps.size)
                     videoFrameQueue.push(
                         FrameQueue.VideoFrame(
-                            VideoCodecType.H264,
+                            if (videoMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC) VideoCodecType.H265 else VideoCodecType.H264,
                             isKeyframe = true,
                             data,
                             0,
@@ -232,11 +232,11 @@ class RtspProcessor(
             if (DEBUG) Log.v(TAG, "onRtspVideoNalUnitReceived(data.size=${data.size}, length=$length, timestamp=$timestamp)")
 
             val isH265 = videoMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC
-            // Search for NAL_IDR_SLICE within first 1KB maximum
-            val isKeyframe = VideoCodecUtils.isAnyKeyFrame(data, offset, min(length, 1000), isH265)
+            // Parameter sets can exceed 1KB; inspect the complete assembled picture for IDR.
+            val isKeyframe = VideoCodecUtils.isAnyKeyFrame(data, offset, length, isH265)
 
             var videoFrame = FrameQueue.VideoFrame(
-                VideoCodecType.H264,
+                if (isH265) VideoCodecType.H265 else VideoCodecType.H264,
                 isKeyframe,
                 data,
                 offset,
