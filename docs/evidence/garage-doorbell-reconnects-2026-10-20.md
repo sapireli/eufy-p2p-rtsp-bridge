@@ -95,3 +95,43 @@ Private metadata/summary artifacts are under ignored
 geometry and counters, not media payloads or authentication material. Local
 reproductions include `/tmp/repro-cached-prime-liveness.mjs` and
 `/tmp/fresh-pending-drop-accounting-repro.mjs`.
+
+## Follow-up: keyframe-boundary delivery, not an established session cutoff
+
+Reanalysis of the same incoming-only capture (no additional camera session or
+restart) found 26 distinct picture-header gaps over 500 ms; 24 immediately
+preceded keyframes. Of those 24, 22 contained at least 500 ms without any
+incoming VIDEO-data-type datagram, including interleaved audio. The largest
+picture-header gap was 3075.438 ms, including 2994.000 ms without such packets.
+The adjacent transport sequences were consecutive at all 24 boundaries.
+
+The next keyframe segment then transferred roughly 162595 UDP payload bytes
+in 26.844 ms in the worst gap. Across 44 keyframe segments, median payload was
+approximately 161397 bytes over 21.520 ms. Ordinary picture segments had
+approximately 1336 bytes median. Segment boundaries can include interleaved
+audio and retransmissions; these are not exact coded-picture byte sizes.
+The long gaps therefore are not merely a large picture taking several seconds
+to transfer over the observed bridge LAN segment. After gaps, about one second
+of source timestamp progression arrived in 0.60–0.68 seconds. The labels are
+camera presentation timestamps, not validated sensor capture times.
+
+The paired ACK capture also contains control traffic. During three incoming
+media gaps of 690.197, 1093.139 and 1293.557 ms, the peer answered PING with
+PONG in 0.909, 0.758 and 0.670 ms respectively. This rules out a complete
+bridge-to-peer connection outage for those specific gaps. It does not clear
+the camera-to-HomeBase link or establish why the peer withheld media.
+
+The repeated GOP-boundary pattern is stronger evidence than a fixed-duration
+firmware cutoff hypothesis, but it does not establish the originating
+component. No camera-issued stop or fixed session-age timeout has been proven.
+The current model's factory power limits remain relevant: Eufy's Video
+Doorbell Dual battery FAQ says existing doorbell wiring extends battery life
+and does not convert it into the wired model:
+https://us.eufy.com/pages/video-doorbell-dual-2k-battery-powered . Eufy also says
+this model does not support continuous recording with HomeBase 3:
+https://service.eufy.com/article-description/FAQs-About-Video-Doorbell-Dual-Battery-Powered-Joining-Edge-Ecosystem .
+Neither statement establishes a live-view cutoff. The bridge's wired override
+changes SDK lifecycle/budget policy, not firmware capabilities or media-start
+request fields. Existing archived iPhone captures contain no matching
+channel-5/1600×2300 T8213 reference, so a different vendor request has not been
+established and no request-field change was made.
