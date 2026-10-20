@@ -289,6 +289,34 @@ The sanitized comparison is retained under ignored
 `c3c68fa4685ec17b10cb0cfa140580f110ab23fd8169ef765926cd252722bb07`). The source `eufy-iphone2.pcap` SHA-256 is
 `7936bc93c2290f858faad805d111d59e8ee8f385d3136101942b61b1b2c48b15`.
 
+### Offline replay through the actual SDK reassembler
+
+The longer iPhone capture was also replayed through `P2PSession.onData`, using
+the same test seam as the SDK's data-reassembly specs. The private harness selects
+the incoming flow with channel-2 1600×2200 video headers, feeds its VIDEO datagrams
+in recorded arrival order, and advances virtual timers to each recorded receipt
+time rounded to milliseconds. ACK sending is stubbed; no live service is changed.
+
+The actual session processed 15,223 datagrams over 103.183 seconds and emitted
+1522 raw command-1300 events. No arrival left a held datagram, no `videoGap` event
+occurred, and no event was delivered by a reorder timer or after the replay.
+Every raw video event emitted synchronously on the datagram completing it: the
+measured added reassembly delay was zero at one-millisecond virtual resolution.
+The largest completed-raw-event interval was 1079 ms. It therefore remains when
+this archive passes through the actual SDK reassembly path, without a reorder wait.
+
+Raw command events, deduplicated picture-header starts, and decoded access units
+are different counts; 1522 raw events must not be called 1522 playable pictures.
+The replay starts mid-session and cannot establish capture completeness. It does
+not exercise decryption, access-unit assembly, `LiveStream` gating, live ACK
+feedback, actual wall-clock CPU scheduling, or today's camera/network behavior.
+It rules out reassembly-added waiting for this recorded input, not every SDK
+cause of the current symptom. No code repair is justified by this replay result.
+
+The metadata and private local harness are retained under ignored
+`.evidence/front-door-pause-2026-10-20/`. Metadata SHA-256:
+`972752684fc9c6c44b1ab50998f178b5e337df4a30f38673cdb83557926fe471`.
+
 Raw artifacts are private local files, not committed packet captures:
 
 | Artifact | SHA-256 |
