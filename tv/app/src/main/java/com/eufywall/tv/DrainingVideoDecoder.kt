@@ -16,7 +16,7 @@ import com.limelight.binding.video.MediaCodecHelper
 /**
  * RtspProcessor decoder adapter. Input and output are polled independently: a gap in RTP input
  * must not strand already decoded frames behind FrameQueue.pop()'s one-second default wait.
- * Compressed reference frames are never discarded to catch up.
+ * Normal playback preserves compressed references; queue overflow recovery waits for an IDR.
  */
 @SuppressLint("UnsafeOptInUsageError")
 internal abstract class DrainingVideoDecoder(
@@ -28,8 +28,18 @@ internal abstract class DrainingVideoDecoder(
     private var codedHeight = height
     private var hasCodedSize = requiredHardwareName != null
     private var hevcCodecSpecificData: ByteArray? = null
+    private var hardwareLease: HardwareDecoderPool.Lease? = null
+    protected open fun hardwareReallocated() {}
+    private fun hardwareCodecNameForRequest(): String? {
+        val candidates = MediaCodecUtils.getHardwareDecoders(mimeType)
+        return requiredHardwareName ?: (MediaCodecUtils.getLowLatencyDecoder(candidates) ?: candidates.firstOrNull())?.name
+    }
     protected open fun beforeInputFrame(frame: FrameQueue.VideoFrame) {}
-    private fun createDecoder(type: DecoderType): MediaCodec {
+    private fun createDecoder(type: DecoderType): MediaCodec =
+        if (type == DecoderType.HARDWARE) synchronized(HardwareDecoderPool.shared.allocationLock) { createDecoderUnlocked(type) }
+        else createDecoderUnlocked(type)
+
+    private fun createDecoderUnlocked(type: DecoderType): MediaCodec {
         val candidates = if (type == DecoderType.HARDWARE) MediaCodecUtils.getHardwareDecoders(mimeType)
             else MediaCodecUtils.getSoftwareDecoders(mimeType)
         val candidate = MediaCodecUtils.getLowLatencyDecoder(candidates) ?: candidates.firstOrNull()
@@ -55,6 +65,7 @@ internal abstract class DrainingVideoDecoder(
             decoderCreated(decoder, format)
             decoder.start()
             videoDecoderType = type
+            if (type == DecoderType.HARDWARE) hardwareLease = HardwareDecoderPool.shared.register(decoder.name, codedWidth.toLong() * codedHeight)
             Log.i("EufyWallTV", "Live decoder ${decoder.name} started ($type)")
             return decoder
         } catch (error: Throwable) {
@@ -66,6 +77,8 @@ internal abstract class DrainingVideoDecoder(
     private fun closeDecoder(decoder: MediaCodec) {
         try { decoder.stop() } catch (_: Exception) {}
         try { decoder.release() } catch (_: Exception) {}
+        hardwareLease?.let { HardwareDecoderPool.shared.release(it) }
+        hardwareLease = null
         decoderDestroyed(decoder)
     }
 
@@ -73,6 +86,7 @@ internal abstract class DrainingVideoDecoder(
         Process.setThreadPriority(Process.THREAD_PRIORITY_VIDEO)
         videoDecoderListener.onVideoDecoderStarted()
         var decoder: MediaCodec? = null
+        var reallocated = false
         try {
             // RtspProcessor queues SDP SPS/PPS before starting the decoder. For H.264,
             // allocate for the coded picture; some decoders cannot grow the viewport allocation.
@@ -95,11 +109,22 @@ internal abstract class DrainingVideoDecoder(
             }
             decoder = try { createDecoder(videoDecoderType) } catch (error: Exception) {
                 if (exitFlag.get() || videoDecoderType == DecoderType.SOFTWARE || requiredHardwareName != null) throw error
-                Log.w("EufyWallTV", "Hardware decoder unavailable; trying software", error)
-                createDecoder(DecoderType.SOFTWARE)
+                Log.w("EufyWallTV", "Hardware allocation failed for ${codedWidth}x$codedHeight; checking smaller hardware owners", error)
+                val codecName = hardwareCodecNameForRequest()
+                val victim = if (error is MediaCodec.CodecException && hardwareResourcesExhausted(error.errorCode))
+                    codecName?.let { HardwareDecoderPool.shared.reclaim(it, codedWidth.toLong() * codedHeight) } else null
+                val retried = if (victim != null) {
+                    Log.i("EufyWallTV", "Rebalancing hardware $codecName: ${codedWidth}x$codedHeight replaces ${victim.pixels} coded pixels")
+                    if (victim.awaitRelease(3_000)) runCatching { createDecoder(DecoderType.HARDWARE) }.getOrNull() else null
+                } else null
+                retried ?: run {
+                    Log.w("EufyWallTV", "Hardware decoder unavailable; trying software", error)
+                    createDecoder(DecoderType.SOFTWARE)
+                }
             }
             val output = MediaCodec.BufferInfo()
             while (!exitFlag.get()) {
+                if (hardwareLease?.revoked == true) { reallocated = true; break }
                 try {
                     val codec = decoder!!
                     // Drain every available output, including when no new compressed input arrives.
@@ -153,5 +178,6 @@ internal abstract class DrainingVideoDecoder(
             videoFrameQueue.clear()
             videoDecoderListener.onVideoDecoderStopped()
         }
+        if (reallocated && !exitFlag.get()) hardwareReallocated()
     }
 }

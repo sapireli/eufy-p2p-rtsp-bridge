@@ -135,6 +135,9 @@ internal class LowLatencyRtspPlayer(
         val initialWidth = if (camera.nativeDecoderName != null) camera.width else surface.width.takeIf { it > 0 } ?: 1920
         val initialHeight = if (camera.nativeDecoderName != null) camera.height else surface.height.takeIf { it > 0 } ?: 1080
         object : DrainingVideoDecoder(mime, initialWidth, initialHeight, rotation, frames, monitoredListener, type, camera.nativeDecoderName) {
+            override fun hardwareReallocated() {
+                fail("Hardware decoder reassigned to a larger stream", false)
+            }
             override fun beforeInputFrame(frame: FrameQueue.VideoFrame) {
                 if (camera.freshness == null) return
                 FrameStampReader.read(frame.data, frame.offset, frame.length, mime == MediaFormat.MIMETYPE_VIDEO_HEVC)?.let { stamp ->
