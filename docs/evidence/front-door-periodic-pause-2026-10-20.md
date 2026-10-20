@@ -154,6 +154,35 @@ interval. They cover this 30-second window only. An outgoing ACK observed on
 the bridge does not prove its receipt by the peer, and zero observer drops do
 not prove an absence of network loss or diagnose the earlier 2.7-second pause.
 
+### Independent Mac receiver comparison
+
+An independent Mac process received the three native camera streams directly
+through the original SDK bundle (`1dee01fc…`). The remote bridge was stopped
+while the Mac exclusively used a clone of the shared session identity. A guarded
+180-second recovery and `finally` cleanup returned the updated session and
+restarted the original bridge service. There were no startup settings pins, no
+FFmpeg, no RTSP producer, and no TV player in this receiver path. The request
+retained `streamType: 2` and Front Door's wired power claim.
+
+| Camera | Native geometry | Frames | Measured span | Delivered rate | Largest arrival interval | Intervals over 750 ms / 1000 ms |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Front Door | 1600×2200 | 677 | 44.849634 s | 15.073 fps | 1541.376 ms | 4 / 2 |
+| Garage | 1920×2160 | 671 | 44.953829 s | 14.904 fps | 460.242 ms | 0 / 0 |
+| Balcony | 1280×720 | 1124 | 44.891420 s | 25.016 fps | 188.122 ms | 0 / 0 |
+
+Across Front Door's longest arrival interval, its source timestamp advanced from
+1517607699 to 1517607768, only 69 ms. That demonstrates uneven delivery of
+successive source-timestamped pictures; the source timestamp is not a validated
+absolute capture clock.
+
+The observed Front Door pause therefore does not require the weak bridge host,
+FFmpeg, RTSP, or a TV player to occur. This was a combined host and downstream
+pipeline comparison: macOS/Node 26 and its NIC replaced Linux/Node and the bridge
+pipeline. It does not isolate CPU or prove a camera, radio, HomeBase, or SDK root
+cause. No fix is claimed. Only metadata `result.json` and `analysis.json` are
+preserved under the private evidence directory; configuration, session material,
+and `run.log` must not be copied into the repository.
+
 Raw artifacts are private local files, not committed packet captures:
 
 | Artifact | SHA-256 |
@@ -164,6 +193,8 @@ Raw artifacts are private local files, not committed packet captures:
 | `/tmp/front-link-diagnostic.jsonl` | `986fcd86f3014a6b08821a0726e6ccfe44794fa33e92389a24fb8cda9c2b54b2` |
 | `/tmp/front-protocol-trial.json` | `54cf3caab03fe7e6d2a5d5e83a31198e75c89656598aa4731835a3b000948ae1` |
 | `/tmp/front-filtered-acks.json` | `1191b61e00ca9d92979269d12edd44a367cd90bfbe6c4d4556d22909042e55c6` |
+| `/tmp/front-host-trial/result.json` | `f08cb936027f3f5eefe38445509f81d245c80c1b169d56ae3e3b1e8ad1719482` |
+| `/tmp/front-host-trial/analysis.json` | `9e851cd8ae3328d48c71e5fbd8ada1cd32f119ad735c4efd3076bba5b304a8a0` |
 
 The UDP header file has 10,567 rows over 21.990653 seconds. The ACK artifact has
 21,322 retained rows plus its drop statistics. Copies are preserved under ignored
