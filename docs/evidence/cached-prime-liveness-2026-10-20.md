@@ -55,3 +55,26 @@ The configured reset threshold and camera-scoped reset operation are unchanged.
 This establishes false liveness from cached replay. It does not prove cached
 replay caused the currently observed camera's source silence or in-readable
 presentation-timestamp regression. There is no SDK change in this fix.
+
+## Deployment
+
+Deployed to homebridge at 22:41:34 UTC, October 20. The service PID was 135966.
+The tested and deployed stream-manager SHA-256 matched:
+`069a69891c172706ff1b11d6f72a97903b4dd12632c4e673fafe52f04370b269`.
+The original SDK bundle was retained. This deployment verifies the tested
+module is active; a service restart alone does not establish improvement in
+intermittent camera delivery.
+
+The 60-second smoke check included startup: three API requests returned 503
+while the SDK initialized, then 111 successful camera polls. All four always-on
+Eufy cameras advanced receipt sequences with zero watchdog stalls. Garage
+Doorbell advanced from sequence 5 to 810, with maximum sampled source-receipt
+age 2595.690 ms. All three Fire TVs reconnected using the Amlogic hardware AVC
+decoder and each reported 703 decoded Garage Doorbell frames by 22:42:43 UTC.
+Their decoder queue depth was zero or one; observed longest rendered-frame
+gaps remained approximately 2.8 seconds. No new discontinuity or pending-frame
+bound occurred during the smoke window. These source pauses remain visible;
+this is deployment health evidence, not a sustained cure or a comparison that
+separates the recovery change from restarting the service.
+
+Private live sample: `.evidence/garage-doorbell-2026-10-20/garage-doorbell-prime-fix-live60.json`.
