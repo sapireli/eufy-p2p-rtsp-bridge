@@ -65,6 +65,24 @@ applied, and retained logs show no battery-budget expiry, authentication error o
 explicit SDK cause. These source pauses are unresolved and must not be described
 as fixed by the Android recovery change.
 
+## Post-pin observation
+
+A 90-second before/after observation following the pin changes found unchanged
+app process IDs on all three TVs and no global-restart message in the retained
+current-process logs. Hardware decoding of both pinned cameras was confirmed
+separately on all three, with Balcony using software when both pinned streams
+were active. An unpinned stream can temporarily use a free hardware slot while a
+pinned stream is reconnecting; a pin is priority, not an idle capacity reservation.
+
+Camera-scoped reconnects still occurred, including the new source's interruptions.
+The snapshots and finite log retention do not establish uninterrupted playback or
+prove every local retry cause. This operational check supports no app-wide kill
+in that interval; the on-device injected-failure test supplies the stronger
+player-identity isolation proof.
+
+Observation metadata SHA-256:
+`d912b48f6d1f54d57b33f0d139b64df70b2d05165ec16ee6ee858d3bafa18b13`.
+
 ## Evidence
 
 Private build output, device proof logs, installed hashes and saved-setting
