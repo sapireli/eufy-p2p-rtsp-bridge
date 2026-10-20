@@ -175,3 +175,9 @@ This still does not measure sensor capture age or physical panel latency.
 ### Two tall cameras with a right stack
 
 Choose **Edit wall → Layout → Two tall + right stack (up to 3)**. The first two tiles fill the left and center columns at 35% width each. The remaining one to three tiles share the right 30%, stacked at equal heights. Reorder tiles to choose their positions. Two to five tiles are supported; with only two, the right column stays black. Motion-following tiles work in the right stack. Explicit grid coordinates and spans are retained for switching back to Grid but are not used by this preset. Camera image mode is a bridge setting shared by all clients; use Stacked views for dual-lens cameras.
+
+### Decoder resource contention
+
+Every live tile attempts hardware decoding first and falls back to software if hardware cannot start. When an OMX/MediaCodec resource-exhaustion error occurs, a larger coded picture can reclaim a hardware slot from a smaller picture using the same decoder. The displaced tile reconnects and attempts hardware before software again. Equal-size pictures do not evict each other. This uses parsed coded pixel area as a cost heuristic; it does not reduce resolution or frame rate, and does not guarantee every concurrent stream can use hardware.
+
+The compressed video queue remains bounded at 60 frames. If it overflows, it clears the dependent picture chain and waits for an actual IDR, restoring cached codec parameter sets if needed. It never resumes with arbitrary P pictures after dropping their references. Audio queue behavior is unchanged. See [live comparison](../docs/evidence/2026-10-20-balcony-decoder-contention.md).
