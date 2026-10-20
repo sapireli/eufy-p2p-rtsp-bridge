@@ -1,5 +1,18 @@
 # Independent SDK changes: evidence and upstream handoff
 
+## October 20 investigation
+
+[Queued UDP shutdown sends](sdk-udp-close-drain-pr-handoff.md) documents a
+reproduced transport lifecycle defect and its real-socket and live-wire evidence.
+The candidate is not deployed and did not fix periodic playback pauses. Upstream
+[PR #478](https://github.com/mega-yfue/eufy-sdk/pull/478) targets `beta-0.5.0`
+with the close change, real-UDP regression, and sanitized evidence only. Full
+verification passed on Node 24.5.0 and Node 26.8.1; the template check passed.
+
+## October 12 snapshot
+
+The deployment information below records October 12, not the current live version.
+
 All four changes are committed and pushed on the SDK's **eufy-wall** branch.
 The live bridge package, lock and revision marker identify `830fa1c`; deployed
 bundle SHA-256 is

@@ -223,6 +223,34 @@ The capture extends beyond that window and eventually ends in a truncated packet
 reported holes across all control flows must not be attributed to this target
 outbound flow. A fresh first-party comparison on the current path remains needed.
 
+### Shutdown drain fixed a separate defect, not this freeze
+
+A real-class UDP regression exposed queued STOP/END loss on immediate session
+close: the original delivered neither packet in 20 trials; the candidate delivered
+both in order in all 20. The live candidate also emitted three END packets and
+had no incoming DATA after its last END in the capture, whereas the original
+emitted no END and HomeBase DATA continued 7.266929 seconds after its last ACK.
+Those durations use the wire clock only; Mac API event times have clock offset.
+
+The playback comparison still failed: original-before had 4/201 sampled source
+ages over 500 ms (maximum 1296.039 ms), after drained shutdown had 5/199
+(1153.383 ms), and restored original shutdown had 9/201 (1105.734 ms).
+The original SDK was restored. Shutdown reliability is a demonstrated independent
+fix candidate, not an explanation or fix for these freezes. The candidate is not
+deployed on the live bridge. See the
+[SDK PR handoff](../sdk-udp-close-drain-pr-handoff.md) for proof and scope.
+
+### Longer historical first-party sample
+
+The additional archive survey found an October 9 first-party iPhone capture
+with a 103.099-second Front Door-like stream: channel 2, geometry 1600×2200,
+HomeBase peer ending `.233` and phone ending `.68`. Its largest recorded packet
+gap was 1.046183 seconds between consecutive sequences 21827 and 21828.
+A similar pause therefore occurred in at least one historical first-party path
+without this SDK. This is not a current equal-condition comparison or proof of
+the present root cause. Capture-filter provenance is unknown; absence of a
+heartbeat in this archive cannot establish that no heartbeat was sent.
+
 Raw artifacts are private local files, not committed packet captures:
 
 | Artifact | SHA-256 |
@@ -240,6 +268,8 @@ Raw artifacts are private local files, not committed packet captures:
 | `/tmp/eufy-ack-trial-artifacts/manifest.json` | `f9f971f71c909edc11d6e7960defaacd63492d7ac1b64993d185a142712cdb2b` |
 | `/tmp/eufy-ack-trial-artifacts/ack-trial.patch` | `800f05df909a246e5de530b7c27c69cdef4c7f3a051cbe2e4306a0bae3dd9004` |
 | `/tmp/firstparty-keepalive-audit-20261020/summary.json` | `ad5ae7eb4941ca8fd5ed47a28242a6a41fe684b9c7b8542f901135c02015db54` |
+| `/tmp/eufy-close-trial-artifacts/live-trial.json` | `1dd2509e682c47095d4df94716fbe4f0d0d4e65ede86e921e5770d97bc2d7f39` |
+| `/tmp/firstparty-keepalive-audit-20261020/additional-archive-survey.json` | `0d0f4fffd592794cc23753d0e2780ddc8c74d6d9b8d4d553c1512819e75672c1` |
 
 The UDP header file has 10,567 rows over 21.990653 seconds. The ACK artifact has
 21,322 retained rows plus its drop statistics. Copies are preserved under ignored
