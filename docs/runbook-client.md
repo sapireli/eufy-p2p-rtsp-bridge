@@ -172,6 +172,20 @@ the compressed reference pictures needed to decode subsequent frames. Android's
 MediaCodec allocation and compressed-input recovery changes therefore do not require
 an equivalent Linux decoder pool or compressed-frame dropping policy.
 
+Android's per-tile retry and retained `SurfaceView` fixes were checked against Linux
+on 2026-10-21. With `sink: planes`, each tile already has its own supervised process;
+repeated fatal errors restart that process while unchanged sibling processes keep
+running. A regression exercises repeated failed child processes alongside a healthy
+child. The primary black backdrop and the parent-owned shared DRM descriptor remain
+alive during retries. A failed tile recreates its own `kmssink` and overlay; Linux
+does not retain that tile's decoder surface across process replacement. Compositor
+and window modes still share one pipeline and restart the whole wall on a fatal
+pipeline error. These platform differences need no Android-specific backport.
+
+The audit ran `make test` off-device (C pacing regression and all Go packages).
+GaragePi's service was inactive during the check; sustained physical display
+playback was not tested by this audit.
+
 The installer builds the `eufypacing` GStreamer element for the destination CPU and installed
 GStreamer ABI (`gcc`, `pkg-config`, `libgstreamer1.0-dev`). The client discovers it through
 `/usr/local/lib/eufy-wall/gstreamer-1.0`. Updates include the plugin source and rebuild it.

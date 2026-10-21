@@ -2,6 +2,8 @@ package supervisor
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -128,6 +130,28 @@ func TestUpdateAfterCancelIsIgnored(t *testing.T) {
 	m.Update(ctx, []pipeline.Plan{plan("garage")})
 	if n := len(m.Names()); n != 0 {
 		t.Errorf("a cancelled wall should start nothing, got %d", n)
+	}
+}
+
+// Exercise actual process failures, rather than only changed plan arguments.
+// Repeated decoder/transport failures must never restart a healthy sibling.
+func TestFailedTileRetriesRetainHealthyProcess(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "player")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nif [ \"$1\" = failed ]; then\n sleep 0.03\n echo 'ERROR: simulated failed tile' >&2\n exit 1\nfi\nexec sleep 30\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r := &recorder{}
+	m := NewManager(bin, config.Restart{}, r.log)
+	defer func() { cancel(); m.Stop() }()
+	plans := []pipeline.Plan{plan("failed", "failed"), plan("healthy", "healthy")}
+	m.Update(ctx, plans)
+	waitFor(t, func() bool {
+		return r.countWith("failed: started") >= 3 && r.countWith("healthy: started") == 1
+	}, "failed tile retries and healthy sibling startup")
+	m.Update(ctx, plans)
+	if starts, stops := r.countWith("healthy: started"), r.countWith("healthy: stopping"); starts != 1 || stops != 0 {
+		t.Fatalf("healthy process changed during sibling retries: starts=%d stops=%d", starts, stops)
 	}
 }
 
