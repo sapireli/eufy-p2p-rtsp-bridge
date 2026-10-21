@@ -47,3 +47,15 @@ crash is impossible or repair the separate shared Intel GPU failure.
 
 Private evidence: `.evidence/three-camera-gpu-fault-2026-10-20/fire85-crash.log`
 and `four-camera-surface-instrumentation.log` in the same directory.
+
+## Post-deployment bridge restart
+
+The bridge restarted again at 00:07:16 UTC on October 21 to restore its original
+hardware policy. At 00:08:42 UTC all three TVs had active 0.6.9/code 18 processes
+and were decoding Front Door, Garage Doorbell and Balcony. The installed APK
+SHA-256 matched the built artifact on all three devices. Garage Doorbell
+reported 476–478 decoded frames, Front Door 511–541, and Balcony 760–765 in
+those current player instances; sampled compressed-input queue depths were zero.
+This is recovery verification through a real server restart, not a claim that
+the separate incoming-media pauses were eliminated. The most recent observed
+bridge GPU reset remained the 23:57:29 event.
