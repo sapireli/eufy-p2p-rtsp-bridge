@@ -106,3 +106,88 @@ original hardware-first policy at 00:07:16 UTC on October 21. Both rollback
 timers were canceled. No camera resolution, encoder quality or source view
 was lowered. The output-crash cause is the observed shared GPU hang/reset;
 the specific provoking operation and a sustained driver remedy remain open.
+
+## Controlled encoder retirement, October 21
+
+At 00:12:20.931 UTC, a single SIGTERM was sent to Garage Doorbell's uniquely
+identified full-hardware FFmpeg PID 140648. The observation covered
+00:12:15.786–00:12:55.536 UTC, approximately five seconds before and 35 seconds
+after the intervention. No bridge service restart or camera-source change was
+made. The encoder exited with code 255 in the bridge journal and was replaced
+by PID 140826. Garage Doorbell resumed output. No GPU-hang/reset event occurred
+in this window. Front Door PID 140620 and Balcony PID 140619 remained unchanged;
+their output counters advanced by 601 and 984 frames respectively. Their fresh
+output counters advanced by the same amounts.
+
+This weakens a deterministic healthy-context-retirement hypothesis. It does
+not reproduce teardown of an already stalled GPU request and does not prove
+that all teardown paths are safe. No runtime change was retained from this
+test. The original hardware-first policy remains active.
+
+Before this test, the old retained GPU error was backed up privately and the
+retained error state cleared to allow the next fault to be captured. This did
+not reset the GPU. The original dump is retained at
+`/var/lib/eufy-wall-bridge/gpu-context-stop-20261021/before.error` on the bridge.
+The metadata-only trial JSON has SHA-256
+`959bfa3d98985dbeb320384fafef6c9f72ed0941db5fe834905820c40cd868c4`.
+
+A native HEVC header check of Garage Doorbell used the existing bridge source,
+without opening another camera session or saving pictures. The SPS reports
+1600×2304 coded luma samples with four display lines cropped from the bottom,
+a minimum coding block of eight, and a two-picture decoded-picture buffer.
+Observed slices use one active reference picture. No parser error occurred in
+30 copied pictures. These values do not demonstrate an unsupported geometry
+or reference count. Driver dimension checks apply to the coded SPS dimensions,
+not the cropped 2300-line display height. Reducing resolution or padding the
+750-pixel compatible output is not justified by these results.
+
+An independent 15-second observation of .85 at 00:16:03–00:16:16 UTC found all
+four configured streams advancing, with no timeout, control-loss, player-release
+or reconnect event. Front Door and Garage Doorbell used hardware decoding;
+Balcony and Wyze used software decoding. Reported input queues were zero at the
+sampled instants. This verifies current playback progress, not the absence of
+historical outages: retained logs were sparse and did not establish the user's
+original timeout timestamp. The separate stable-surface fix remains deployed
+as app 0.6.9 on all three TVs.
+
+## Retained batch operation
+
+Offline decoding of the original October 18 error dump identified an HEVC
+decode batch attached to the hung `vcs0` engine. It did not identify a camera,
+exact faulting opcode or the origin of every October 20 hang. See
+[the command metadata and attribution limits](cherryview-hevc-hang-batch-2026-10-21.md).
+This narrows the implicated operation in one retained fault; it does not turn
+the failed software-decode trials into a verified remedy.
+
+## Rejected hardware-scaling fallback trial
+
+The fresh 00:18:38 GPU reset yielded a new HEVC decode batch matching Garage
+Doorbell's current coded dimensions; see the linked batch analysis above.
+A guarded trial at 00:21:31 changed only that camera to software decoding with
+slice-only threading, retaining VA-API scaling and H.264 encoding. The previous
+mixed path had scaled on the CPU. Output remained 750×1080 with the same encoder
+options. Front Door and Balcony remained full hardware decode/encode.
+
+The first sample included startup and a go2rtc restart, so it is not a steady
+performance benchmark. In the next 30-second sample (00:22:31.644–00:23:01.316),
+Garage Doorbell's producer reset once. Summing only adjacent intervals without
+counter regression gives 372 accepted inputs, 366 outputs, and 249 outputs
+within the existing 500 ms receipt budget (68%). Median pending count was 4.5.
+Intervals spanning the counter reset were excluded, so these are partial
+window counts, not totals for all accepted pictures. Front Door output/fresh
+output advanced 474/474 and Balcony 734/734. No new GPU reset occurred during
+this short trial; the lack of one is insufficient to establish a hang cure.
+
+A separate .85 observation at 00:21:58.616–00:22:28.879 found an unchanged app
+PID, no common timeout/reconnect/release and all feeds decoding. Its sampled
+Garage Doorbell decode-age upper bounds were 105–499 ms with zero queued units.
+That observation preceded the bridge counter reset and cannot establish the
+whole trial was uninterrupted.
+
+The candidate failed the freshness gate. The original module and YAML were
+restored at **00:23:29 UTC**, the rollback timer was stopped, and the local
+candidate code/tests were reverted. No hardware-scaling candidate was retained
+or claimed as a fix. Hardware-first policy is restored on all three cameras.
+The candidate passed all 255 server tests; live verification rejected it.
+Private artifacts include the rejected patch, both bridge samples and .85 logs
+under `.evidence/three-camera-gpu-fault-2026-10-20/`.
