@@ -402,4 +402,9 @@ message. The separate default probe retains strict suppression, expiry and
 same-pipeline recovery coverage. Neither synthetic probe establishes hardware
 scanout; sustained target-device measurements are required separately.
 
-For compositor/window `-dry-run`, the command uses private tile-control files. The preview prints their directory and retains it so the command can run; delete that directory after the preview. Normal runs remove their private controls on exit.
+For compositor/window `-dry-run`, the command uses private tile-control files.
+The preview prints their directory and retains it so the command can run; delete
+that directory after the preview. Normal runs remove their private controls on exit.
+
+See [hardware priority and decoder isolation evidence](linux-decoder-isolation-evidence.md)
+for runtime tests, deployment hashes and verification limits.
