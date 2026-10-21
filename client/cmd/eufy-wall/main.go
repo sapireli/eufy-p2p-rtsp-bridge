@@ -94,6 +94,21 @@ func main() {
 		pluginPath += string(os.PathListSeparator) + existing
 	}
 	os.Setenv("GST_PLUGIN_PATH", pluginPath)
+	if caps.Sink != "planes" {
+		if !detect.HasElement("eufytile") {
+			log.Fatal("[wall] compositor/window requires the updated eufytile plugin; rerun install-client.sh")
+		}
+		dir, e := os.MkdirTemp("", "eufy-wall-tiles-")
+		if e != nil {
+			log.Fatal(e)
+		}
+		if *dryRun {
+			log.Printf("[wall] preview tile controls retained at %s; remove this directory after running the printed command", dir)
+		} else {
+			defer os.RemoveAll(dir)
+		}
+		caps.IsolatedTiles, caps.TileConfigDir = true, dir
+	}
 	caps.DecodedPacing = detect.HasElement("eufypacing")
 	caps.StampReader = detect.HasElement("eufystamp")
 	caps.ObservePacing = detect.HasElementProperty("eufypacing", "observe-only")
@@ -170,6 +185,9 @@ func main() {
 		return
 	}
 	if *dryRun {
+		if err := writeTileConfigs(plans); err != nil {
+			log.Fatal(err)
+		}
 		for _, p := range plans {
 			fmt.Printf("# %s\ngst-launch-1.0 %s\n", p.Name, pipeline.String(p.Args))
 		}
@@ -451,6 +469,10 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	endpoint := wsclient.EventURL(c.RTSPBase)
 	if endpoint == "" {
 		log.Printf("[wall] cannot derive the event channel from rtsp_base %q — running a static wall", c.RTSPBase)
+		if err := writeTileConfigs(static); err != nil {
+			log.Printf("[wall] tile controls: %v", err)
+			return
+		}
 		_ = mgr.Run(ctx, static)
 		return
 	}
@@ -511,9 +533,9 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		if len(known) == 0 {
 			mu.Unlock()
 			if len(playbackCaps.Freshness) > 0 {
-				mgr.Update(ctx, plansFor(c, playbackCaps, tiles, nil, nil, nil))
+				updatePlans(ctx, mgr, plansFor(c, playbackCaps, tiles, nil, nil, nil))
 			} else {
-				mgr.Update(ctx, static)
+				updatePlans(ctx, mgr, static)
 			}
 			return
 		}
@@ -583,7 +605,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			lastShown = line
 			log.Printf("[wall] showing %s", line)
 		}
-		mgr.Update(ctx, plansFor(playbackConfig, playbackCaps, tiles, snapshot, kinds, func(sn string) string {
+		updatePlans(ctx, mgr, plansFor(playbackConfig, playbackCaps, tiles, snapshot, kinds, func(sn string) string {
 			if k, ok := keys[sn]; ok && k != "" {
 				return k
 			}
@@ -627,7 +649,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			}
 			wg.Wait()
 			cancel()
-			mgr.Update(ctx, nil)
+			updatePlans(ctx, mgr, nil)
 			return
 		case <-refresh.C:
 			mu.Lock()

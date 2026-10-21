@@ -15,6 +15,8 @@ import (
 )
 
 type Caps struct {
+	IsolatedTiles      bool
+	TileConfigDir      string
 	SoftwareDecoders   map[string]bool // probed libav factories, indexed by codec
 	NativeHEVCSinkCaps string
 	NativeDecoder      string // actual probed hardware HEVC factory, empty disables selection
@@ -80,6 +82,11 @@ func codecOf(t layout.Placed) string {
 
 // Plan is one process that renders part (or all) of the wall.
 type Plan struct {
+	HardwarePinned          bool
+	HardwarePriority        int
+	HardwareDecoder         string
+	FallbackHardwareDecoder string
+	TileConfigs             []TileConfig
 	// Name identifies it in logs and, more importantly, identifies it across an Update: a plan whose
 	// args are unchanged keeps running rather than being restarted.
 	Name         string
@@ -94,10 +101,13 @@ type Plan struct {
 // process: one camera dropping out then restarts one tile instead of every tile, and a tile can be
 // started, stopped or repointed on its own — which is what a wall with motion tiles needs.
 //
-// A compositor mixes every tile into one frame, so its tiles cannot be split; that wall is one process
-// and changing any tile restarts all of them. This is the honest trade of the two sinks, not a gap.
+// Compositor/window mode keeps one output process. IsolatedTiles gives each slot its own
+// decoder lifecycle and private control file, so camera changes preserve the output process.
 func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 	if caps.Sink != "planes" {
+		if caps.IsolatedTiles {
+			return compositePlan(c, tiles, caps)
+		}
 		args, err := Build(c, tiles, caps)
 		if err != nil {
 			return nil, err
@@ -126,119 +136,18 @@ func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Plan{Name: name, Args: args, FallbackArgs: fallback, SoftwareArgs: software})
+		out = append(out, Plan{Name: name, Args: args, FallbackArgs: fallback, SoftwareArgs: software, HardwarePinned: cameraPinned(c, t.Camera), HardwarePriority: c.HardwarePriority[t.Camera], HardwareDecoder: hardwareDecoder(c, t, caps), FallbackHardwareDecoder: compatibleHardwareDecoder(t, caps)})
 	}
 	return out, nil
 }
 
 func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error) {
 	tiles, caps, _ = selectNative(c, tiles, caps)
-	family, ok := decoders[caps.Decoder]
-	if !ok {
-		return nil, fmt.Errorf("pipeline: unknown decoder %q", caps.Decoder)
-	}
-	for _, t := range tiles {
-		if caps.TimingDiagnostics != "" {
-			cap, ok := caps.Freshness[t.Camera]
-			if !ok || !cap.Supported() || !cap.BoundTo(t.URL) || caps.ClockFile == "" || !caps.ObservePacing || !caps.StampReader || !caps.DecodedPacing || caps.Sink != "planes" || t.StillURL != "" {
-				return nil, fmt.Errorf("pipeline: timing diagnostics unavailable for tile %d: advertised=%t supported=%t matching=%t observer=%t stamp=%t pacing=%t clock=%t planes=%t still=%t", t.Index, ok, cap.Supported(), cap.BoundTo(t.URL), caps.ObservePacing, caps.StampReader, caps.DecodedPacing, caps.ClockFile != "", caps.Sink == "planes", t.StillURL != "")
-			}
-		}
-		if cap, strict := caps.Freshness[t.Camera]; strict && cap.Enforced() && cap.BoundTo(t.URL) && t.StillURL == "" {
-			if !caps.DecodedPacing || !caps.StampReader || caps.ClockFile == "" || caps.Sink != "planes" || caps.DRMFD <= 0 {
-				return nil, fmt.Errorf("pipeline: advertised strict freshness requires stamp reader, clock mapping and independent shared DRM planes")
-			}
-		}
-		if t.StillURL != "" {
-			continue // a JPEG needs no video decoder
-		}
-		if _, ok := family[codecOf(t)]; !ok && caps.decoderOverrides[t.Camera] == "" {
-			return nil, fmt.Errorf("pipeline: decoder %q cannot decode %s (tile %s)", caps.Decoder, codecOf(t), t.Camera)
-		}
-	}
-	if caps.Sink == "planes" {
-		// Each tile takes the plane at its OWN index, so this holds whether the wall is built as one
-		// process or split into one per tile.
-		need := 0
-		for _, t := range tiles {
-			if t.Index+1 > need {
-				need = t.Index + 1
-			}
-		}
-		if len(c.Planes) < need {
-			return nil, fmt.Errorf("pipeline: sink=planes needs %d plane ids in `planes:` (have %d) — list overlay planes with `modetest -M vc4 -p`", need, len(c.Planes))
-		}
+	if err := validateSources(c, tiles, caps); err != nil {
+		return nil, err
 	}
 	args := []string{"-e"}
-	src := func(i int, t layout.Placed) []string {
-		if t.StillURL != "" {
-			// One JPEG held on screen as a video stream. `imagefreeze` repeats the single frame forever, so
-			// this costs nothing once it has decoded. If the bridge has no thumbnail yet the request 404s
-			// and the process exits; the supervisor's backoff retries it, which is also how the tile picks
-			// up a newer still after the next event.
-			return []string{
-				"souphttpsrc", "location=" + t.StillURL, "is-live=false", fmt.Sprintf("name=src%d", i),
-				"!", "jpegdec", "!", "imagefreeze", "!", "videoconvert",
-			}
-		}
-		codec := codecOf(t)
-		dp := depayParse[codec]
-		args := []string{"rtspsrc", "location=" + t.URL, fmt.Sprintf("latency=%d", c.Latency), "protocols=tcp", fmt.Sprintf("name=src%d", i)}
-		if caps.DecodedPacing {
-			// Preserve media RTP cadence. The raw-video mapper owns drift compensation;
-			// receive-time timestamping would turn delivery bursts into presentation jitter.
-			args = append(args, "buffer-mode=none")
-		}
-		trace := func(phase string) []string {
-			return []string{"!", "eufytrace", fmt.Sprintf("channel=%d", t.Index+1), "phase=" + phase, "clock-file=" + caps.ClockFile, "diagnostic-file=" + caps.TimingDiagnostics}
-		}
-		args = append(args, "!", dp[0])
-		if caps.TimingDiagnostics != "" {
-			args = append(args, trace("depay-au")...)
-		}
-		args = append(args, "!", dp[1])
-		if caps.TimingDiagnostics != "" {
-			args = append(args, trace("parsed-au")...)
-		}
-		cap, advertised := caps.Freshness[t.Camera]
-		strict := advertised && cap.Enforced() && cap.BoundTo(t.URL)
-		observe := advertised && cap.Supported() && !cap.Enforced() && cap.BoundTo(t.URL) && caps.ObservePacing && caps.DecodedPacing && caps.StampReader && caps.ClockFile != "" && caps.Sink == "planes"
-		if strict || observe {
-			args = append(args, "!", "video/x-"+codec+",stream-format=byte-stream,alignment=au", "!", "eufystamp", fmt.Sprintf("channel=%d", t.Index+1))
-		}
-		decoder := family[codec]
-		if override := caps.decoderOverrides[t.Camera]; override != "" {
-			decoder = override
-		}
-		args = append(args, "!", decoder)
-		if caps.TimingDiagnostics != "" {
-			args = append(args, trace("decoder-out")...)
-		}
-		args = append(args, "!", "watchdog", "timeout=15000")
-		if caps.DecodedPacing {
-			// Drop only decoded frames: every compressed reference still reaches the decoder.
-			args = append(args, "!", "queue", "max-size-buffers=1", "max-size-bytes=0", "max-size-time=0", "leaky=downstream")
-			if caps.TimingDiagnostics != "" {
-				args = append(args, trace("post-queue")...)
-			}
-			if caps.Sink == "planes" {
-				args = append(args, "!", "eufypacing")
-				if caps.TimingDiagnostics != "" {
-					args = append(args, "diagnostic-file="+caps.TimingDiagnostics)
-				}
-				if strict || observe {
-					args = append(args, fmt.Sprintf("channel=%d", t.Index+1), "clock-file="+caps.ClockFile, fmt.Sprintf("max-age-ms=%d", cap.MaxAgeMs))
-					if strict {
-						args = append(args, fmt.Sprintf("drm-fd=%d", caps.DRMFD), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]))
-					} else {
-						args = append(args, "observe-only=true")
-					}
-				}
-				args = append(args, "!", "watchdog", "timeout=15000")
-			}
-		}
-		return args
-	}
+
 	clockArgs := []string{"sync=false"}
 	if caps.DecodedPacing {
 		clockArgs = []string{"sync=true", "max-lateness=67000000", "processing-deadline=0"}
@@ -250,7 +159,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 			if border < 0 || 2*border >= t.W || 2*border >= t.H {
 				return nil, fmt.Errorf("motion border does not fit tile %d", t.Index)
 			}
-			args = append(args, src(i, t)...)
+			args = append(args, sourceArgs(c, t, caps, i)...)
 			args = append(args, "!")
 			tileClockArgs := clockArgs
 			if cap, strict := caps.Freshness[t.Camera]; strict && cap.Enforced() && cap.BoundTo(t.URL) && t.StillURL == "" {
@@ -260,7 +169,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 		}
 	case "compositor", "window":
 		for i, t := range tiles {
-			args = append(args, src(i, t)...)
+			args = append(args, sourceArgs(c, t, caps, i)...)
 			args = append(args, "!", "videoconvert", "!", fmt.Sprintf("mix.sink_%d", i))
 		}
 		args = append(args, "compositor", "name=mix", "background=black")
@@ -289,3 +198,43 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 
 // String joins args for logging; the supervisor execs the slice directly (no shell).
 func String(args []string) string { return strings.Join(args, " ") }
+
+func validateSources(c *config.Config, tiles []layout.Placed, caps Caps) error {
+	family, ok := decoders[caps.Decoder]
+	if !ok {
+		return fmt.Errorf("pipeline: unknown decoder %q", caps.Decoder)
+	}
+	for _, t := range tiles {
+		if caps.TimingDiagnostics != "" {
+			cap, ok := caps.Freshness[t.Camera]
+			if !ok || !cap.Supported() || !cap.BoundTo(t.URL) || caps.ClockFile == "" || !caps.ObservePacing || !caps.StampReader || !caps.DecodedPacing || caps.Sink != "planes" || t.StillURL != "" {
+				return fmt.Errorf("pipeline: timing diagnostics unavailable for tile %d: advertised=%t supported=%t matching=%t observer=%t stamp=%t pacing=%t clock=%t planes=%t still=%t", t.Index, ok, cap.Supported(), cap.BoundTo(t.URL), caps.ObservePacing, caps.StampReader, caps.DecodedPacing, caps.ClockFile != "", caps.Sink == "planes", t.StillURL != "")
+			}
+		}
+		if cap, strict := caps.Freshness[t.Camera]; strict && cap.Enforced() && cap.BoundTo(t.URL) && t.StillURL == "" {
+			if !caps.DecodedPacing || !caps.StampReader || caps.ClockFile == "" || caps.Sink != "planes" || caps.DRMFD <= 0 {
+				return fmt.Errorf("pipeline: advertised strict freshness requires stamp reader, clock mapping and independent shared DRM planes")
+			}
+		}
+		if t.StillURL != "" {
+			continue // a JPEG needs no video decoder
+		}
+		if _, ok := family[codecOf(t)]; !ok && caps.decoderOverrides[t.Camera] == "" {
+			return fmt.Errorf("pipeline: decoder %q cannot decode %s (tile %s)", caps.Decoder, codecOf(t), t.Camera)
+		}
+	}
+	if caps.Sink == "planes" {
+		// Each tile takes the plane at its OWN index, so this holds whether the wall is built as one
+		// process or split into one per tile.
+		need := 0
+		for _, t := range tiles {
+			if t.Index+1 > need {
+				need = t.Index + 1
+			}
+		}
+		if len(c.Planes) < need {
+			return fmt.Errorf("pipeline: sink=planes needs %d plane ids in `planes:` (have %d) — list overlay planes with `modetest -M vc4 -p`", need, len(c.Planes))
+		}
+	}
+	return nil
+}
