@@ -66,10 +66,11 @@ func runWithDecoderFallback(ctx context.Context, bin string, args, fallback, sof
 // decoderControl lets the manager relinquish one lower-ranked decoder without
 // stopping other tiles. A demotion is acknowledged only after process teardown.
 type decoderControl struct {
-	demote     <-chan chan struct{}
-	reclaim    func() bool
-	onSoftware func()
-	onRunning  func(bool)
+	demote       <-chan chan struct{}
+	reclaim      func() bool
+	onSoftware   func()
+	onCompatible func()
+	onRunning    func(bool)
 }
 
 func runWithDecoderControl(ctx context.Context, bin string, args, fallback, software []string, r config.Restart, log func(string), control *decoderControl, files ...*os.File) error {
@@ -228,6 +229,9 @@ func runWithDecoderControl(ctx context.Context, bin string, args, fallback, soft
 		if len(fallback) > 0 {
 			log("native pipeline failed; selecting compatible fallback")
 			args, fallback = fallback, nil
+			if control != nil && control.onCompatible != nil {
+				control.onCompatible()
+			}
 		} else if decoderFailed.Load() && len(software) > 0 {
 			log("hardware decoder initialization failed; selecting software fallback for this tile")
 			selectSoftware()

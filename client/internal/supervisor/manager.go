@@ -33,18 +33,20 @@ type Manager struct {
 }
 
 type proc struct {
-	args     []string
-	fallback []string
-	software []string
-	cancel   context.CancelFunc
-	exited   chan struct{}
-	ctx      context.Context
-	demote   chan chan struct{}
-	hardware atomic.Bool
-	active   atomic.Bool
-	pinned   bool
-	priority int
-	decoder  string
+	args            []string
+	fallback        []string
+	software        []string
+	cancel          context.CancelFunc
+	exited          chan struct{}
+	ctx             context.Context
+	demote          chan chan struct{}
+	hardware        atomic.Bool
+	active          atomic.Bool
+	pinned          bool
+	priority        int
+	decoder         string
+	fallbackDecoder string
+	currentDecoder  atomic.Value // string: factory actually selected by the running attempt
 }
 
 func NewManager(bin string, r config.Restart, log func(name, line string), files ...*os.File) *Manager {
@@ -78,7 +80,7 @@ func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
 	var stopping []*proc
 	for name, p := range m.running {
 		want, keep := wanted[name]
-		if keep && sameArgs(p.args, want.Args) && sameArgs(p.fallback, want.FallbackArgs) && sameArgs(p.software, want.SoftwareArgs) && p.pinned == want.HardwarePinned && p.priority == want.HardwarePriority && p.decoder == want.HardwareDecoder {
+		if keep && sameArgs(p.args, want.Args) && sameArgs(p.fallback, want.FallbackArgs) && sameArgs(p.software, want.SoftwareArgs) && p.pinned == want.HardwarePinned && p.priority == want.HardwarePriority && p.decoder == want.HardwareDecoder && p.fallbackDecoder == want.FallbackHardwareDecoder {
 			continue // already showing the right thing
 		}
 		m.log(name, "stopping")
@@ -121,12 +123,13 @@ func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
 			m.log(name, "selecting native hardware rendition; compatible fallback available")
 		}
 		pctx, cancel := context.WithCancel(ctx)
-		p := &proc{args: plan.Args, fallback: plan.FallbackArgs, software: plan.SoftwareArgs, cancel: cancel, exited: make(chan struct{}), ctx: pctx, demote: make(chan chan struct{}, 1), pinned: plan.HardwarePinned, priority: plan.HardwarePriority, decoder: plan.HardwareDecoder}
+		p := &proc{args: plan.Args, fallback: plan.FallbackArgs, software: plan.SoftwareArgs, cancel: cancel, exited: make(chan struct{}), ctx: pctx, demote: make(chan chan struct{}, 1), pinned: plan.HardwarePinned, priority: plan.HardwarePriority, decoder: plan.HardwareDecoder, fallbackDecoder: plan.FallbackHardwareDecoder}
 		p.hardware.Store(plan.HardwareDecoder != "")
+		p.currentDecoder.Store(plan.HardwareDecoder)
 		m.running[name] = p
 		go func(n string, args, fallback, software []string) {
 			defer close(p.exited)
-			control := &decoderControl{demote: p.demote, reclaim: func() bool { return m.reclaim(n, p) }, onSoftware: func() { p.hardware.Store(false) }, onRunning: func(active bool) { p.active.Store(active) }}
+			control := &decoderControl{demote: p.demote, reclaim: func() bool { return m.reclaim(n, p) }, onSoftware: func() { p.hardware.Store(false); p.active.Store(false); p.currentDecoder.Store("") }, onCompatible: func() { p.currentDecoder.Store(p.fallbackDecoder); p.hardware.Store(p.fallbackDecoder != "") }, onRunning: func(active bool) { p.active.Store(active) }}
 			_ = runWithDecoderControl(pctx, m.bin, args, fallback, software, m.restart, func(line string) { m.log(n, line) }, control, m.files...)
 		}(name, plan.Args, plan.FallbackArgs, plan.SoftwareArgs)
 	}
@@ -179,14 +182,14 @@ func sameArgs(a, b []string) bool {
 // Selection is driven by an actual allocation failure, never an assumed capacity.
 func (m *Manager) reclaim(name string, requester *proc) bool {
 	m.mu.Lock()
-	if m.running[name] != requester || requester.ctx.Err() != nil || requester.decoder == "" {
+	if m.running[name] != requester || requester.ctx.Err() != nil || requester.currentDecoder.Load() == "" {
 		m.mu.Unlock()
 		return false
 	}
 	var victim *proc
 	var victimName string
 	for n, candidate := range m.running {
-		if candidate == requester || candidate.pinned || candidate.decoder != requester.decoder || len(candidate.software) == 0 || !candidate.hardware.Load() || !candidate.active.Load() || candidate.ctx.Err() != nil {
+		if candidate == requester || candidate.pinned || candidate.currentDecoder.Load() != requester.currentDecoder.Load() || len(candidate.software) == 0 || !candidate.hardware.Load() || !candidate.active.Load() || candidate.ctx.Err() != nil {
 			continue
 		}
 		if !requester.pinned && requester.priority <= candidate.priority {

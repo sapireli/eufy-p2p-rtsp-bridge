@@ -22,8 +22,10 @@ func TestHardwarePriorityReclaimsOnlyEligibleTile(t *testing.T) {
 		failure, victimPool           string
 		explicit                      bool
 		reclaim                       bool
+		nativeFallback                bool
 	}{
 		{name: "higher rank", requesterRank: 2, victimRank: 1, reclaim: true},
+		{name: "native fallback uses compatible factory", requesterRank: 2, victimRank: 1, reclaim: true, nativeFallback: true},
 		{name: "pinned requester", requesterPinned: true, victimRank: 100, reclaim: true},
 		{name: "pinned victim", requesterRank: 2, victimPinned: true},
 		{name: "equal rank"},
@@ -42,6 +44,11 @@ func TestHardwarePriorityReclaimsOnlyEligibleTile(t *testing.T) {
 mode="$1"
 lock="$2"
 events="$3"
+if [ "$mode" = native ]; then
+ printf '%s\n' "$mode-failed" >> "$events"
+ echo 'ERROR: native rendition unavailable' >&2
+ exit 1
+fi
 if [ "$mode" = low-software ] || [ "$mode" = high-software ]; then
  printf '%s\n' "$mode" >> "$events"
  exec sleep 30
@@ -69,6 +76,12 @@ while :; do sleep 0.02; done
 			}
 			low := pipeline.Plan{Name: "low", Args: args("low"), SoftwareArgs: args("low-software"), HardwareDecoder: pool, HardwarePinned: tc.victimPinned, HardwarePriority: tc.victimRank}
 			high := pipeline.Plan{Name: "high", Args: args("high"), SoftwareArgs: args("high-software"), HardwareDecoder: "v4l2", HardwarePinned: tc.requesterPinned, HardwarePriority: tc.requesterRank}
+			if tc.nativeFallback {
+				low.Args = args("native")
+				low.FallbackArgs = args("low")
+				low.HardwareDecoder = "v4l2h265dec"
+				low.FallbackHardwareDecoder = pool
+			}
 			if tc.explicit {
 				low.SoftwareArgs = nil
 				high.SoftwareArgs = nil
@@ -80,6 +93,8 @@ while :; do sleep 0.02; done
 			read := func() string { b, _ := os.ReadFile(events); return string(b) }
 			m.Update(ctx, []pipeline.Plan{low})
 			waitFor(t, func() bool { return strings.Contains(read(), "low-acquired") }, "low hardware allocation")
+			// Identical refresh after compatible selection must not relaunch native.
+			m.Update(ctx, []pipeline.Plan{low})
 			m.Update(ctx, []pipeline.Plan{low, high})
 			if tc.reclaim {
 				waitFor(t, func() bool {
@@ -90,7 +105,11 @@ while :; do sleep 0.02; done
 					t.Fatalf("retried before release: %s", got)
 				}
 				m.Update(ctx, []pipeline.Plan{low, high})
-				if r.countWith("low: started") != 2 || r.countWith("high: started") != 2 {
+				wantLowStarts := 2
+				if tc.nativeFallback {
+					wantLowStarts = 3
+				}
+				if r.countWith("low: started") != wantLowStarts || r.countWith("high: started") != 2 {
 					t.Fatalf("identical update reset allocation: %s", read())
 				}
 			} else {
