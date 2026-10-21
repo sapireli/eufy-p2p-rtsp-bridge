@@ -46,9 +46,9 @@ export function transcodeAttempts(argv, { devices = renderNodes(), outputGeometr
   const hardware = nodes.map((node) => ({ ...build("hardware-decode-encode", ["-init_hw_device", `vaapi=ewb_vaapi:${node}`,
     "-filter_hw_device", "ewb_vaapi", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-hwaccel_device", "ewb_vaapi", "-thread_type:v", "slice"],
     `scale_vaapi=${outputGeometry ? `w=${outputGeometry.width}:h=${outputGeometry.height}:` : height ? `w=-2:h='${cappedHeight}':` : ""}format=nv12`, "h264_vaapi", driverDefault), device: node }));
-  const mixed = nodes.map((node) => ({ ...build("software-decode-hardware-encode", ["-vaapi_device", node],
+  const mixed = nodes.map((node) => ({ ...build("software-decode-hardware-encode", ["-vaapi_device", node, "-thread_type:v", "slice"],
     `${resize}format=nv12,hwupload`, "h264_vaapi", driverDefault), device: node }));
-  const software = build("software-decode-encode", [], `${resize}format=yuv420p`, "libx264",
+  const software = build("software-decode-encode", ["-thread_type:v", "slice"], `${resize}format=yuv420p`, "libx264",
     ["-preset:v", "superfast", "-tune:v", "zerolatency"]);
   return preference === "encode" ? [...mixed, software] : [...hardware, ...mixed, software];
 }

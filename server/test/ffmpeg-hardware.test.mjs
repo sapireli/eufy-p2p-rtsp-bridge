@@ -31,12 +31,16 @@ test("per-input hardware preference keeps timing and codec compatibility across 
   assert.ok(!attempts[2].args.includes("-vaapi_device"));
 });
 
-test("hardware decoding avoids frame-thread delay without limiting software fallback", () => {
+test("every decoder avoids frame-thread delay while retaining automatic parallelism", () => {
   const [hardware, mixed, software] = transcodeAttempts(args);
   const threads = hardware.args.indexOf("-thread_type:v");
   assert.ok(threads >= 0 && threads < hardware.args.indexOf("-i"));
   assert.equal(hardware.args[threads + 1], "slice");
-  for (const attempt of [mixed, software]) assert.ok(!attempt.args.includes("-thread_type:v"));
+  for (const attempt of [mixed, software]) {
+    const mode = attempt.args.indexOf("-thread_type:v");
+    assert.ok(mode >= 0 && mode < attempt.args.indexOf("-i"));
+    assert.equal(attempt.args[mode + 1], "slice");
+  }
   for (const attempt of [hardware, mixed, software]) {
     assert.ok(!attempt.args.includes("-threads:v"));
     assert.ok(!attempt.args.includes("-async_depth"));
@@ -143,4 +147,22 @@ test("startup timeout or consumer cancellation terminates FFmpeg and prevents fa
   assert.equal(rows.filter((r) => r.args).length, 1);
   assert.ok(rows.some((r) => r.terminated));
   assert.throws(() => process.kill(rows[0].pid, 0), /ESRCH/);
+});
+
+
+test("software decoding uses slice-only input threading in every fallback without limiting thread count", () => {
+  for (const preference of ["auto", "encode"]) {
+    const template = [...args]; template[template.indexOf("--eufy-vaapi") + 3] = preference;
+    const attempts = transcodeAttempts(template, { outputGeometry: { width: 750, height: 1080 } });
+    for (const attempt of attempts.filter(x => x.name.startsWith("software-decode"))) {
+      const input = attempt.args.indexOf("-i");
+      const threadMode = attempt.args.indexOf("-thread_type:v");
+      assert.ok(threadMode >= 0 && threadMode < input, "threading must configure the decoder rather than output encoder");
+      assert.equal(attempt.args[threadMode + 1], "slice");
+      assert.equal(attempt.args.slice(0, input).some(x => x === "-threads" || x === "-threads:v"), false,
+        "retain automatic intra-frame parallelism instead of forcing a single worker");
+      assert.ok(attempt.args.includes(attempt.name === "software-decode-hardware-encode" ? "h264_vaapi" : "libx264"));
+    }
+    assert.equal(attempts[0].name, preference === "auto" ? "hardware-decode-encode" : "software-decode-hardware-encode");
+  }
 });
