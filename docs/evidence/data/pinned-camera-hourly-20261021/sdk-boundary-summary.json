@@ -1,0 +1,93 @@
+{
+  "scope": "Read-only SDK stage counters and bridge API receipt correlation; packet input analyzed separately",
+  "startUtc": "2026-10-21T23:44:11.550000+00:00",
+  "endUtc": "2026-10-21T23:47:11.572000+00:00",
+  "rows": 360,
+  "endReason": "duration",
+  "videoGapEvents": 0,
+  "identities": [
+    {
+      "stream": "stream-1",
+      "session": "session-1",
+      "channel": 0,
+      "firstObservedUtc": "2026-10-21T23:44:11.552000+00:00",
+      "lastObservedUtc": "2026-10-21T23:47:10.719000+00:00",
+      "final": {
+        "acceptedData": 0,
+        "unknownChannelData": 4505,
+        "assembled": 4505,
+        "gatedCompleteUnits": 0,
+        "delivered": 4505,
+        "waitingKeyframe": false,
+        "lastDeliveredUs": "366828030319",
+        "lastSourceTimestamp": 1625068786
+      }
+    },
+    {
+      "stream": "stream-2",
+      "session": "session-2",
+      "channel": 1,
+      "firstObservedUtc": "2026-10-21T23:44:11.552000+00:00",
+      "lastObservedUtc": "2026-10-21T23:45:34.655000+00:00",
+      "final": {
+        "acceptedData": 874,
+        "unknownChannelData": 0,
+        "assembled": 874,
+        "gatedCompleteUnits": 0,
+        "delivered": 874,
+        "waitingKeyframe": false,
+        "lastDeliveredUs": "366706095990",
+        "lastSourceTimestamp": 1624946332
+      }
+    },
+    {
+      "stream": "stream-3",
+      "session": "session-3",
+      "channel": 2,
+      "firstObservedUtc": "2026-10-21T23:44:11.552000+00:00",
+      "lastObservedUtc": "2026-10-21T23:47:10.719000+00:00",
+      "final": {
+        "acceptedData": 2703,
+        "unknownChannelData": 0,
+        "assembled": 2703,
+        "gatedCompleteUnits": 0,
+        "delivered": 2703,
+        "waitingKeyframe": false,
+        "lastDeliveredUs": "366827998758",
+        "lastSourceTimestamp": 1625071507
+      }
+    },
+    {
+      "stream": "stream-4",
+      "session": "session-2",
+      "channel": 1,
+      "firstObservedUtc": "2026-10-21T23:45:35.663000+00:00",
+      "lastObservedUtc": "2026-10-21T23:47:10.719000+00:00",
+      "final": {
+        "acceptedData": 1394,
+        "unknownChannelData": 0,
+        "assembled": 1394,
+        "gatedCompleteUnits": 0,
+        "delivered": 1394,
+        "waitingKeyframe": false,
+        "lastDeliveredUs": "366827953852",
+        "lastSourceTimestamp": 1625068199
+      }
+    }
+  ],
+  "garageFinalOldReceipt": {
+    "frameId": "3816308",
+    "ingressMonoUs": "366706095655",
+    "sdkDeliveredMonoUs": "366706095990",
+    "differenceUs": 335,
+    "earliestFlatSampleUtc": "2026-10-21T23:45:09.635Z",
+    "acceptedAssembledDelivered": 874,
+    "gateHeld": false,
+    "newStreamObservedUtc": "2026-10-21T23:45:35.663Z"
+  },
+  "verdict": "No accepted DATA -> assembly -> delivered loss for Garage; all three counters stop together at874. Gate remains false with0gated units,0session video gaps. Earliest divergence is at/before session1300DATA. SourceReceipt is unchanged until recovery. Exact transport vs device attribution requires raw packet capture.",
+  "sha256": {
+    "garage-hour-boundary-20261021.jsonl": "f4dcd6a887a5e4528865e01d3a78669d18beaf97574f2eac1cfe417e4bbdd2e5",
+    "hour-cameras.jsonl": "7f5b956ac681f1927df27c5549d27bfaab30b27b9254b14775c2838cac6f6c69"
+  }
+}

@@ -1,0 +1,177 @@
+{
+  "commands": [
+    {
+      "command": {
+        "direction": "out",
+        "peer": "peer-1",
+        "localPort": 58818,
+        "peerPort": 26818,
+        "bytes": 24,
+        "messageType": 208,
+        "declaredPayloadBytes": 20,
+        "dataType": 0,
+        "sequence": 4,
+        "commandId": 1139,
+        "commandChannel": 255,
+        "commandSignCode": 0,
+        "commandType": 0,
+        "phase": "udp",
+        "unixNs": "1792626829737645346",
+        "unixMs": 1792626829737.6453
+      },
+      "ack": {
+        "direction": "in",
+        "peer": "peer-1",
+        "localPort": 58818,
+        "peerPort": 26818,
+        "bytes": 10,
+        "messageType": 209,
+        "declaredPayloadBytes": 6,
+        "dataType": 0,
+        "ackCount": 1,
+        "sequence": 4,
+        "ackSequences": [
+          4
+        ],
+        "phase": "udp",
+        "unixNs": "1792626829746609396",
+        "unixMs": 1792626829746.6094
+      },
+      "ackDelayMs": 8.96405
+    }
+  ],
+  "incomingVIDEO": 1379,
+  "largestPacketGapMs": 222.267754,
+  "packetGapMedianMs": 0.077475,
+  "packetCountsBeforeAfter": {
+    "before": 419,
+    "after": 960
+  },
+  "videoAroundCommand": [
+    {
+      "unixNs": "1792626829643984562",
+      "sequence": 25382,
+      "bytes": 183
+    },
+    {
+      "unixNs": "1792626829654610099",
+      "sequence": 25382,
+      "bytes": 183
+    },
+    {
+      "unixNs": "1792626829664842536",
+      "sequence": 25382,
+      "bytes": 183
+    },
+    {
+      "unixNs": "1792626829674934698",
+      "sequence": 25382,
+      "bytes": 183
+    },
+    {
+      "unixNs": "1792626829715637547",
+      "sequence": 25382,
+      "bytes": 183
+    },
+    {
+      "unixNs": "1792626829725877584",
+      "sequence": 25382,
+      "bytes": 183
+    },
+    {
+      "unixNs": "1792626829736270546",
+      "sequence": 25382,
+      "bytes": 183
+    },
+    {
+      "unixNs": "1792626829756850433",
+      "sequence": 25382,
+      "bytes": 183
+    },
+    {
+      "unixNs": "1792626829767033557",
+      "sequence": 25502,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829769818720",
+      "sequence": 25503,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829771930320",
+      "sequence": 25504,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829774074182",
+      "sequence": 25505,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829775132394",
+      "sequence": 25506,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829776094607",
+      "sequence": 25507,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829778573132",
+      "sequence": 25508,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829780793432",
+      "sequence": 25509,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829782009319",
+      "sequence": 25510,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829782515382",
+      "sequence": 25511,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829817782593",
+      "sequence": 25392,
+      "bytes": 169
+    },
+    {
+      "unixNs": "1792626829823357705",
+      "sequence": 25392,
+      "bytes": 169
+    },
+    {
+      "unixNs": "1792626829825932942",
+      "sequence": 25512,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829827537417",
+      "sequence": 25513,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829830116367",
+      "sequence": 25514,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829831826955",
+      "sequence": 25515,
+      "bytes": 1032
+    },
+    {
+      "unixNs": "1792626829834125592",
+      "sequence": 25516,
+      "bytes": 1032
+    }
+  ]
+}

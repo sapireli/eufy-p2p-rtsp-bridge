@@ -1,0 +1,49 @@
+{
+  "scope": "Offline actual SDK source/error/router replacement and Readable implementation; network session acquisition stubbed. No device, repo or SDK changes.",
+  "results": [
+    {
+      "name": "current-head",
+      "actualSdkSources": 3,
+      "distinctSourceObjects": true,
+      "oldSourceState": "stopped",
+      "bridgeExplicitResetCalls": 0,
+      "firstSourceStart": 1000000,
+      "replacementSourceStart": 1029000,
+      "watchdogTickAt": 1030000,
+      "replacementAgeAtTickMs": 1000,
+      "abortedAtNewGenerationAge1000ms": false,
+      "acceptedGenuineReplacementFrame": true,
+      "lastObservedReceiptSourceId": "arrival-57411b6dbe8d6a55",
+      "logs": [
+        "[bridge] synthetic-camera: feed error: live stream failed to start (source-error at awaiting-first-frame after 1 attempts; 20000ms deadline)",
+        "[bridge] synthetic-camera: feed error — reopening in 1 ms",
+        "[bridge] synthetic-camera: feed error: live stream failed to start (source-error at awaiting-first-frame after 1 attempts; 20000ms deadline)",
+        "[bridge] synthetic-camera: feed error — reopening in 1 ms",
+        "[bridge] synthetic-camera: streaming",
+        "[bridge] synthetic-camera: stopped"
+      ]
+    },
+    {
+      "name": "parked-candidate",
+      "actualSdkSources": 3,
+      "distinctSourceObjects": true,
+      "oldSourceState": "stopped",
+      "bridgeExplicitResetCalls": 0,
+      "firstSourceStart": 1000000,
+      "replacementSourceStart": 1029000,
+      "watchdogTickAt": 1030000,
+      "replacementAgeAtTickMs": 1000,
+      "abortedAtNewGenerationAge1000ms": true,
+      "acceptedGenuineReplacementFrame": false,
+      "lastObservedReceiptSourceId": null,
+      "logs": [
+        "[bridge] synthetic-camera: feed error: live stream failed to start (source-error at awaiting-first-frame after 1 attempts; 20000ms deadline)",
+        "[bridge] synthetic-camera: feed error — reopening in 1 ms",
+        "[bridge] synthetic-camera: feed error: live stream failed to start (source-error at awaiting-first-frame after 1 attempts; 20000ms deadline)",
+        "[bridge] synthetic-camera: feed error — reopening in 1 ms",
+        "[bridge] synthetic-camera: no bytes for 30 s — restarting feed (stall #1)",
+        "[bridge] synthetic-camera: stalled — reopening in 1 ms"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "branch": "eufy-wall",
+  "sdkGitCommit": "7fe9cc55aac899f862ffcfadae366b22d104220f",
+  "fixCommit": "e2231c562e439a22a7e16acd11c80cb297cc40a3",
+  "bundleSha256": "569200ac0f3a504efba46bca33962e82be96034776542b37f171b6e379d1d0ab",
+  "distFileCount": 157,
+  "distManifestSha256": "96b862eb7c810cc3e6bbc9191f5f31c857df249326ebadae6230213e3d93629f"
+}

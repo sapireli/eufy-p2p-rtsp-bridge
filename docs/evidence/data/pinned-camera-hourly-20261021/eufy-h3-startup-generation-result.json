@@ -1,0 +1,136 @@
+{
+  "results": [
+    {
+      "name": "true-cold-first-open",
+      "productionModule": "server/src/stream-manager.mjs",
+      "stallMs": 5000,
+      "startupStallMs": 30000,
+      "firstGenuineReplacementFrameMs": 7000,
+      "opens": 1,
+      "resets": 0,
+      "abortedAtFiveSeconds": false,
+      "acceptedNewFrame": true,
+      "timeline": [
+        {
+          "atMs": 0,
+          "feedGeneration": "source-old",
+          "retired": false,
+          "failures": 0,
+          "receivedMedia": false,
+          "oldWatermarkRetained": false
+        },
+        {
+          "atMs": 5001,
+          "feedDestroyed": false,
+          "slotStillUsesFeed": true,
+          "stalls": 0
+        },
+        {
+          "atMs": 7000,
+          "genuineFrameSource": "source-old",
+          "acceptedNewFrame": true,
+          "streaming": true,
+          "lastSource": "source-old"
+        }
+      ],
+      "logs": [
+        "[bridge] A: streaming",
+        "[bridge] A: stopped"
+      ]
+    },
+    {
+      "name": "same-source-reopen-cached-prime",
+      "productionModule": "server/src/stream-manager.mjs",
+      "stallMs": 5000,
+      "startupStallMs": 30000,
+      "firstGenuineReplacementFrameMs": 7000,
+      "opens": 2,
+      "resets": 0,
+      "abortedAtFiveSeconds": true,
+      "acceptedNewFrame": false,
+      "timeline": [
+        {
+          "atMs": 0,
+          "feedGeneration": "source-old",
+          "retired": false,
+          "failures": 1,
+          "receivedMedia": false,
+          "oldWatermarkRetained": true
+        },
+        {
+          "atMs": 5001,
+          "feedDestroyed": true,
+          "slotStillUsesFeed": false,
+          "stalls": 1
+        },
+        {
+          "atMs": 7000,
+          "genuineFrameSource": "source-old",
+          "acceptedNewFrame": false,
+          "streaming": false,
+          "lastSource": "source-old"
+        }
+      ],
+      "logs": [
+        "[bridge] A: streaming",
+        "[bridge] A: stopped",
+        "[bridge] A: feed ended \u2014 reopening in 1 ms",
+        "[bridge] A: no bytes for 5 s \u2014 restarting feed (stall #1)",
+        "[bridge] A: stalled \u2014 reopening in 1 ms"
+      ]
+    },
+    {
+      "name": "confirmed-retirement-cold-replacement",
+      "productionModule": "server/src/stream-manager.mjs",
+      "stallMs": 5000,
+      "startupStallMs": 30000,
+      "firstGenuineReplacementFrameMs": 7000,
+      "opens": 9,
+      "resets": 1,
+      "abortedAtFiveSeconds": true,
+      "acceptedNewFrame": false,
+      "timeline": [
+        {
+          "atMs": 0,
+          "feedGeneration": "source-new",
+          "retired": true,
+          "failures": 8,
+          "receivedMedia": false,
+          "oldWatermarkRetained": true
+        },
+        {
+          "atMs": 5001,
+          "feedDestroyed": true,
+          "slotStillUsesFeed": false,
+          "stalls": 1
+        },
+        {
+          "atMs": 7000,
+          "genuineFrameSource": "source-new",
+          "acceptedNewFrame": false,
+          "streaming": false,
+          "lastSource": "source-old"
+        }
+      ],
+      "logs": [
+        "[bridge] A: streaming",
+        "[bridge] A: stopped",
+        "[bridge] A: feed ended \u2014 reopening in 1 ms",
+        "[bridge] A: feed ended \u2014 reopening in 1 ms",
+        "[bridge] A: feed ended \u2014 reopening in 1 ms",
+        "[bridge] A: feed ended \u2014 reopening in 1 ms",
+        "[bridge] A: feed ended \u2014 reopening in 1 ms",
+        "[bridge] A: feed ended \u2014 reopening in 1 ms",
+        "[bridge] A: feed ended \u2014 reopening in 1 ms",
+        "[bridge] A: feed ended \u2014 reopening in 1 ms",
+        "[bridge] A: 8 failure(s) \u2014 retired camera source; sibling station streams preserved",
+        "[bridge] A: no bytes for 5 s \u2014 restarting feed (stall #1)",
+        "[bridge] A: stalled \u2014 reopening in 1 ms"
+      ]
+    }
+  ],
+  "conclusion": "Confirmed-retirement cold replacement incorrectly inherits the old source live watchdog. Same-source cached-prime retains intended five-second watchdog.",
+  "verifiedCommit": "7be37bf64c49a07833e5bab1e286ef2e570d617a",
+  "streamManagerSha256": "cf19e0ae4d8bc0cdff3f0ba3bf38f1d91c34ce10bf131659e634343f12b0b4c3",
+  "limits": "Offline deterministic generation/reset contract with actual production bridge module. Does not prove real-device replacement startup takes >5 seconds or establish original periodic source silence cause."
+}

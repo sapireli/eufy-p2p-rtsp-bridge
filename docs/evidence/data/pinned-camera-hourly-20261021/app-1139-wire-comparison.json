@@ -1,0 +1,25 @@
+{
+  "capture": "eufy-iphone-fresh recovered PCAPNG",
+  "topology": "HomeBase-attached channel2 media;1139sent on same UDP connection",
+  "command": 1139,
+  "dtype": "d100",
+  "sequence": 1,
+  "udpPayloadBytes": 24,
+  "dataFrameDeclaredPayloadBytes": 0,
+  "channel": 255,
+  "signCode": 0,
+  "type": 0,
+  "voidBodyHex": "000000000100ff000000",
+  "sdk": {
+    "source": "src/transport/p2p/p2p-session.ts:1746; codec.ts:297\u2013319",
+    "build": "buildCommandHeader(seq,1139)+buildVoidCommandPayload(255)",
+    "exactEqualityWithCapturedSequence": true,
+    "channel2Equality": false,
+    "sendCommandDefaultChannel": 255
+  },
+  "relativeTiming": {
+    "beforeStartShapedOuter1350Sec": 1.463284,
+    "duringLiveObserved": false
+  },
+  "interpretation": "Wire reproducible as station-channel255 ping. Does not validate renewal semantics or midstream side effects. Sendingchannel2 differs from owner-app evidence. No command sent."
+}

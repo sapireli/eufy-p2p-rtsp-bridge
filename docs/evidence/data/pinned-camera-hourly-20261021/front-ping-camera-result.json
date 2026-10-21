@@ -1,0 +1,89 @@
+{
+  "scope": "post-command camera API samples only; no pre-command API sample in provided file",
+  "samples": [
+    {
+      "at": "2026-10-21T23:53:50.008594+00:00",
+      "wall": 1792626830.0085943,
+      "streaming": true,
+      "stalls": 82,
+      "ageMs": 147.468,
+      "inputFrames": 20630,
+      "outputFrames": 20628
+    },
+    {
+      "at": "2026-10-21T23:53:51.017816+00:00",
+      "wall": 1792626831.0178156,
+      "streaming": true,
+      "stalls": 82,
+      "ageMs": 12.543,
+      "inputFrames": 20655,
+      "outputFrames": 20654
+    },
+    {
+      "at": "2026-10-21T23:53:52.030149+00:00",
+      "wall": 1792626832.0301495,
+      "streaming": true,
+      "stalls": 82,
+      "ageMs": 161.755,
+      "inputFrames": 20662,
+      "outputFrames": 20662
+    },
+    {
+      "at": "2026-10-21T23:53:53.042124+00:00",
+      "wall": 1792626833.042124,
+      "streaming": true,
+      "stalls": 82,
+      "ageMs": 15.71,
+      "inputFrames": 20686,
+      "outputFrames": 20684
+    },
+    {
+      "at": "2026-10-21T23:53:54.056029+00:00",
+      "wall": 1792626834.0560286,
+      "streaming": true,
+      "stalls": 82,
+      "ageMs": 239.829,
+      "inputFrames": 20692,
+      "outputFrames": 20692
+    },
+    {
+      "at": "2026-10-21T23:53:55.064211+00:00",
+      "wall": 1792626835.0642107,
+      "streaming": true,
+      "stalls": 82,
+      "ageMs": 16.189,
+      "inputFrames": 20709,
+      "outputFrames": 20708
+    },
+    {
+      "at": "2026-10-21T23:53:56.073289+00:00",
+      "wall": 1792626836.0732887,
+      "streaming": true,
+      "stalls": 82,
+      "ageMs": 29.714,
+      "inputFrames": 20731,
+      "outputFrames": 20731
+    },
+    {
+      "at": "2026-10-21T23:53:57.085640+00:00",
+      "wall": 1792626837.0856404,
+      "streaming": true,
+      "stalls": 82,
+      "ageMs": 36.091,
+      "inputFrames": 20746,
+      "outputFrames": 20746
+    },
+    {
+      "at": "2026-10-21T23:53:58.098497+00:00",
+      "wall": 1792626838.098497,
+      "streaming": true,
+      "stalls": 82,
+      "ageMs": 69.056,
+      "inputFrames": 20761,
+      "outputFrames": 20761
+    }
+  ],
+  "inputDelta": 131,
+  "outputDelta": 133,
+  "sampleSpanSeconds": 8.089902639389038
+}

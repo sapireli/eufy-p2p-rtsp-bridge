@@ -1,0 +1,13 @@
+2026-10-21T23:30:30.592428+00:00 homebridge env[151516]: [bridge] T8214510242321E6: no bytes for 5 s — restarting feed (stall #79)
+2026-10-21T23:30:30.598863+00:00 homebridge env[151516]: [bridge] T8214510242321E6: stopped
+2026-10-21T23:30:30.608651+00:00 homebridge env[151604]: 23:30:30.605 WRN github.com/AlexxIT/go2rtc/internal/streams/producer.go:170 > error="unexpected EOF" url=http://127.0.0.1:3000/timed-stream/T8214510242321E6
+2026-10-21T23:30:30.612659+00:00 homebridge env[151516]: [bridge] T8214510242321E6: stalled — reopening in 1000 ms
+2026-10-21T23:30:36.593863+00:00 homebridge env[151516]: [bridge] T8214510242321E6: no bytes for 5 s — restarting feed (stall #80)
+2026-10-21T23:30:36.596184+00:00 homebridge env[151516]: [bridge] T8214510242321E6: stalled — reopening in 2000 ms
+2026-10-21T23:30:44.598088+00:00 homebridge env[151516]: [bridge] T8214510242321E6: no bytes for 6 s — restarting feed (stall #81)
+2026-10-21T23:30:44.602168+00:00 homebridge env[151516]: [bridge] T8214510242321E6: stalled — reopening in 4000 ms
+2026-10-21T23:30:50.600013+00:00 homebridge env[151516]: [bridge] T8214510242321E6: no bytes for 5 s — restarting feed (stall #82)
+2026-10-21T23:30:50.603601+00:00 homebridge env[151604]: 23:30:50.600 WRN [rtsp] error="streams: Get \"http://127.0.0.1:3000/timed-stream/T8214510242321E6\": EOF" stream=front_door_cle
+2026-10-21T23:30:50.605770+00:00 homebridge env[151516]: [bridge] T8214510242321E6: stalled — reopening in 8000 ms
+2026-10-21T23:30:55.132810+00:00 homebridge env[151516]: [bridge] T8214510242321E6: streaming
+2026-10-21T23:30:55.143407+00:00 homebridge env[151516]: [bridge-freshness] T8214510242321E6: trying hardware-decode-encode on /dev/dri/renderD128

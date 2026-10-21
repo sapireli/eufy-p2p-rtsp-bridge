@@ -1,0 +1,38 @@
+{
+  "question": "Do existing owner-app captures establish an attached-camera renewal command?",
+  "verdict": "No supported renewal command identified. Fresh attached Front Door trace has no periodic outbound controls during~160seconds video. All traces are shorter than one hour. Encrypted outer1350 frames cannot establish inner1003/1004 semantics.",
+  "provenance": {
+    "fresh": "Original has extra24byte classicPCAP wrapper; recoveredcopy validated by prior strictscan and independent tshark exit0. Independent6columnexportexactSHA matches existingTSV.",
+    "older": "iphone/iphone2/hb3 tshark reports truncated final packet, exit2; conclusions use complete packets before truncation. iphone/iphone2 independently reexported TSV exact SHA matches."
+  },
+  "fresh": {
+    "videoDurationSec": 160.54750204086304,
+    "outboundUniqueControlFrames": 36,
+    "contiguousSequences": "0\u201335",
+    "startup1139Count": 1,
+    "periodicControlsDuringVideo": 0,
+    "encryptedOuter1350Meaning": "unverified"
+  },
+  "historicalHb3": {
+    "garageChannel": 1,
+    "garageGeometry": "1920x2160",
+    "garageExplicitHeaderCount": 731,
+    "garageHeaderPhaseRelativeVideoStart": [
+      23.553966,
+      59.376726
+    ],
+    "1139DuringGaragePhase": 0,
+    "outer1350DuringGaragePhase": [
+      {
+        "offsetSec": 31.571893,
+        "channel": 1,
+        "type": 12,
+        "bytes": 858,
+        "semantics": "unverified encrypted body"
+      }
+    ],
+    "first1139AfterGaragePhaseOffsetSec": 61.218132,
+    "other1139": "Later~3second1139 intervals coincide with other camera phases, do not establish Garage renewal."
+  },
+  "nextEvidence": "An owner-app trace across the1hour boundary, or authenticated decryption/reverse-engineering proving a specific renewal command. Existing short traces cannot distinguish camera fixed lifetime from an unobserved long-interval renewal."
+}

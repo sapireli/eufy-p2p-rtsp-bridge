@@ -1,0 +1,148 @@
+{
+  "hypothesis": "H1 peer-side media lifetime / wire path",
+  "capture": [
+    {
+      "phase": "capture-start",
+      "scope": "kernel-interface-packet-tap",
+      "interface": "eth0",
+      "startedUnixNs": "1792626251812186054",
+      "startedMonotonicNs": "366649125420969",
+      "receiveBufferBytes": 16777216,
+      "peerIds": [
+        "peer-1",
+        "peer-2"
+      ],
+      "payloadStored": false,
+      "kernelFilter": "IPv4 UDP",
+      "receiveBufferForced": true,
+      "commandHeaders": true,
+      "commandHeaderInspectionBytes": 16,
+      "incomingLogicalHeaders": true,
+      "logicalReorderMetadataOnly": true
+    },
+    {
+      "phase": "capture-end",
+      "endedUnixNs": "1792626431816927600",
+      "endedMonotonicNs": "366829130147290",
+      "captured": 124036,
+      "ignored": 59802,
+      "untimestamped": 0,
+      "truncated": 0,
+      "packetTapSeen": 183838,
+      "packetTapDropped": 0,
+      "payloadStored": false
+    }
+  ],
+  "garage": {
+    "peer": "peer-1",
+    "localPort": 47927,
+    "peerPort": 14502,
+    "first": "2026-10-21T23:44:11.813173+00:00",
+    "last": "2026-10-21T23:47:11.790932+00:00",
+    "incomingVideoPackets": 18829,
+    "lastIncomingVideo": "2026-10-21T23:47:11.789715+00:00",
+    "gapsAtLeast500ms": [
+      {
+        "from": "2026-10-21T23:45:08.781580+00:00",
+        "to": "2026-10-21T23:45:35.585617+00:00",
+        "seconds": 26.804036378860474,
+        "lastSequence": 51956,
+        "nextSequence": 51957,
+        "moduloAdvance": 1
+      }
+    ],
+    "ends": [],
+    "incomingLogicalStarts": {
+      "1300": 2270,
+      "1301": 2402
+    },
+    "sequenceStates": {
+      "ordered": 18570,
+      "out-of-order": 1,
+      "reorder-limit-reset": 1,
+      "duplicate-or-old": 257
+    }
+  },
+  "gapProtocolCounts": {
+    "out-typed1-data1": 1,
+    "in-typed0-data2": 71,
+    "out-typed1-data2": 71,
+    "out-typee0-data-": 5,
+    "in-typee1-data-": 5,
+    "out-typed0-data0": 15,
+    "in-typed1-data0": 15,
+    "in-typed0-data0": 15,
+    "out-typed1-data0": 15,
+    "in-typee0-data-": 1,
+    "out-typee1-data-": 1
+  },
+  "logicalHeaderCounts": [
+    {
+      "dataType": 2,
+      "commandId": 1351,
+      "channel": 255,
+      "confidence": "tentative",
+      "count": 9
+    },
+    {
+      "dataType": 2,
+      "commandId": 1351,
+      "channel": 255,
+      "confidence": "chain",
+      "count": 17
+    },
+    {
+      "dataType": 2,
+      "commandId": 1351,
+      "channel": 1,
+      "confidence": "tentative",
+      "count": 8
+    },
+    {
+      "dataType": 0,
+      "commandId": 1350,
+      "channel": 1,
+      "confidence": "tentative",
+      "count": 1
+    },
+    {
+      "dataType": 0,
+      "commandId": 1350,
+      "channel": 1,
+      "confidence": "chain",
+      "count": 14
+    },
+    {
+      "dataType": 2,
+      "commandId": 1351,
+      "channel": 1,
+      "confidence": "chain",
+      "count": 10
+    }
+  ],
+  "firstOutgoingDataCommand": {
+    "at": "2026-10-21T23:45:14.869113+00:00",
+    "command": 1350,
+    "channel": 1,
+    "sequence": 425
+  },
+  "otherCameraGaps": [
+    {
+      "localPort": 34053,
+      "gaps": []
+    },
+    {
+      "localPort": 58818,
+      "gaps": [
+        {
+          "from": "2026-10-21T23:46:06.575021+00:00",
+          "to": "2026-10-21T23:46:07.093280+00:00",
+          "seconds": 0.5182585716247559,
+          "lastSequence": 39358,
+          "nextSequence": 39359,
+          "moduloAdvance": 1
+        }
+      ]
+    }
+  ]
+}
