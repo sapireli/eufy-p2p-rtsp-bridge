@@ -12,9 +12,17 @@ rm "$dest/pacing-test"
 "$dest/freshness-test"
 rm "$dest/freshness-test"
 # pkg-config emits compiler options, intentionally word split.
+"$cc" -std=c99 -O2 -Wall -Wextra -Werror \
+  $(pkg-config --cflags gstreamer-app-1.0 gstreamer-video-1.0) \
+  "$src/eufytile_test.c" -o "$dest/eufytile-test" \
+  $(pkg-config --libs gstreamer-app-1.0 gstreamer-video-1.0)
+"$dest/eufytile-test"
+rm "$dest/eufytile-test"
 "$cc" -std=c99 -O2 -Wall -Wextra -Werror -shared -fPIC \
-  $(pkg-config --cflags gstreamer-base-1.0) \
+  $(pkg-config --cflags gstreamer-base-1.0 gstreamer-app-1.0 gstreamer-video-1.0) \
   "$src/gsteufypacing.c" -o "$dest/libgsteufypacing.so.new" \
-  $(pkg-config --libs gstreamer-base-1.0)
+  $(pkg-config --libs gstreamer-base-1.0 gstreamer-app-1.0 gstreamer-video-1.0)
 mv "$dest/libgsteufypacing.so.new" "$dest/libgsteufypacing.so"
 GST_PLUGIN_PATH="$dest${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}" gst-inspect-1.0 --exists eufypacing
+
+GST_PLUGIN_PATH="$dest${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}" gst-inspect-1.0 --exists eufytile

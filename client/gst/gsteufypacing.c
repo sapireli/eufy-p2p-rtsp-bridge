@@ -765,6 +765,8 @@ static void gst_eufy_trace_init(GstEufyTrace *s) {
   /* Inspection must not make shared decoder memory writable or copy pixels. */
   gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(s),TRUE);
 }
+#include "gsteufytile.c"
+
 static gboolean plugin_init(GstPlugin *plugin) {
   GST_DEBUG_CATEGORY_INIT(eufy_pacing_debug, "eufypacing", 0,
                           "Decoded video pacing");
@@ -772,7 +774,8 @@ static gboolean plugin_init(GstPlugin *plugin) {
                               gst_eufy_pacing_get_type()) &&
          gst_element_register(plugin, "eufystamp", GST_RANK_NONE,
                               gst_eufy_stamp_get_type()) &&
-         gst_element_register(plugin,"eufytrace",GST_RANK_NONE,gst_eufy_trace_get_type());
+         gst_element_register(plugin,"eufytrace",GST_RANK_NONE,gst_eufy_trace_get_type()) &&
+         gst_element_register(plugin,"eufytile",GST_RANK_NONE,gst_eufy_tile_get_type());
 }
 GST_PLUGIN_DEFINE(GST_VERSION_MAJOR, GST_VERSION_MINOR, eufypacing,
                   "Bounded decoded video pacing", plugin_init, "1.0",
