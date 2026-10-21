@@ -158,11 +158,29 @@ KMS sinks (`planes` and `compositor`) are Linux-only. On macOS, `window` is the 
 
 Linux `decoder: auto` selects an installed hardware decoder first (`v4l2` on the Pi,
 then VA-API), and selects software when neither hardware decoder is available.
-Independent camera pipelines use that selected decoder family; there is no Android
-MediaCodec slot reservation or per-camera hardware priority setting. With two H.264
-cameras on GaragePi, both pipelines use `v4l2h264dec`.
+Per-camera priority applies to automatic decoding on every sink backend:
 
-With `decoder: auto` and `sink: planes`, a fatal hardware-decoder initialization,
+```yaml
+hardware_pinned_cameras: [FRONT_DOOR, GARAGE]
+hardware_priority:
+  FRONT_DOOR: 100
+  GARAGE: 50
+```
+
+Use the camera identities returned by `/api/cameras`. Higher ranks win; omitted
+cameras have rank zero. A pin protects its current hardware decoder from eviction.
+It does not reserve an assumed number of slots or prohibit software when that
+camera's hardware decoder cannot initialize.
+
+Every camera tries hardware first. Only a decoder-owned allocation/busy error can
+reassign an occupied decoder: one lower-ranked, unpinned camera using the same
+factory releases hardware and continues in software before the requester retries.
+A pinned requester outranks unpinned cameras; pins cannot evict other pins. Explicit
+decoder choices remain authoritative. Unchanged control updates preserve fallback
+selection. The actual selected decoder factory is tracked through native-to-compatible
+fallback, so hardware belonging to a different resource is not displaced.
+
+With `decoder: auto`, a fatal hardware-decoder initialization,
 unsupported input-format, device-open or allocation error retries that tile using
 its installed software decoder. The software plan preserves the compatible RTSP
 resource, resolution and timing; unchanged control updates retain that choice.
@@ -173,8 +191,7 @@ selected, its existing compatible-stream hardware retry happens first.
 Fallback requires a fatal bus error owned by a V4L2 or VA H.264/H.265 decoder and a
 recognized initialization/resource message. Generic `not-negotiated`, corrupt
 frames, missing references, network errors and watchdog stalls retry the current
-decoder. Unknown errors also retain hardware. Compositor/window pipelines keep
-their selected decoder because they cannot isolate software retry to one tile.
+decoder. Unknown errors also retain hardware.
 The recognized fatal messages come from GStreamer's
 [V4L2 decoder](https://github.com/GStreamer/gstreamer/blob/1.26/subprojects/gst-plugins-good/sys/v4l2/gstv4l2videodec.c),
 [V4L2 device opening](https://github.com/GStreamer/gstreamer/blob/1.26/subprojects/gst-plugins-good/sys/v4l2/v4l2_calls.c)
@@ -192,8 +209,26 @@ running. A regression exercises repeated failed child processes alongside a heal
 child. The primary black backdrop and the parent-owned shared DRM descriptor remain
 alive during retries. A failed tile recreates its own `kmssink` and overlay; Linux
 does not retain that tile's decoder surface across process replacement. Compositor
-and window modes still share one pipeline and restart the whole wall on a fatal
-pipeline error. These platform differences need no Android-specific backport.
+and window modes keep one output compositor/window, with a separate decoder pipeline
+inside each `eufytile` source. A failed decoder retries or falls back independently;
+the output compositor and healthy decoders keep running. A camera switch, snapshot
+transition or idle tile updates a private per-slot control file rather than restarting
+the wall. The failed tile clears to black while recovering. The shared output sink
+itself remains a wall-wide resource: an output/display failure can still restart it.
+
+Compositor/window mode requires the updated native plugin (`gst-inspect-1.0
+eufytile`). The installer builds it together with `eufypacing` and installs the
+GStreamer app/video development dependencies. A missing plugin produces a startup
+error; the client does not silently return to shared decoder failures.
+
+The handoff retains at most one decoded RGBA frame on each side, uses source PTS
+cadence with bounded drift recovery, and shallow-copies buffer headers. It neither
+reencodes nor lowers the source resolution. The final compositor pacer remains the
+single presentation wait owner. Control-file changes are checked at most every
+100 ms; this is configuration response time, not a steady playback delay. Private
+control files use mode 0600 and unchanged inputs are not rewritten, retaining
+software latches and avoiding needless decoder restarts. Configured restart
+min/max/stable backoff still applies to repeated source failures.
 
 The audit ran `make test` off-device (C pacing regression and all Go packages).
 GaragePi's service was inactive during the check; sustained physical display
@@ -366,3 +401,5 @@ metadata and verifies all four raw buffers reach its sink without an expiry
 message. The separate default probe retains strict suppression, expiry and
 same-pipeline recovery coverage. Neither synthetic probe establishes hardware
 scanout; sustained target-device measurements are required separately.
+
+For compositor/window `-dry-run`, the command uses private tile-control files. The preview prints their directory and retains it so the command can run; delete that directory after the preview. Normal runs remove their private controls on exit.

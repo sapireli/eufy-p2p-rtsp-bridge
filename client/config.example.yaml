@@ -24,6 +24,11 @@ layout: 2x1                            # 1 | 1+5 | 2tall+3wide | <cols>x<rows> (
 primary_position: left                 # 1+5 only: left | right
 # screen: { width: 1920, height: 1080 }  # omit → auto-detect from /sys/class/drm
 decoder: auto                          # auto | v4l2 (Pi) | va (x86 VAAPI) | software
+# Hardware is tried first. On actual decoder resource exhaustion, a higher-ranked camera can
+# move one lower-ranked, unpinned camera to software. Pins cannot be displaced by another camera.
+# Identity is the bridge camera serial/key (including cameras a motion tile may follow).
+# hardware_pinned_cameras: [T8214XXXXXXXXXXX, T8425XXXXXXXXXXX]
+# hardware_priority: { T8214XXXXXXXXXXX: 100, T8425XXXXXXXXXXX: 50 }   # higher wins; omitted = 0
 sink: auto                             # auto | planes (Pi, one kmssink per tile) | compositor | window (dev)
 # planes: [31, 32, 33, 34, 35, 36]     # DRM overlay plane ids for sink=planes → `modetest -M vc4 -p`
 latency_ms: 0                           # TCP; eufypacing supplies one bounded 67ms decoded-frame allowance
