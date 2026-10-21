@@ -54,6 +54,13 @@ while still trying hardware encoding before software. The service's render/video
 supplementary groups permit device access. Logs beginning `[bridge-ffmpeg]` identify
 the attempted path and any downgrade.
 
+For one camera's timed compatibility transcoder, set
+`cameras.<serial>.vaapi_decode: false`. This inherits the global setting when
+omitted; `true` explicitly enables hardware decoding for that camera. The
+hardware encoder and software fallback remain available, and resolution and
+quality settings are unchanged. This camera option applies to timed egress;
+native passthrough does not decode or encode.
+
 On the tested Atom x5-Z8350 with Debian 13, `i965-va-driver` advertised codec support
 but GPU scaling failed. Installing `i965-va-driver-shaders` from Debian's `non-free`
 component enabled VideoProc and passed concurrent live H.264/HEVC tests. Check

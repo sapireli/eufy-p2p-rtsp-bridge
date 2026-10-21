@@ -188,3 +188,11 @@ test("imported camera never opens an SDK feed or applies SDK pins", async () => 
   assert.deepEqual(await createPins(ctx).applyPins("wyze_cam"), { dualView: "skip", quality: "skip" });
   assert.equal(createFreshness(ctx).enabledFor(ctx.getCamera("wyze_cam")), false);
 });
+
+
+test("camera-specific VAAPI decode preference stays scoped to its camera", async () => {
+  const c = createCameras(ctxWith([wired, door], { [wired.sn]: { vaapiDecode: false } }));
+  await c.refreshCameras();
+  assert.equal(c.getCamera(wired.sn).vaapiDecode, false);
+  assert.equal(c.getCamera(door.sn).vaapiDecode, undefined);
+});

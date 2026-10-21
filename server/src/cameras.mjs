@@ -64,6 +64,7 @@ export function createCameras(ctx) {
         // long if it disagrees with the device.
         codec: c.codec,
         transcode: c.transcode,
+        vaapiDecode: c.vaapiDecode,
         isDual,
         viewModeCmd: isDual ? DUAL_MODELS[modelKey] : null,
         dualView: isDual ? (ctx.viewModes?.get(m.sn) ?? c.dualView ?? ctx.cfg.defaults.dualView) : null,

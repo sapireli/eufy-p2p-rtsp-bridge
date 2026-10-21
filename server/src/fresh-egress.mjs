@@ -10,8 +10,8 @@ import { EncodedFrameReader } from "./encoded-frame-reader.mjs";
 export const TIMED_OUTPUT_MAX_QUEUED_BYTES = 8 * 1024 * 1024;
 
 /** One input, one final encoded packet, one original receipt stamp. No inferred RTP phase. */
-export function freshTranscodeArgs(cfg) {
-  return ["-hide_banner", "-v", "error", "-copyts", "--eufy-vaapi", cfg.go2rtcVaapiDevice || "auto", String(cfg.go2rtcMaxHeight || 0), cfg.go2rtcVaapiDecode === false ? "encode" : "auto",
+export function freshTranscodeArgs(cfg, camera = {}) {
+  return ["-hide_banner", "-v", "error", "-copyts", "--eufy-vaapi", cfg.go2rtcVaapiDevice || "auto", String(cfg.go2rtcMaxHeight || 0), (camera.vaapiDecode ?? cfg.go2rtcVaapiDecode) === false ? "encode" : "auto",
     "-reinit_filter", "1", "-f", "matroska", "-analyzeduration", "100000", "-probesize", "262144", "-i", "pipe:0", "-map", "0:v:0", "-an", "-noautoscale",
     "-vf", "ewb_scale", "-codec:v", "ewb_encoder", "-profile:v", "main", "-g:v", "30", "-bf:v", "0", "-fps_mode:v", "passthrough", "-enc_time_base:v", "1:90000",
     "-bsf:v", "dump_extra=freq=keyframe", "-stats_mux_pre", "pipe:3", "-stats_mux_pre_fmt", "{n} {pts} {tb} {size}", "-flush_packets", "1", "-f", "data", "pipe:1"];
@@ -102,7 +102,7 @@ export function createFreshEgress(ctx) {
       // a temporarily smaller camera picture is fitted by the explicit filter.
       const height = ctx.cfg.go2rtcMaxHeight || frame.height;
       const outputGeometry = { width: Math.max(2, Math.floor(frame.width * height / frame.height / 2) * 2), height: Math.max(2, Math.floor(height / 2) * 2) };
-      attempts ??= transcodeAttempts(freshTranscodeArgs(ctx.cfg), { outputGeometry });
+      attempts ??= transcodeAttempts(freshTranscodeArgs(ctx.cfg, cam), { outputGeometry });
       const attempt = attempts[attemptIndex];
       console.log(`[bridge-freshness] ${sn}: trying ${attempt.name}${attempt.device ? ` on ${attempt.device}` : ""}`);
       const process = (ctx.spawn ?? spawn)(ctx.cfg.ffmpegBin || "ffmpeg", attempt.args, { stdio: ["pipe", "pipe", "pipe", "pipe"] });

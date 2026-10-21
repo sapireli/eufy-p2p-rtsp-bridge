@@ -45,7 +45,7 @@ function fakeProcess() {
   child.kill = (signal) => { child.killed = signal; };
   return child;
 }
-function harness({ mode = "never", spawnFn, rendition, codec = "h264", timingHook, timingLimit, timingActive } = {}) {
+function harness({ mode = "never", spawnFn, rendition, codec = "h264", timingHook, timingLimit, timingActive, camera = {} } = {}) {
   const res = new EventEmitter();
   res.writes = []; res.writableNeedDrain = false; res.destroyed = false;
   res.write = (data) => { res.writes.push(data); return true; };
@@ -53,7 +53,7 @@ function harness({ mode = "never", spawnFn, rendition, codec = "h264", timingHoo
   const slot = { codec };
   let source, onFrame, detached = 0, nowUs = 2000000n, clockReads = 0;
   const cfg = { go2rtcTranscode: mode, go2rtcVaapiDevice: "/dev/dri/renderD128", go2rtcMaxHeight: 0 };
-  const ctx = { cfg, state: { slots: new Map([["camera", slot]]) }, getCamera: () => ({}), sdk: { extractParamSets: paramSets }, freshness: { nowUs: () => { clockReads++; return nowUs; } },
+  const ctx = { cfg, state: { slots: new Map([["camera", slot]]) }, getCamera: () => camera, sdk: { extractParamSets: paramSets }, freshness: { nowUs: () => { clockReads++; return nowUs; } },
     attachConsumer: (_sn, consumer, options) => { source = consumer; onFrame = options.onFrame; return () => { detached++; }; }, spawn: spawnFn, onFreshEgressTiming: timingHook, maxFreshEgressTimingRecords: timingLimit, freshEgressTimingActive: timingActive };
   const api = createFreshEgress(ctx);
   const stop = api.attachFreshConsumer("camera", res, { rendition });
@@ -466,4 +466,39 @@ test("expiring an installed timing hook stops all extra clocks without changing 
   h.ctx.freshEgressTimingActive=true;h.feed(inter,1067,600);assert.equal(rows.length,1);
   const after=h.clockReads();h.ctx.freshEgressTimingActive=false;h.feed(inter,1134,600);
   assert.equal(h.clockReads()-after,1);assert.equal(rows.length,1);assert.equal(h.res.writes.length,3);h.stop();
+});
+
+
+test("per-camera decode preference inherits global policy and retains hardware encoding and geometry", () => {
+  const geometry = { width: 750, height: 1080 };
+  for (const globalDecode of [true, false]) {
+    const cfg = { go2rtcVaapiDevice: "/dev/dri/renderD128", go2rtcMaxHeight: 1080, go2rtcVaapiDecode: globalDecode };
+    const inherited = transcodeAttempts(freshTranscodeArgs(cfg), { outputGeometry: geometry });
+    assert.equal(inherited[0].name, globalDecode ? "hardware-decode-encode" : "software-decode-hardware-encode");
+    const mixed = transcodeAttempts(freshTranscodeArgs(cfg, { vaapiDecode: false }), { outputGeometry: geometry });
+    assert.deepEqual(mixed.map(x => x.name), ["software-decode-hardware-encode", "software-decode-encode"]);
+    assert.ok(mixed[0].args.includes("h264_vaapi"));
+    assert.ok(mixed[0].args.includes("scale=750:1080,format=nv12,hwupload"));
+    assert.equal(mixed[0].args.includes("-hwaccel"), false);
+    assert.ok(mixed[1].args.includes("scale=750:1080,format=yuv420p"));
+    const forced = transcodeAttempts(freshTranscodeArgs(cfg, { vaapiDecode: true }), { outputGeometry: geometry });
+    assert.equal(forced[0].name, "hardware-decode-encode");
+    assert.ok(forced[0].args.includes("scale_vaapi=w=750:h=1080:format=nv12"));
+    assert.deepEqual(transcodeAttempts(freshTranscodeArgs(cfg), { outputGeometry: geometry }), inherited, "one camera's override cannot mutate the shared global policy");
+  }
+});
+
+
+test("actual fresh consumer applies only its camera's decode override", () => {
+  const launches = [];
+  const mixed = harness({ mode: "always", camera: { vaapiDecode: false }, spawnFn: (_bin, args) => { launches.push(args); return fakeProcess(); } });
+  const normal = harness({ mode: "always", spawnFn: (_bin, args) => { launches.push(args); return fakeProcess(); } });
+  try {
+    mixed.feed(); normal.feed();
+    assert.equal(launches.length, 2);
+    assert.equal(launches[0].includes("-hwaccel"), false);
+    assert.ok(launches[0].includes("h264_vaapi"));
+    assert.ok(launches[1].includes("-hwaccel"));
+    assert.ok(launches[1].includes("h264_vaapi"));
+  } finally { mixed.stop(); normal.stop(); }
 });

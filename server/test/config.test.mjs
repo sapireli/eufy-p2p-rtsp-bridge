@@ -121,3 +121,19 @@ test("imports private Wyze sources without accepting listener overrides", () => 
   assert.equal(cfg.go2rtcImported.api, undefined);
   assert.equal(cfg.go2rtcApiPort, 1984);
 });
+
+
+test("per-camera VAAPI decode accepts only explicit booleans without changing global defaults", () => {
+  const { cfg } = loadConfig({ env: { EUFY_EMAIL: "test@example.invalid", EUFY_PASSWORD: "test-password" }, configPath: tmpYaml(`cameras:
+  ONE: { vaapi_decode: false }
+  TWO: { vaapi_decode: true }
+  THREE: {}
+`) });
+  assert.equal(cfg.go2rtcVaapiDecode, true);
+  assert.equal(cfg.cameras.ONE.vaapiDecode, false);
+  assert.equal(cfg.cameras.TWO.vaapiDecode, true);
+  assert.equal(cfg.cameras.THREE.vaapiDecode, undefined);
+  for (const invalid of ['"false"', '1', '[]']) {
+    assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "test@example.invalid", EUFY_PASSWORD: "test-password" }, configPath: tmpYaml(`cameras: { ONE: { vaapi_decode: ${invalid} } }`) }), /vaapi_decode must be a boolean/);
+  }
+});

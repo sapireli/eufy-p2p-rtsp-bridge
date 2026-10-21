@@ -58,6 +58,10 @@ function cameraEntry(sn, raw) {
       throw new Error(`cameras.${sn}.transcode must be one of ${[...TRANSCODE_MODES].join(", ")}`);
     out.transcode = raw.transcode;
   }
+  if (raw.vaapi_decode != null) {
+    if (typeof raw.vaapi_decode !== "boolean") throw new Error(`cameras.${sn}.vaapi_decode must be a boolean`);
+    out.vaapiDecode = raw.vaapi_decode;
+  }
   if (raw.quality != null) out.quality = String(raw.quality);
   if (raw.dual_view != null) {
     if (!DUAL_VIEWS.has(raw.dual_view)) throw new Error(`cameras.${sn}.dual_view must be one of ${[...DUAL_VIEWS].join(", ")}`);
