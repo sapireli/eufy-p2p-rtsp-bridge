@@ -74,7 +74,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
       if (!cam?.openReadable) throw new Error(`${sn}: no live video (not a camera or openReadable unavailable)`);
       const claim = powerClaims[sn];
       const powered = claim === "always-on" ? "wired" : claim === "battery" ? "battery" : undefined;
-      return cam.openReadable({ objectMode: true, receiptMetadata: true, streamType: 2, ...(powered ? { powered } : {}) });
+      return cam.openReadable({ objectMode: true, arrivalTime: true, streamType: 2, ...(powered ? { powered } : {}) });
     },
 
     /**

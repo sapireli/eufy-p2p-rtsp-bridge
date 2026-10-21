@@ -59,3 +59,38 @@ test("invalid source receipts cannot mint trusted freshness", () => {
     assert.throws(() => fresh.record({ sourceTimestamp: 1 }, receipt), /invalid SDK/);
   }
 });
+
+
+test("SDK wall-clock arrival keeps queued age and repeated-picture identity", () => {
+  let mono = 10_000_000n, wall = 100_000;
+  const fresh = createFreshness(ctx(), { clock: () => mono, wallClock: () => wall });
+  const frame = { sourceTimestamp: 50 };
+  const receipt = fresh.sourceReceipt({ frame, timestampMs: 97_000 });
+  const stamp = fresh.record(frame, receipt);
+  assert.equal(stamp.ingressMonoUs, 7_000_000n);
+  mono += 2_000_000n; wall += 2000;
+  assert.equal(fresh.sourceReceipt({ frame, timestampMs: 97_000 }), receipt);
+  assert.equal(fresh.record(frame, receipt), stamp);
+  assert.equal(mono - stamp.ingressMonoUs, 5_000_000n);
+  const next = fresh.sourceReceipt({ frame: {}, timestampMs: wall });
+  assert.equal(next.monotonicUs, mono);
+  assert.equal(next.sequence, receipt.sequence + 1n);
+  assert.throws(() => fresh.sourceReceipt({ frame, timestampMs: wall }), /arrival time changed/);
+});
+
+test("missing, invalid and future SDK arrivals cannot become fresh pictures", () => {
+  const fresh = createFreshness(ctx(), { clock: () => 10_000_000n, wallClock: () => 100_000 });
+  for (const timestampMs of [undefined, null, NaN, Infinity, -1, 1.5, 100_001, 1]) {
+    assert.throws(() => fresh.sourceReceipt({ frame: {}, timestampMs }), /SDK source arrival/);
+  }
+});
+
+
+test("wall-clock steps beyond the freshness budget fail instead of freshening queued video", () => {
+  let mono = 10_000_000n, wall = 100_000;
+  const fresh = createFreshness(ctx(), { clock: () => mono, wallClock: () => wall });
+  fresh.sourceReceipt({ frame: {}, timestampMs: wall });
+  mono += 1_000_000n;
+  wall -= 2000;
+  assert.throws(() => fresh.sourceReceipt({ frame: {}, timestampMs: wall - 100 }), /wall clock changed/);
+});

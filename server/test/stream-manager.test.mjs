@@ -707,3 +707,25 @@ test("an established SDK source keeps the five-second live watchdog after a cach
     assert.equal(slot.stalls, 2);
   } finally { await manager.stopAll(); }
 });
+
+
+test("upstream arrival envelopes keep SDK queue age and advance even within one millisecond", async () => {
+  const feed = new PassThrough({ objectMode: true });
+  const ctx = ctxWith({ feeds: [() => feed] });
+  let now = 10_000_000n, wall = 100_000;
+  ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => now, wallClock: () => wall });
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("A");
+    const timed = fakeRes(), stamps = [];
+    sm.attachConsumer("A", timed, { onFrame: (frame, stamp) => stamps.push(stamp) });
+    feed.write({ frame: { data: KEY, sourceTimestamp: 1000, codec: "h264" }, timestampMs: 97_000 });
+    assert.equal(stamps[0].ingressMonoUs, 7_000_000n);
+    assert.equal(sm.streamStatus("A").sourceReceipt.ageMs, 3000);
+    feed.write({ frame: { data: DELTA, sourceTimestamp: 1067, codec: "h264" }, timestampMs: 97_000 });
+    assert.equal(stamps.length, 2);
+    assert.equal(sm.streamStatus("A").sourceReceipt.sequence, "2");
+    assert.equal(sm.streamStatus("A").sourceReceipt.frameId, String(stamps[1].frameId));
+    assert.equal(ctx.state.streaming.has("A"), true);
+  } finally { await sm.stopAll(); }
+});

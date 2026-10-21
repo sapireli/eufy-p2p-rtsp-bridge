@@ -25,7 +25,7 @@ export function createStreamManager(ctx) {
     let bridgeEntryUs;
     for (const c of slot.consumers) if (c._ewbTimingEnabled) { bridgeEntryUs = ctx.freshness.nowUs(); break; }
     const frame = event?.frame ?? event;
-    const sourceReceipt = event?.frame ? event.receipt : undefined;
+    const sourceReceipt = event?.frame ? event.receipt ?? ctx.freshness?.sourceReceipt(event) : undefined;
     if (event?.frame && !sourceReceipt) throw new Error("SDK frame envelope has no source receipt");
     // Preserve VideoEvent metadata internally; the legacy raw endpoint still receives only data.
     const chunk = Buffer.isBuffer(frame) ? frame : frame.data;

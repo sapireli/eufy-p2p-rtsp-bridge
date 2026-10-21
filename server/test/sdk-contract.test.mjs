@@ -18,7 +18,7 @@ const version = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")).
 // bridge needs so a future move from the fork to upstream main cannot silently drop a P2P fix.
 test("pinned sdk includes the P2P fixes the bridge needs", () => {
   const dist = readFileSync(entryPath, "utf8");
-  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "acceptP2PPeer", "receiptMetadata"])
+  for (const marker of ["PUNCH_PROBE_SOCKETS", "REORDER_WAIT_MS", "acceptP2PPeer", "arrivalTime"])
     assert.ok(dist.includes(marker), `missing ${marker} from the pinned SDK`);
   assert.match(dist, /sourceTimestamp: unit\.sourceTimestamp\b/, "live video forwards the raw sourceTimestamp field");
   assert.doesNotMatch(dist, /sourceTimestampMs/, "obsolete timestamp field must not pass the SDK contract");
@@ -66,7 +66,7 @@ test("bridge config supplies per-pull power and per-station CIDR selection", asy
   const described = await adapter.describe(sn);
   assert.equal(described.powerOverride, "always-on");
   assert.equal(described.powerTier, "wired");
-  assert.deepEqual(await adapter.openFeed(eufy, sn), { objectMode: true, receiptMetadata: true, streamType: 2, powered: "wired" });
+  assert.deepEqual(await adapter.openFeed(eufy, sn), { objectMode: true, arrivalTime: true, streamType: 2, powered: "wired" });
 });
 
 test("an explicit battery claim stays battery-budgeted on each media pull", async () => {
@@ -79,7 +79,7 @@ test("an explicit battery claim stays battery-budgeted on each media pull", asyn
     DEBUG: false,
   });
   eufy.getDevice = async () => ({ camera: () => ({ openReadable: async (opts) => opts }) });
-  assert.deepEqual(await adapter.openFeed(eufy, sn), { objectMode: true, receiptMetadata: true, streamType: 2, powered: "battery" });
+  assert.deepEqual(await adapter.openFeed(eufy, sn), { objectMode: true, arrivalTime: true, streamType: 2, powered: "battery" });
 });
 
 test("every camera pull explicitly selects stream type 2 without requiring a power override", async () => {
@@ -91,7 +91,7 @@ test("every camera pull explicitly selects stream type 2 without requiring a pow
     DEBUG: false,
   });
   eufy.getDevice = async () => ({ camera: () => ({ openReadable: async (opts) => opts }) });
-  assert.deepEqual(await adapter.openFeed(eufy, "T8000P0000000000"), { objectMode: true, receiptMetadata: true, streamType: 2 });
+  assert.deepEqual(await adapter.openFeed(eufy, "T8000P0000000000"), { objectMode: true, arrivalTime: true, streamType: 2 });
 });
 
 test("EufyMega instance methods used by the bridge", () => {

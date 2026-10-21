@@ -1,11 +1,14 @@
 import { randomBytes } from "node:crypto";
 
-/** Clock domain for receipt at this bridge, independent of host wall-clock corrections. */
-export function createFreshness(ctx, { epoch = randomBytes(8), clock = () => process.hrtime.bigint() / 1000n } = {}) {
+/** Monotonic bridge clock; SDK wall-clock arrivals are projected into this domain before fanout. */
+export function createFreshness(ctx, { epoch = randomBytes(8), clock = () => process.hrtime.bigint() / 1000n, wallClock = Date.now } = {}) {
   let sequence = 0n;
   // The SDK retains this immutable receipt through queues and keyframe replay.
   // Weak keys retain no completed frame once the SDK releases it.
   const sourceReceipts = new WeakMap();
+  const arrivalReceipts = new WeakMap();
+  let arrivalSequence = 0n;
+  let arrivalClockSample;
   const enabled = ctx.cfg.freshness?.enabled !== false;
   const maxAgeMs = ctx.cfg.freshness?.maxAgeMs ?? 500;
   const mode = ctx.cfg.freshness?.mode ?? "observe";
@@ -21,6 +24,30 @@ export function createFreshness(ctx, { epoch = randomBytes(8), clock = () => pro
   return {
     enabledFor,
     nowUs: clock,
+    /** Project the SDK's original wall-clock arrival into the bridge clock, before any fanout. */
+    sourceReceipt: ({ frame, timestampMs }) => {
+      if (!frame || typeof frame !== "object" || !Number.isSafeInteger(timestampMs) || timestampMs < 0) {
+        throw new Error("invalid SDK source arrival time");
+      }
+      const retained = arrivalReceipts.get(frame);
+      if (retained) {
+        if (retained.timestampMs !== timestampMs) throw new Error("SDK frame arrival time changed");
+        return retained.receipt;
+      }
+      const wallMs = wallClock(), monoUs = clock();
+      const previous = arrivalClockSample;
+      arrivalClockSample = { wallMs, monoUs };
+      if (previous && Math.abs((wallMs - previous.wallMs) - Number(monoUs - previous.monoUs) / 1000) > maxAgeMs) {
+        throw new Error("SDK arrival wall clock changed beyond the freshness budget");
+      }
+      const ageMs = wallMs - timestampMs;
+      const monotonicUs = monoUs - BigInt(ageMs) * 1000n;
+      if (ageMs < 0 || monotonicUs < 0n) throw new Error("SDK source arrival time is outside the bridge clock");
+      const receipt = Object.freeze({ sourceId: `arrival-${serverEpoch.toString("hex")}`,
+        sequence: ++arrivalSequence, monotonicUs });
+      arrivalReceipts.set(frame, { timestampMs, receipt });
+      return receipt;
+    },
     clock: () => ({ serverEpoch: serverEpoch.toString("hex"), monotonicUs: Number(clock()), scope: "bridge-ingress", captureClockValidated: false }),
     capability: (cam, host) => enabledFor(cam) ? {
       version: 2, mode, scope: "bridge-ingress", maxAgeMs, captureClockValidated: false,
