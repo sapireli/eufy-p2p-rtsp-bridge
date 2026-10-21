@@ -3,7 +3,9 @@ package supervisor
 import (
 	"context"
 	"os"
+	"sort"
 	"sync"
+	"sync/atomic"
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/pipeline"
@@ -24,9 +26,10 @@ type Manager struct {
 	log     func(name, line string)
 	files   []*os.File
 
-	mu      sync.Mutex
-	running map[string]*proc
-	done    chan struct{}
+	reconcile sync.Mutex
+	mu        sync.Mutex
+	running   map[string]*proc
+	done      chan struct{}
 }
 
 type proc struct {
@@ -35,6 +38,13 @@ type proc struct {
 	software []string
 	cancel   context.CancelFunc
 	exited   chan struct{}
+	ctx      context.Context
+	demote   chan chan struct{}
+	hardware atomic.Bool
+	active   atomic.Bool
+	pinned   bool
+	priority int
+	decoder  string
 }
 
 func NewManager(bin string, r config.Restart, log func(name, line string), files ...*os.File) *Manager {
@@ -52,9 +62,11 @@ func (m *Manager) Run(ctx context.Context, plans []pipeline.Plan) error {
 // Update reconciles the running set against `plans`: start what is new, stop what is gone, and leave
 // anything whose args are identical exactly as it is.
 func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
+	m.reconcile.Lock()
+	defer m.reconcile.Unlock()
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if ctx.Err() != nil {
+		m.mu.Unlock()
 		return
 	}
 
@@ -63,18 +75,45 @@ func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
 		wanted[p.Name] = p
 	}
 
+	var stopping []*proc
 	for name, p := range m.running {
 		want, keep := wanted[name]
-		if keep && sameArgs(p.args, want.Args) && sameArgs(p.fallback, want.FallbackArgs) && sameArgs(p.software, want.SoftwareArgs) {
+		if keep && sameArgs(p.args, want.Args) && sameArgs(p.fallback, want.FallbackArgs) && sameArgs(p.software, want.SoftwareArgs) && p.pinned == want.HardwarePinned && p.priority == want.HardwarePriority && p.decoder == want.HardwareDecoder {
 			continue // already showing the right thing
 		}
 		m.log(name, "stopping")
-		p.cancel()
-		<-p.exited
 		delete(m.running, name)
+		stopping = append(stopping, p)
 	}
-
-	for name, plan := range wanted {
+	m.mu.Unlock()
+	for _, p := range stopping {
+		p.cancel()
+	}
+	for _, p := range stopping {
+		<-p.exited
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ctx.Err() != nil {
+		return
+	}
+	// Deterministic startup gives the preferred cameras the first hardware attempt.
+	names := make([]string, 0, len(wanted))
+	for name := range wanted {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		a, b := wanted[names[i]], wanted[names[j]]
+		if a.HardwarePinned != b.HardwarePinned {
+			return a.HardwarePinned
+		}
+		if a.HardwarePriority != b.HardwarePriority {
+			return a.HardwarePriority > b.HardwarePriority
+		}
+		return names[i] < names[j]
+	})
+	for _, name := range names {
+		plan := wanted[name]
 		if _, already := m.running[name]; already {
 			continue
 		}
@@ -82,11 +121,13 @@ func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
 			m.log(name, "selecting native hardware rendition; compatible fallback available")
 		}
 		pctx, cancel := context.WithCancel(ctx)
-		p := &proc{args: plan.Args, fallback: plan.FallbackArgs, software: plan.SoftwareArgs, cancel: cancel, exited: make(chan struct{})}
+		p := &proc{args: plan.Args, fallback: plan.FallbackArgs, software: plan.SoftwareArgs, cancel: cancel, exited: make(chan struct{}), ctx: pctx, demote: make(chan chan struct{}, 1), pinned: plan.HardwarePinned, priority: plan.HardwarePriority, decoder: plan.HardwareDecoder}
+		p.hardware.Store(plan.HardwareDecoder != "")
 		m.running[name] = p
 		go func(n string, args, fallback, software []string) {
 			defer close(p.exited)
-			_ = runWithDecoderFallback(pctx, m.bin, args, fallback, software, m.restart, func(line string) { m.log(n, line) }, m.files...)
+			control := &decoderControl{demote: p.demote, reclaim: func() bool { return m.reclaim(n, p) }, onSoftware: func() { p.hardware.Store(false) }, onRunning: func(active bool) { p.active.Store(active) }}
+			_ = runWithDecoderControl(pctx, m.bin, args, fallback, software, m.restart, func(line string) { m.log(n, line) }, control, m.files...)
 		}(name, plan.Args, plan.FallbackArgs, plan.SoftwareArgs)
 	}
 }
@@ -107,6 +148,8 @@ func (m *Manager) Names() []string {
 func (m *Manager) Stop() { m.stopAll() }
 
 func (m *Manager) stopAll() {
+	m.reconcile.Lock()
+	defer m.reconcile.Unlock()
 	m.mu.Lock()
 	procs := make([]*proc, 0, len(m.running))
 	for name, p := range m.running {
@@ -130,4 +173,43 @@ func sameArgs(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// reclaim releases one same-pool decoder before allowing the requester to retry.
+// Selection is driven by an actual allocation failure, never an assumed capacity.
+func (m *Manager) reclaim(name string, requester *proc) bool {
+	m.mu.Lock()
+	if m.running[name] != requester || requester.ctx.Err() != nil || requester.decoder == "" {
+		m.mu.Unlock()
+		return false
+	}
+	var victim *proc
+	var victimName string
+	for n, candidate := range m.running {
+		if candidate == requester || candidate.pinned || candidate.decoder != requester.decoder || len(candidate.software) == 0 || !candidate.hardware.Load() || !candidate.active.Load() || candidate.ctx.Err() != nil {
+			continue
+		}
+		if !requester.pinned && requester.priority <= candidate.priority {
+			continue
+		}
+		if victim == nil || candidate.priority < victim.priority || (candidate.priority == victim.priority && n < victimName) {
+			victim, victimName = candidate, n
+		}
+	}
+	if victim == nil || !victim.hardware.CompareAndSwap(true, false) {
+		m.mu.Unlock()
+		return false
+	}
+	m.log(victimName, "yielding hardware decoder to higher-priority camera "+name)
+	ack := make(chan struct{})
+	victim.demote <- ack
+	m.mu.Unlock()
+	select {
+	case <-ack:
+		return requester.ctx.Err() == nil
+	case <-victim.exited:
+		return requester.ctx.Err() == nil
+	case <-requester.ctx.Done():
+		return false
+	}
 }

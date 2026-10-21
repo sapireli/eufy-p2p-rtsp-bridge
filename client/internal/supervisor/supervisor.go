@@ -60,11 +60,52 @@ func RunWithFallback(ctx context.Context, bin string, args, fallback []string, r
 }
 
 func runWithDecoderFallback(ctx context.Context, bin string, args, fallback, software []string, r config.Restart, log func(string), files ...*os.File) error {
+	return runWithDecoderControl(ctx, bin, args, fallback, software, r, log, nil, files...)
+}
+
+// decoderControl lets the manager relinquish one lower-ranked decoder without
+// stopping other tiles. A demotion is acknowledged only after process teardown.
+type decoderControl struct {
+	demote     <-chan chan struct{}
+	reclaim    func() bool
+	onSoftware func()
+	onRunning  func(bool)
+}
+
+func runWithDecoderControl(ctx context.Context, bin string, args, fallback, software []string, r config.Restart, log func(string), control *decoderControl, files ...*os.File) error {
 	b := newBackoff(r)
+	reclaimed := false
+	var demote <-chan chan struct{}
+	if control != nil {
+		demote = control.demote
+		if control.onRunning != nil {
+			defer control.onRunning(false)
+		}
+	}
+	selectSoftware := func() {
+		if len(software) == 0 {
+			return
+		}
+		args, fallback, software = software, nil, nil
+		if control != nil && control.onSoftware != nil {
+			control.onSoftware()
+		}
+	}
 	for {
-		var decoderFailed atomic.Bool
+		var decoderFailed, resourceFailed atomic.Bool
+		var demoted chan struct{}
 		if ctx.Err() != nil {
 			return nil
+		}
+		// An allocation failure may have selected software while the manager
+		// concurrently reserved this tile for demotion. Its hardware is already
+		// released; acknowledge without interrupting software playback.
+		if len(software) == 0 {
+			select {
+			case ack := <-demote:
+				close(ack)
+			default:
+			}
 		}
 		cmd := exec.Command(bin, args...)
 		cmd.ExtraFiles = files
@@ -91,10 +132,16 @@ func runWithDecoderFallback(ctx context.Context, bin string, args, fallback, sof
 		} else {
 			_ = stdoutWrite.Close()
 			_ = stderrWrite.Close()
+			if control != nil && control.onRunning != nil {
+				control.onRunning(true)
+			}
 			log(fmt.Sprintf("started pid %d", cmd.Process.Pid))
 			fatal := make(chan struct{}, 1)
 			output := func(line string) {
 				log(line)
+				if hardwareResourceError(line) {
+					resourceFailed.Store(true)
+				}
 				if hardwareInitializationError(line) {
 					decoderFailed.Store(true)
 				}
@@ -133,6 +180,14 @@ func runWithDecoderFallback(ctx context.Context, bin string, args, fallback, sof
 						<-waited
 					}
 				}
+			case demoted = <-demote:
+				_ = cmd.Process.Signal(syscall.SIGTERM)
+				select {
+				case <-waited:
+				case <-time.After(5 * time.Second):
+					_ = cmd.Process.Kill()
+					<-waited
+				}
 			case <-ctx.Done():
 				_ = cmd.Process.Signal(syscall.SIGTERM)
 				select {
@@ -156,17 +211,35 @@ func runWithDecoderFallback(ctx context.Context, bin string, args, fallback, sof
 			}
 			closePipes()
 		}
+		if control != nil && control.onRunning != nil {
+			control.onRunning(false)
+		}
+		if demoted != nil {
+			log("hardware decoder yielded to higher-priority camera; selecting software for this tile")
+			selectSoftware()
+			close(demoted)
+			continue
+		}
+		if !reclaimed && resourceFailed.Load() && len(software) > 0 && control != nil && control.reclaim != nil && control.reclaim() {
+			reclaimed = true
+			log("decoder resources released by lower-priority camera; retrying hardware")
+			continue
+		}
 		if len(fallback) > 0 {
 			log("native pipeline failed; selecting compatible fallback")
 			args, fallback = fallback, nil
 		} else if decoderFailed.Load() && len(software) > 0 {
 			log("hardware decoder initialization failed; selecting software fallback for this tile")
-			args, software = software, nil
+			selectSoftware()
 		}
 		d := b.next(time.Since(start))
 		log(fmt.Sprintf("restarting in %s", d))
 		select {
 		case <-time.After(d):
+		case ack := <-demote:
+			log("hardware decoder yielded to higher-priority camera; selecting software for this tile")
+			selectSoftware()
+			close(ack)
 		case <-ctx.Done():
 			return nil
 		}

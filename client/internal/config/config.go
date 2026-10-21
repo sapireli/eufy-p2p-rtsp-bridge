@@ -64,16 +64,21 @@ type Config struct {
 	// Empty means the first connected output, which is the single-screen case. Naming it is what lets one
 	// instance per monitor each show its own cameras: each drives its own CRTC, so each keeps the cheap
 	// hardware-plane path instead of compositing one framebuffer spanned across both.
-	Output          string  `yaml:"output"`
-	PrimaryPosition string  `yaml:"primary_position"`
-	Screen          Screen  `yaml:"screen"`
-	Decoder         string  `yaml:"decoder"`
-	Sink            string  `yaml:"sink"`
-	Planes          []int   `yaml:"planes"`
-	Latency         int     `yaml:"latency_ms"`
-	MotionFlash     bool    `yaml:"motion_flash"` // briefly outline the camera reporting motion
-	Tiles           []Tile  `yaml:"tiles"`
-	Restart         Restart `yaml:"restart"`
+	Output          string `yaml:"output"`
+	PrimaryPosition string `yaml:"primary_position"`
+	Screen          Screen `yaml:"screen"`
+	Decoder         string `yaml:"decoder"`
+	// Higher ranks retain hardware ahead of lower ranks when decoder allocation fails.
+	HardwarePriority map[string]int `yaml:"hardware_priority"`
+	// Pinned cameras cannot be displaced by another camera. Auto decoding still
+	// falls back to software if their own hardware initialization fails.
+	HardwarePinnedCameras []string `yaml:"hardware_pinned_cameras"`
+	Sink                  string   `yaml:"sink"`
+	Planes                []int    `yaml:"planes"`
+	Latency               int      `yaml:"latency_ms"`
+	MotionFlash           bool     `yaml:"motion_flash"` // briefly outline the camera reporting motion
+	Tiles                 []Tile   `yaml:"tiles"`
+	Restart               Restart  `yaml:"restart"`
 }
 
 // Named layouts. Everything else is a plain "<cols>x<rows>" grid parsed by gridFor, so a wall is not
@@ -143,6 +148,18 @@ func Parse(data []byte) (*Config, error) {
 	case "auto", "v4l2", "va", "software":
 	default:
 		return nil, fmt.Errorf("config: decoder must be auto|v4l2|va|software (got %q)", c.Decoder)
+	}
+	for camera, priority := range c.HardwarePriority {
+		if strings.TrimSpace(camera) == "" || priority < 0 {
+			return nil, fmt.Errorf("config: hardware_priority requires nonempty camera identities and nonnegative ranks")
+		}
+	}
+	pinned := make(map[string]bool)
+	for _, camera := range c.HardwarePinnedCameras {
+		if strings.TrimSpace(camera) == "" || pinned[camera] {
+			return nil, fmt.Errorf("config: hardware_pinned_cameras requires unique nonempty camera identities")
+		}
+		pinned[camera] = true
 	}
 	switch c.Sink {
 	case "auto", "planes", "compositor", "window":

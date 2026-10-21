@@ -216,3 +216,18 @@ func TestGridLayouts(t *testing.T) {
 		}
 	}
 }
+
+func TestHardwarePreferenceConfig(t *testing.T) {
+	base := "rtsp_base: rtsp://bridge\ntiles: [{camera: FRONT}]\n"
+	c, err := Parse([]byte(base + "hardware_pinned_cameras: [FRONT]\nhardware_priority: {FRONT: 5, GARAGE: 0}\n"))
+	if err != nil || len(c.HardwarePinnedCameras) != 1 || c.HardwarePriority["FRONT"] != 5 {
+		t.Fatalf("preferences not retained: %+v %v", c, err)
+	}
+	for _, invalid := range []string{"hardware_priority: {FRONT: -1}\n", `hardware_priority: {"": 2}
+`, "hardware_pinned_cameras: [FRONT, FRONT]\n", `hardware_pinned_cameras: [""]
+`} {
+		if _, err := Parse([]byte(base + invalid)); err == nil {
+			t.Fatalf("accepted invalid hardware preferences: %s", invalid)
+		}
+	}
+}
