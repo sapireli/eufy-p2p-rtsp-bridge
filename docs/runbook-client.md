@@ -162,10 +162,23 @@ Independent camera pipelines use that selected decoder family; there is no Andro
 MediaCodec slot reservation or per-camera hardware priority setting. With two H.264
 cameras on GaragePi, both pipelines use `v4l2h264dec`.
 
-This startup selection is not runtime hardware-to-software failover. A failed
-compatible-stream pipeline restarts with its selected decoder. The separate native
-rendition fallback retries the compatible stream when native playback fails.
-Network failures must not silently move a working hardware pipeline to software.
+With `decoder: auto` and `sink: planes`, a fatal hardware-decoder initialization,
+unsupported input-format, device-open or allocation error retries that tile using
+its installed software decoder. The software plan preserves the compatible RTSP
+resource, resolution and timing; unchanged control updates retain that choice.
+Explicit `v4l2`, `va` and `software` choices remain authoritative. Software must be
+installed for that codec (`avdec_h264` or `avdec_h265`). If a native rendition was
+selected, its existing compatible-stream hardware retry happens first.
+
+Fallback requires a fatal bus error owned by a V4L2 or VA H.264/H.265 decoder and a
+recognized initialization/resource message. Generic `not-negotiated`, corrupt
+frames, missing references, network errors and watchdog stalls retry the current
+decoder. Unknown errors also retain hardware. Compositor/window pipelines keep
+their selected decoder because they cannot isolate software retry to one tile.
+The recognized fatal messages come from GStreamer's
+[V4L2 decoder](https://github.com/GStreamer/gstreamer/blob/1.26/subprojects/gst-plugins-good/sys/v4l2/gstv4l2videodec.c),
+[V4L2 device opening](https://github.com/GStreamer/gstreamer/blob/1.26/subprojects/gst-plugins-good/sys/v4l2/v4l2_calls.c)
+and [video decoder initialization](https://github.com/GStreamer/gstreamer/blob/1.26/subprojects/gst-plugins-base/gst-libs/gst/video/gstvideodecoder.c).
 
 The leaky queue is after the decoder: Linux drops decoded pictures only, preserving
 the compressed reference pictures needed to decode subsequent frames. Android's

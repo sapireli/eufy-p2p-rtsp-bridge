@@ -15,6 +15,7 @@ import (
 )
 
 type Caps struct {
+	SoftwareDecoders   map[string]bool // probed libav factories, indexed by codec
 	NativeHEVCSinkCaps string
 	NativeDecoder      string // actual probed hardware HEVC factory, empty disables selection
 	NativeRenditions   map[string]rendition.Native
@@ -84,6 +85,7 @@ type Plan struct {
 	Name         string
 	Args         []string
 	FallbackArgs []string
+	SoftwareArgs []string
 }
 
 // Plans returns the processes this wall needs.
@@ -120,7 +122,11 @@ func Plans(c *config.Config, tiles []layout.Placed, caps Caps) ([]Plan, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Plan{Name: name, Args: args, FallbackArgs: fallback})
+		software, err := softwareFallbackArgs(c, []layout.Placed{t}, caps)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Plan{Name: name, Args: args, FallbackArgs: fallback, SoftwareArgs: software})
 	}
 	return out, nil
 }

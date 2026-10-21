@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -120,6 +122,43 @@ func TestStartFailureKeepsLoopingUntilCancel(t *testing.T) {
 	}
 	if failures < 2 || restarts < 2 {
 		t.Fatalf("expected repeated start failures and restarts, got failures=%d restarts=%d lines=%v", failures, restarts, lines)
+	}
+}
+
+func TestCancellationInterruptsDrainAfterParentExits(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	child := make(chan int, 1)
+	exited := make(chan struct{}, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, "sh", []string{"-c", "sleep 30 & echo child:$!; exit 1"}, config.Restart{}, func(line string) {
+			if strings.HasPrefix(line, "child:") {
+				n, _ := strconv.Atoi(strings.TrimPrefix(line, "child:"))
+				child <- n
+			}
+			if strings.HasPrefix(line, "exited after") {
+				exited <- struct{}{}
+			}
+		})
+	}()
+	var pid int
+	select {
+	case pid = <-child:
+	case <-time.After(3 * time.Second):
+		t.Fatal("descendant did not start")
+	}
+	defer syscall.Kill(pid, syscall.SIGKILL)
+	select {
+	case <-exited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("parent did not exit")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("descendant's open pipe blocked cancellation")
 	}
 }
 

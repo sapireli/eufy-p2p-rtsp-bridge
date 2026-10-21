@@ -32,6 +32,7 @@ type Manager struct {
 type proc struct {
 	args     []string
 	fallback []string
+	software []string
 	cancel   context.CancelFunc
 	exited   chan struct{}
 }
@@ -64,7 +65,7 @@ func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
 
 	for name, p := range m.running {
 		want, keep := wanted[name]
-		if keep && sameArgs(p.args, want.Args) && sameArgs(p.fallback, want.FallbackArgs) {
+		if keep && sameArgs(p.args, want.Args) && sameArgs(p.fallback, want.FallbackArgs) && sameArgs(p.software, want.SoftwareArgs) {
 			continue // already showing the right thing
 		}
 		m.log(name, "stopping")
@@ -81,12 +82,12 @@ func (m *Manager) Update(ctx context.Context, plans []pipeline.Plan) {
 			m.log(name, "selecting native hardware rendition; compatible fallback available")
 		}
 		pctx, cancel := context.WithCancel(ctx)
-		p := &proc{args: plan.Args, fallback: plan.FallbackArgs, cancel: cancel, exited: make(chan struct{})}
+		p := &proc{args: plan.Args, fallback: plan.FallbackArgs, software: plan.SoftwareArgs, cancel: cancel, exited: make(chan struct{})}
 		m.running[name] = p
-		go func(n string, args, fallback []string) {
+		go func(n string, args, fallback, software []string) {
 			defer close(p.exited)
-			_ = RunWithFallback(pctx, m.bin, args, fallback, m.restart, func(line string) { m.log(n, line) }, m.files...)
-		}(name, plan.Args, plan.FallbackArgs)
+			_ = runWithDecoderFallback(pctx, m.bin, args, fallback, software, m.restart, func(line string) { m.log(n, line) }, m.files...)
+		}(name, plan.Args, plan.FallbackArgs, plan.SoftwareArgs)
 	}
 }
 

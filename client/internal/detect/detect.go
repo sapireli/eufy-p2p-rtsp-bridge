@@ -77,7 +77,8 @@ func DRMDevice(fsRoot, output string) (string, error) {
 
 // Resolve turns auto decoder/sink into concrete choices. `has`/`fileExists` are injectable for tests.
 func Resolve(c *config.Config, has func(string) bool, fileExists func(string) bool) (pipeline.Caps, error) {
-	caps := pipeline.Caps{Decoder: c.Decoder, Sink: c.Sink, Screen: c.Screen}
+	caps := pipeline.Caps{Decoder: c.Decoder, Sink: c.Sink, Screen: c.Screen,
+		SoftwareDecoders: map[string]bool{"h264": has("avdec_h264"), "h265": has("avdec_h265")}}
 	if caps.Decoder == "auto" {
 		switch {
 		case fileExists("/dev/video10") && has("v4l2h264dec"):

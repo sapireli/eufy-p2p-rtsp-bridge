@@ -97,3 +97,21 @@ func fallbackArgs(c *config.Config, tiles []layout.Placed, caps Caps) ([]string,
 	caps.NativeDecoder = ""
 	return Build(c, tiles, caps)
 }
+
+// Software retry is available only for automatic, independent tile pipelines.
+// It uses the same compatible resource, codec, timing and resolution.
+func softwareFallbackArgs(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error) {
+	if c.Decoder != "auto" || caps.Decoder == "software" || caps.Sink != "planes" {
+		return nil, nil
+	}
+	for _, t := range tiles {
+		if t.StillURL != "" || !caps.SoftwareDecoders[codecOf(t)] {
+			return nil, nil
+		}
+	}
+	caps.NativeDecoder = ""
+	caps.NativeRenditions = nil
+	caps.decoderOverrides = nil
+	caps.Decoder = "software"
+	return Build(c, tiles, caps)
+}
