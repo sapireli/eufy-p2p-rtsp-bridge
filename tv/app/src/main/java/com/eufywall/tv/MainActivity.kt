@@ -78,6 +78,7 @@ class MainActivity : Activity() {
     private val frameWatchdogs = mutableMapOf<String, Runnable>()
     private val labels = mutableMapOf<String, TextView>()
     private val surfaces = mutableMapOf<String, FrameLayout>()
+    private val tileVideoSurfaces = mutableMapOf<String, TileVideoSurface>()
     private val tileFrames = mutableMapOf<String, FrameLayout>()
     private val motionOutline = MotionOutline()
     private val outlineTick = Runnable { refreshOutlines() }
@@ -518,6 +519,8 @@ class MainActivity : Activity() {
             val tile = FrameLayout(this).apply { setBackgroundColor(0xff000000.toInt()); isFocusable = true; isClickable = true; keepScreenOn = true }
             val image = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; visibility = View.GONE }
             val video = FrameLayout(this); tile.addView(video, FrameLayout.LayoutParams(-1, -1)); surfaces[id] = video
+            val display = TileVideoSurface(this); tileVideoSurfaces[id] = display
+            video.addView(display.view, FrameLayout.LayoutParams(-1, -1))
             tile.addView(image, FrameLayout.LayoutParams(-1, -1)); images[id] = image
             val label = text("Waiting for motion", 16f).apply { setBackgroundColor(0xaa000000.toInt()) }
             tile.addView(label, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM)); labels[id] = label
@@ -620,6 +623,7 @@ class MainActivity : Activity() {
                 ).retry(sn, player)
             }
             player = LowLatencyRtspPlayer(this, playback,
+                sharedSurface = tileVideoSurfaces.getValue(sn),
                 onFirstFrame = {
                     if (players[sn] === player) {
                         snapshots.cancel(sn); snapshotKeys.remove(sn); images[sn]?.visibility = View.GONE
@@ -632,7 +636,7 @@ class MainActivity : Activity() {
                 onFreshnessState = { message -> if (players[sn] === player) label.text = "${cam.name} • ${message ?: "capture age unverified"}" })
             players[sn] = player
             playbackContracts[sn] = playback.playbackContract()
-            surfaces[sn]?.addView(player.view, FrameLayout.LayoutParams(-1, -1))
+            // The tile surface remains attached across transport/decoder retries.
             var lastLogAt = 0L
             val decoderWatchdog = DecoderProgressWatchdog(firstFrameTimeoutMs, liveFrameTimeoutMs)
             val watchdog = object : Runnable {
@@ -822,6 +826,7 @@ class MainActivity : Activity() {
         socket?.cancel(); socket = null
         players.keys.toList().forEach { release(it, "wall-stopped") }
         images.keys.toList().forEach { snapshots.cancel(it) }
+        tileVideoSurfaces.values.forEach { it.remove() }; tileVideoSurfaces.clear()
         labels.clear(); surfaces.clear(); images.clear(); resolvedTiles.clear(); snapshotKeys.clear()
         held.toList().forEach { hold(it, "DELETE") }; held.clear()
         holds.releaseAll()

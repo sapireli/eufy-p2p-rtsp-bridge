@@ -23,6 +23,18 @@ import com.alexvas.rtsp.widget.RtspStatusListener
 import com.limelight.binding.video.MediaCodecHelper
 import java.util.concurrent.atomic.AtomicLong
 
+/** A tile owns its display surface longer than any individual RTSP connection. */
+internal class TileVideoSurface(context: Context) {
+    val view = FrameLayout(context).apply { setBackgroundColor(0xff000000.toInt()); keepScreenOn = true }
+    val surface = SurfaceView(context)
+    val cover = View(context).apply { setBackgroundColor(0xff000000.toInt()) }
+    init {
+        view.addView(surface, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
+        view.addView(cover, FrameLayout.LayoutParams(-1, -1))
+    }
+    fun remove() { (view.parent as? FrameLayout)?.removeView(view) }
+}
+
 /** Independent RTSP connection and hardware-first decoder for one live tile. */
 internal class LowLatencyRtspPlayer(
     context: Context,
@@ -31,14 +43,19 @@ internal class LowLatencyRtspPlayer(
     private val onFailure: (String, Boolean) -> Unit,
     private val onFreshnessState: (String?) -> Unit = {},
     private val hardwarePinned: Boolean = false,
+    sharedSurface: TileVideoSurface? = null,
 ) {
-    val view = FrameLayout(context).apply { setBackgroundColor(0xff000000.toInt()); keepScreenOn = true }
-    private val surface = SurfaceView(context)
+    private val ownsSurface = sharedSurface == null
+    private val tileSurface = sharedSurface ?: TileVideoSurface(context)
+    val view = tileSurface.view
+    private val surface = tileSurface.surface
     // Keep the decoder surface alive when masking expired video. Hiding a
     // SurfaceView destroys its surface and prevents the next fresh callback.
     private var freshRenderer: FreshVideoRenderer? = null
     private var freshFirstFrame = true
-    private val freshnessCover = View(context).apply { setBackgroundColor(0xff000000.toInt()) }
+    private val freshnessCover = tileSurface.cover
+    private lateinit var surfaceCallback: SurfaceHolder.Callback
+    private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitSurface() }
     private val ui = Handler(Looper.getMainLooper())
     @Volatile private var released = false
     private var started = false
@@ -222,20 +239,18 @@ internal class LowLatencyRtspPlayer(
 
     init {
         MediaCodecHelper.initialize(context.applicationContext, "")
-        view.addView(surface, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
-        view.addView(freshnessCover, FrameLayout.LayoutParams(-1, -1))
-        freshnessCover.visibility = if (enforcesFreshness) View.VISIBLE else View.INVISIBLE
+        freshnessCover.visibility = View.VISIBLE
         if(camera.freshness?.mode == "observe") {
             freshnessState="observe • capture time unverified"
         }
         // Strict freshness is gated and expired by the owned GL renderer.
         // MediaCodec render callbacks may be batched or omitted on older TVs.
-        view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitSurface() }
+        view.addOnLayoutChangeListener(layoutListener)
         processor.videoDecoderType = DecoderType.HARDWARE // Adapter falls back to software if hardware cannot start.
         processor.videoFrameRateStabilization = false
         processor.experimentalUpdateSpsFrameWithLowLatencyParams = false
         processor.statusListener = object : RtspStatusListener {
-            override fun onRtspFirstFrameRendered() { if (!released) onFirstFrame() }
+            override fun onRtspFirstFrameRendered() { if (!released) { if (!enforcesFreshness) freshnessCover.visibility = View.INVISIBLE; onFirstFrame() } }
             override fun onRtspFrameSizeChanged(width: Int, height: Int) {
                 if (!released && width > 0 && height > 0) {
                     streamWidth = width; streamHeight = height; fitSurface()
@@ -251,7 +266,7 @@ internal class LowLatencyRtspPlayer(
                 receivedUnits.incrementAndGet(); latestInputTimestamp.set(timestamp)
             }
         }
-        surface.holder.addCallback(object : SurfaceHolder.Callback {
+        surfaceCallback = object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 if (!released && !started) {
                     if (enforcesFreshness) {
@@ -294,9 +309,13 @@ internal class LowLatencyRtspPlayer(
             }
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { freshRenderer?.resize(width,height) }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                processor.stop(); processor.stopDecoders(); freshRenderer?.close(); freshRenderer = null; started = false
+                if (!released) { processor.stop(); processor.stopDecoders(); freshRenderer?.close(); freshRenderer = null; started = false }
             }
-        })
+        }
+        surface.holder.addCallback(surfaceCallback)
+        // A retry inherits an already-created surface, so no new creation callback
+        // is expected. Post startup until the caller has registered this player.
+        ui.post { if (!released && surface.holder.surface.isValid) surfaceCallback.surfaceCreated(surface.holder) }
     }
 
     private fun fail(message: String, decoder: Boolean) {
@@ -323,11 +342,15 @@ internal class LowLatencyRtspPlayer(
     private companion object { const val TIMING_TAG = "EufyFrameTiming"; const val DISPLAY_MARGIN_NS = 20_000_000L }
 
     fun release() {
+        if (released) return
         released = true
+        surface.holder.removeCallback(surfaceCallback)
+        view.removeOnLayoutChangeListener(layoutListener)
+        freshnessCover.visibility = View.VISIBLE
         freshnessClock?.close()
         freshRenderer?.close(); freshRenderer = null
         processor.statusListener = null; processor.dataListener = null
         processor.stop(); processor.stopDecoders()
-        (view.parent as? FrameLayout)?.removeView(view)
+        if (ownsSurface) tileSurface.remove()
     }
 }
