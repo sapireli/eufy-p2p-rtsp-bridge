@@ -1,0 +1,7 @@
+1792571708.743530 DietPi eufy-wall[5179]: 04:35:08 [gst T8214510242321E6] started pid 5239
+1792571708.752596 DietPi eufy-wall[5179]: 04:35:08 [gst T8425T1124130A0C] started pid 5240
+1792571899.652880 DietPi eufy-wall[5179]: 04:38:19 [gst T8425T1124130A0C] 0:03:10.858431000  5240  0x17bbe78 WARN                watchdog gstwatchdog.c:195:gst_watchdog_trigger:<watchdog0> error: Watchdog triggered
+1792571899.652880 DietPi eufy-wall[5179]: 04:38:19 [gst T8425T1124130A0C] 0:03:10.858604000  5240  0x17bbe78 WARN                watchdog gstwatchdog.c:195:gst_watchdog_trigger:<watchdog0> error: Watchdog triggered
+1792571899.666399 DietPi eufy-wall[5179]: 04:38:19 [gst T8425T1124130A0C] ERROR: from element /GstPipeline:pipeline0/GstWatchdog:watchdog0: Watchdog triggered
+1792571899.666399 DietPi eufy-wall[5179]: 04:38:19 [gst T8425T1124130A0C] Watchdog triggered
+1792571900.942065 DietPi eufy-wall[5179]: 04:38:20 [gst T8425T1124130A0C] started pid 5732

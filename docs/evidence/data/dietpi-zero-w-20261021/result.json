@@ -1,0 +1,183 @@
+{
+  "bridgeCameras": {
+    "T8214510242321E6": {
+      "counterResets": 0,
+      "measuredIntervalSeconds": 270.001,
+      "name": "Front Door CLE",
+      "outputFps": 15.03698134451354,
+      "outputFramesDelta": 4060,
+      "stallsFirst": 17,
+      "stallsLast": 17
+    },
+    "T8425T1124130A0C": {
+      "counterResets": 2,
+      "measuredIntervalSeconds": 260.002,
+      "name": "Garage CLE",
+      "outputFps": 13.496050030384382,
+      "outputFramesDelta": 3509,
+      "stallsFirst": 16,
+      "stallsLast": 19
+    }
+  },
+  "bridgeRtspQueues": {
+    "note": "Only populated if samples have optional bridgeSs/bridge_ss/bridge text.",
+    "recvMaxBytes": null,
+    "sendMaxBytes": null,
+    "socketSamples": 0
+  },
+  "channels": {
+    "1": {
+      "acceptedDelta": 2820,
+      "acceptedFps": 10.448861254482376,
+      "acceptedIntervalSeconds": 269.8858690261841,
+      "approxCadenceRetentionRatio": 0.6948775831456886,
+      "bridgeCameraIdentity": "T8214510242321E6",
+      "cadenceNote": "Rate comparison over separately bounded windows, not exact frame matching; source pauses/resets can skew it.",
+      "clockUncertaintyMaxMs": 188.504322,
+      "cumulativeLongestDecodedGapMs": 1844.454,
+      "currentKmsAgeUpperMs": {
+        "count": 54,
+        "max": 596.482251,
+        "median": 146.0889,
+        "p95": 467.95612
+      },
+      "lastEpochAgeDriftMs": 54.19645899999999,
+      "lastFrameId": "847683",
+      "owner": "gst T8214510242321E6",
+      "reports": 54,
+      "stableSegments": 1,
+      "validKmsPercent": 100.0,
+      "validKmsSamples": 54
+    },
+    "2": {
+      "acceptedDelta": 2805,
+      "acceptedFps": 11.850695892017136,
+      "acceptedIntervalSeconds": 236.69496083259583,
+      "approxCadenceRetentionRatio": 0.8780862448892104,
+      "bridgeCameraIdentity": "T8425T1124130A0C",
+      "cadenceNote": "Rate comparison over separately bounded windows, not exact frame matching; source pauses/resets can skew it.",
+      "clockUncertaintyMaxMs": 188.942288,
+      "cumulativeLongestDecodedGapMs": 2589.692,
+      "currentKmsAgeUpperMs": {
+        "count": 46,
+        "max": 405.620301,
+        "median": 160.8652275,
+        "p95": 342.203193
+      },
+      "lastEpochAgeDriftMs": 181.212674,
+      "lastFrameId": "847659",
+      "owner": "gst T8425T1124130A0C",
+      "reports": 47,
+      "stableSegments": 3,
+      "validKmsPercent": 97.87234042553192,
+      "validKmsSamples": 46
+    }
+  },
+  "childProcesses": {
+    "note": "Empty process sets are retained: disappearance is not silently excluded.",
+    "observedPids": [
+      "5239",
+      "5240",
+      "5732"
+    ],
+    "postWarmupPidSetChanges": 1
+  },
+  "cpu": {
+    "busyPercent": {
+      "count": 55,
+      "max": 100.0,
+      "median": 56.07287449392713,
+      "p95": 93.75
+    },
+    "iowaitPercent": {
+      "count": 55,
+      "max": 1.0121457489878543,
+      "median": 0.0,
+      "p95": 0.1953125
+    },
+    "note": "On the single-core Pi Zero W, process percent of machine equals percent of its one CPU.",
+    "processPercentOfMachine": {
+      "5239": {
+        "count": 55,
+        "max": 16.082474226804123,
+        "median": 11.4,
+        "p95": 15.416666666666666
+      },
+      "5240": {
+        "count": 34,
+        "max": 16.875,
+        "median": 14.968550740300444,
+        "p95": 16.46586345381526
+      },
+      "5732": {
+        "count": 20,
+        "max": 21.975806451612904,
+        "median": 14.388212017077997,
+        "p95": 16.370808678500985
+      }
+    }
+  },
+  "decisionCriteria": {
+    "suggestedAgeUpperP95Ms": 500,
+    "suggestedMaximumPositiveDriftMs": 250,
+    "suggestedPass": "Both cameras retain cadence, have valid bounded age, stable decoder PIDs, no monotonic age growth; CPU/queues corroborate.",
+    "warmupSeconds": 30.0,
+    "warning": "No automatic FIXED verdict; review source pauses, clock uncertainty, matching windows, quality and sustained continuity."
+  },
+  "durationSeconds": 300.004,
+  "hardwareEvidence": {
+    "decoderDevices": [
+      "/dev/video10"
+    ],
+    "factories": [
+      "v4l2h264dec"
+    ],
+    "note": "Factory arguments plus open decoder descriptors and advancing accepted counters support active hardware decode; argument text alone does not.",
+    "softwareFactories": []
+  },
+  "journalEvents": {
+    "errorOrFallbackCount": 4,
+    "errorOrFallbackLast20": [
+      "1792571899.652880 DietPi eufy-wall[5179]: 04:38:19 [gst T8425T1124130A0C] 0:03:10.858431000  5240  0x17bbe78 WARN                watchdog gstwatchdog.c:195:gst_watchdog_trigger:<watchdog0> error: Watchdog triggered",
+      "1792571899.652880 DietPi eufy-wall[5179]: 04:38:19 [gst T8425T1124130A0C] 0:03:10.858604000  5240  0x17bbe78 WARN                watchdog gstwatchdog.c:195:gst_watchdog_trigger:<watchdog0> error: Watchdog triggered",
+      "1792571899.666399 DietPi eufy-wall[5179]: 04:38:19 [gst T8425T1124130A0C] ERROR: from element /GstPipeline:pipeline0/GstWatchdog:watchdog0: Watchdog triggered",
+      "1792571899.666399 DietPi eufy-wall[5179]: 04:38:19 [gst T8425T1124130A0C] Watchdog triggered"
+    ],
+    "startedCount": 3
+  },
+  "memory": {
+    "MemAvailable": {
+      "maxKiB": 351276,
+      "minKiB": 328640
+    },
+    "SwapFree": {
+      "maxKiB": 1611772,
+      "minKiB": 1611772
+    }
+  },
+  "piRtspQueues": {
+    "note": "Queue bytes corroborate backpressure; they are not a duration measurement.",
+    "recvMaxBytes": 242045,
+    "sendMaxBytes": 84,
+    "socketSamples": 118
+  },
+  "sampleCount": 61,
+  "scope": "Bridge-ingress to decoded admission/KMS sink return; capture age and physical scanout unverified.",
+  "service": {
+    "mainPidChanges": 0,
+    "mainPids": [
+      "5179"
+    ],
+    "restartCounterDelta": 0,
+    "states": [
+      "active"
+    ]
+  },
+  "temperatureC": {
+    "count": 61,
+    "max": 51.92,
+    "median": 50.306,
+    "p95": 50.844
+  },
+  "warnings": []
+}
