@@ -1,0 +1,41 @@
+{
+  "forkHead": "66692a04a2516634277b1a33eb30205071ee7ff3",
+  "sourceWorktree": "/tmp/eufy-sdk-latest-compat-20261022",
+  "existingBridgeAdapterApiChangesRequired": false,
+  "verifiedContracts": [
+    "openReadable({objectMode:true,arrivalTime:true}) emits{frame,timestampMs}",
+    "LiveVideoFrame.sourceTimestamp rawwordretained",
+    "resetCameraStream camera-scopedsource resetretained",
+    "resetStandaloneSession retained",
+    "SharedSourceHints.streamType1|2retained",
+    "SharedSourceHints.powered wired|batteryretained",
+    "acceptP2PPeer retained"
+  ],
+  "behaviorChanges": [
+    "Ordinaryjoinwaitsnextlivekeyframe;cached-IDRprimefixretainedwithreviewrefinements",
+    "MediaReceipt/sourcegeneration/monotonicreceiptAPIremoved;arrivalTime is wallclockSDKarrivalonly",
+    "P2PclosewaitsUDPENDsendcompletion;notpeerACK",
+    "RSA-onlygatewayset-payloadsupportadded;GCMmedia path remains distinct",
+    "Live-start-failuretracereports typedreason/stage"
+  ],
+  "noPublicGenerationIdentity": true,
+  "targetedTests": {
+    "files": 9,
+    "passed": 119,
+    "failed": 0,
+    "durationSec": 1.51,
+    "specs": [
+      "shared_live_source",
+      "readable_egress",
+      "shared-live-reuse-watch",
+      "shared-live-start-failure",
+      "shared-live-video-config",
+      "media-session-opens",
+      "close-drain",
+      "live-source-unreachable-session",
+      "p2p-level2-rsa"
+    ]
+  },
+  "scope": "Offdeviceexactlatestforksource focusedtests. Parentownsfullbridgegate,packagebuild/deployment/runtimehashverification. NoactivehostSDKmutationbythisaudit.",
+  "parkedSyntheticWorktree": "/tmp/eufy-sdk-live-silence-evidence-20261022 @e2231c5 clean, no test/evidencefilescreated before taskreprioritized"
+}

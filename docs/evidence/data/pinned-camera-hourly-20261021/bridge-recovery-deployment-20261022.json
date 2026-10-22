@@ -1,0 +1,38 @@
+{
+  "bridgeCommit": "6dc8077",
+  "recoveryCommit": "7bf46b9",
+  "sdkCommit": "66692a04a2516634277b1a33eb30205071ee7ff3",
+  "sdkBundleSHA256": "030161934a0b2f2f9363a5166dabb4a5218d2749b3a662091ee2352bae4c39d5",
+  "archiveSHA256": "23a892ccb4b57b4ced3b6e72df009e02d6e835e2c169a0aca808179b0bdc1397",
+  "bridgePID": 195316,
+  "deploymentStartedUTC": "2026-10-22T05:55:25Z",
+  "bridgeTestsPassed": 265,
+  "sdkFocusedTestsPassed": 119,
+  "effectiveStall": {
+    "stallMs": 5000,
+    "startupStallMs": 30000,
+    "recreateClientAfter": 1
+  },
+  "hardwareDecode": true,
+  "lanForce": true,
+  "ffmpegHardwareModuleUnchanged": true,
+  "startupCaveat": "Garage needed two 20-second warm-timeout retries before genuine video resumed. Not a clean-startup claim.",
+  "liveVerification": "All three always-on Eufy cameras and Wyze live; steady-state and next-boundary outcome pending.",
+  "monitor": {
+    "pid": 195415,
+    "durationSeconds": 4500,
+    "samplingSeconds": 1
+  },
+  "boundaryJob": {
+    "pid": 195556,
+    "startUTC": "2026-10-22T06:54:55Z",
+    "durationSeconds": 200,
+    "guardBridgePID": 195316
+  },
+  "privateArtifacts": "/var/lib/eufy-wall-bridge/update-20261022-recovery/",
+  "claimLimits": [
+    "Does not prove why upstream VIDEO stops.",
+    "No hourly prevention or smooth sustained playback claim before boundary test.",
+    "ResetCameraStream is source retirement; not the same intervention as tested in-place STOP/START."
+  ]
+}
