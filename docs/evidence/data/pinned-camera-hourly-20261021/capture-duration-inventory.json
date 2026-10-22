@@ -1,0 +1,51 @@
+[
+  {
+    "file": "/Users/eliransapir/Downloads/br0 2.pcap",
+    "bytes": 1032192,
+    "exit": 1,
+    "metadata": "File name\tNumber of packets\tCapture duration (seconds)\tStart time\tEnd time\n/Users/eliransapir/Downloads/br0 2.pcap\t8582\t28.482834\t1753290539.758432\t1753290568.241266",
+    "warning": "capinfos: An error occurred after reading 8582 packets from \"/Users/eliransapir/Downloads/br0 2.pcap\".\ncapinfos: The file \"/Users/eliransapir/Downloads/br0 2.pcap\" appears to have been cut short in the middle of a packet.\n  (will continue anyway, checksums might be incorrect)"
+  },
+  {
+    "file": "/Users/eliransapir/Downloads/br0.pcap",
+    "bytes": 3067904,
+    "exit": 1,
+    "metadata": "File name\tNumber of packets\tCapture duration (seconds)\tStart time\tEnd time\n/Users/eliransapir/Downloads/br0.pcap\t26732\t119.351095\t1753285604.385895\t1753285723.736990",
+    "warning": "capinfos: An error occurred after reading 26732 packets from \"/Users/eliransapir/Downloads/br0.pcap\".\ncapinfos: The file \"/Users/eliransapir/Downloads/br0.pcap\" appears to have been cut short in the middle of a packet.\n  (will continue anyway, checksums might be incorrect)"
+  },
+  {
+    "file": "/Users/eliransapir/Downloads/eufy-hb3.pcap",
+    "bytes": 15277116,
+    "exit": 1,
+    "metadata": "File name\tNumber of packets\tCapture duration (seconds)\tStart time\tEnd time\n/Users/eliransapir/Downloads/eufy-hb3.pcap\t28123\t112.434356\t1789859296.440614\t1789859408.874970",
+    "warning": "capinfos: An error occurred after reading 28123 packets from \"/Users/eliransapir/Downloads/eufy-hb3.pcap\".\ncapinfos: The file \"/Users/eliransapir/Downloads/eufy-hb3.pcap\" appears to have been cut short in the middle of a packet.\n  (will continue anyway, checksums might be incorrect)"
+  },
+  {
+    "file": "/Users/eliransapir/Downloads/eufy-iphone-fresh.pcap",
+    "bytes": 35603180,
+    "exit": 2,
+    "metadata": "",
+    "warning": "capinfos: An error occurred after reading 0 packets from \"/Users/eliransapir/Downloads/eufy-iphone-fresh.pcap\".\ncapinfos: The file \"/Users/eliransapir/Downloads/eufy-iphone-fresh.pcap\" appears to be damaged or corrupt.\n(pcap: File has 439041101-byte packet, bigger than maximum of 262144)"
+  },
+  {
+    "file": "/Users/eliransapir/Downloads/eufy-iphone.pcap",
+    "bytes": 4448884,
+    "exit": 1,
+    "metadata": "File name\tNumber of packets\tCapture duration (seconds)\tStart time\tEnd time\n/Users/eliransapir/Downloads/eufy-iphone.pcap\t8138\t26.359129\t1791562720.263483\t1791562746.622612",
+    "warning": "capinfos: An error occurred after reading 8138 packets from \"/Users/eliransapir/Downloads/eufy-iphone.pcap\".\ncapinfos: The file \"/Users/eliransapir/Downloads/eufy-iphone.pcap\" appears to have been cut short in the middle of a packet.\n  (will continue anyway, checksums might be incorrect)"
+  },
+  {
+    "file": "/Users/eliransapir/Downloads/eufy-iphone2.pcap",
+    "bytes": 16910936,
+    "exit": 1,
+    "metadata": "File name\tNumber of packets\tCapture duration (seconds)\tStart time\tEnd time\n/Users/eliransapir/Downloads/eufy-iphone2.pcap\t30303\t103.336540\t1791562928.544602\t1791563031.881142",
+    "warning": "capinfos: An error occurred after reading 30303 packets from \"/Users/eliransapir/Downloads/eufy-iphone2.pcap\".\ncapinfos: The file \"/Users/eliransapir/Downloads/eufy-iphone2.pcap\" appears to have been cut short in the middle of a packet.\n  (will continue anyway, checksums might be incorrect)"
+  },
+  {
+    "file": "/tmp/eufy-iphone-fresh.recovered.pcapng",
+    "bytes": 35603156,
+    "exit": 0,
+    "metadata": "File name\tNumber of packets\tCapture duration (seconds)\tStart time\tEnd time\n/tmp/eufy-iphone-fresh.recovered.pcapng\t60979\t175.336684\t1792523938.311301\t1792524113.647985",
+    "warning": ""
+  }
+]
