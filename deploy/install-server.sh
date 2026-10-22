@@ -36,7 +36,7 @@ rsync -a --delete --exclude node_modules --exclude data --exclude spike-out "$RE
 chown -R eufy-wall:eufy-wall "$PREFIX" /var/lib/eufy-wall-bridge
 
 # 4. config skeletons (never overwrite)
-[[ -f /etc/eufy-wall-bridge.yaml ]] || { cp "$REPO/server/config.example.yaml" /etc/eufy-wall-bridge.yaml; echo "edit /etc/eufy-wall-bridge.yaml"; }
+[[ -f /etc/eufy-wall-bridge.yaml ]] || { cp "$REPO/server/bootstrap.example.yaml" /etc/eufy-wall-bridge.yaml; echo "created bridge startup configuration; manage camera settings from a client"; }
 [[ -f /etc/eufy-wall-bridge.env ]] || { cp "$REPO/deploy/eufy-wall-bridge.env.example" /etc/eufy-wall-bridge.env; chmod 600 /etc/eufy-wall-bridge.env; echo "edit /etc/eufy-wall-bridge.env"; }
 
 # 5. systemd
@@ -56,5 +56,6 @@ if [[ $WAS_ACTIVE -eq 1 ]]; then
   systemctl restart eufy-wall-bridge
   echo "updated and restarted eufy-wall-bridge"
 else
-  echo "installed. next: edit /etc/eufy-wall-bridge.{env,yaml}; systemctl start eufy-wall-bridge; journalctl -fu eufy-wall-bridge"
+  echo "installed. next: edit /etc/eufy-wall-bridge.env; systemctl start eufy-wall-bridge; journalctl -fu eufy-wall-bridge"
+  echo "then pair a client using /var/lib/eufy-wall-bridge/settings-admin-token to configure cameras and operating settings"
 fi

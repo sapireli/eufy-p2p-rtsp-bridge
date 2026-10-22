@@ -6,8 +6,9 @@
     git clone <this repo> && cd eufy-p2p-rtsp-bridge
     sudo deploy/install-server.sh
     sudo nano /etc/eufy-wall-bridge.env      # EUFY_EMAIL / EUFY_PASSWORD / EUFY_COUNTRY (dedicated account!)
-    sudo nano /etc/eufy-wall-bridge.yaml     # lan.cidr, cameras, defaults
     sudo systemctl start eufy-wall-bridge && journalctl -fu eufy-wall-bridge
+The installer creates a startup-only YAML file and preserves existing configuration and data on upgrades. After login, pair Android’s **Shared bridge settings** screen or the Linux settings CLI using the token in `/var/lib/eufy-wall-bridge/settings-admin-token`. Configure LAN policy, camera overrides and transcoding through that client; see [settings migration](bridge-settings-migration.md).
+
 The install script apt-installs Node 24 (NodeSource), rsync, Python 3, patch and **ffmpeg**.
 Normal installation uses verified go2rtc 1.9.14 with the TCP framing repair described below. Copy-mode streams use
 go2rtc's timestamped HTTP source; FFmpeg is used when `go2rtc.transcode` selects a hardware transcode.
@@ -50,8 +51,8 @@ handling rather than causing a software downgrade. Software encoding can use
 substantially more CPU; fallback availability does not guarantee real-time speed.
 
 Unset `go2rtc.vaapi_device` discovers `/dev/dri/renderD*`; set it to select a particular
-render node. Hardware decoding is the default. `go2rtc.vaapi_decode: false` (or
-`BRIDGE_GO2RTC_VAAPI_DECODE=false`) explicitly skips GPU decoding for troubleshooting,
+render node. Hardware decoding is the default. Setting `go2rtc.vaapi_decode` to
+`false` through a client explicitly skips GPU decoding for troubleshooting,
 while still trying hardware encoding before software. The service's render/video
 supplementary groups permit device access. Logs beginning `[bridge-ffmpeg]` identify
 the attempted path and any downgrade.
