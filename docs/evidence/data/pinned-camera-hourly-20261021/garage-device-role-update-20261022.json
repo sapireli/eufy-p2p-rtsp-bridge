@@ -1,0 +1,286 @@
+{
+  "checkedAtUtc": "2026-10-22T21:19:36.031Z",
+  "sdkCommit": "48e4f2f1d0dd5d255d928766cdae585bec6076d0",
+  "sdkBundleSHA256": "dd649e91323a3b2b5159d68b99c369cfa1cbffc64cfa302392830e482ff4da47",
+  "mqttVersion": "5.16.1",
+  "bridgeCodeCommit": "7f54bfc",
+  "deployedAt": "2026-10-22T21:14:32.903823+00:00",
+  "streamManagerSHA256": "0a28ad6f727069f114fb36814d804ac81bd6da8ea1a7387fb3d3a60db3f65366",
+  "cameras": [
+    {
+      "sn": "T8214510242321E6",
+      "name": "Front Door CLE",
+      "powerOverride": "always-on",
+      "powered": true,
+      "mode": "always",
+      "dualView": "split",
+      "streamKey": "front_door_cle",
+      "streaming": true,
+      "codec": "h264",
+      "width": 1600,
+      "height": 2200,
+      "stalls": 0
+    },
+    {
+      "sn": "T8213P21250319C3",
+      "name": "Garage Interior Door",
+      "powerOverride": "battery",
+      "powered": false,
+      "mode": "on_motion",
+      "dualView": "split",
+      "streamKey": "garage_interior_door",
+      "streaming": false,
+      "stalls": 0
+    },
+    {
+      "sn": "T821451023461C88",
+      "name": "Garage Doorbell",
+      "powerOverride": "always-on",
+      "powered": true,
+      "mode": "always",
+      "dualView": "split",
+      "streamKey": "garage_doorbell",
+      "streaming": true,
+      "codec": "h264",
+      "width": 1600,
+      "height": 2200,
+      "stalls": 1
+    }
+  ],
+  "verification": {
+    "bridgeTests": {
+      "passed": 273,
+      "failed": 0,
+      "sdkAndMqttMatchDeployment": true
+    },
+    "sdkRetainedFullVerification": {
+      "reportedTests": 4441,
+      "reportedFiles": 253,
+      "logs": [
+        "/tmp/eufy-wall-merged-beta-node24.log",
+        "/tmp/eufy-wall-merged-beta-node26.log"
+      ]
+    },
+    "limits": "Client receipt/decode counters and KMS callbacks are not sensor-capture-to-screen latency proof. Startup and later brief interruptions were observed."
+  },
+  "linux": {
+    "change": {
+      "leftCamera": "T8214510242321E6",
+      "rightCameraBefore": "T8425T1124130A0C",
+      "rightCameraAfter": "T821451023461C88",
+      "rightRtspKey": "garage_doorbell",
+      "rightAspect": "tall",
+      "hardwarePinned": [
+        "T8214510242321E6",
+        "T821451023461C88"
+      ],
+      "hardwarePriority": {
+        "T8214510242321E6": 100,
+        "T821451023461C88": 50
+      }
+    },
+    "preserved": {
+      "layout": "2x1",
+      "decoder": "auto",
+      "sink": "planes",
+      "planes": [
+        98,
+        120
+      ],
+      "latencyMs": 0,
+      "motionFlash": true,
+      "rtspBase": "rtsp://homebridge.lan:8554"
+    },
+    "configSHA256": "1bc970ab3bad4b33ca3c48b238e125b04881e7971d6cddec46541c4c9a25327d",
+    "finalShortTrial": {
+      "scope": "Approximately30-second snapshots after final SDK deployment; existing5s observe logs only, no added instrumentation",
+      "dietpi": {
+        "servicePid": 907,
+        "serviceRestarts": 0,
+        "active": true,
+        "hardwareDecoders": [
+          "v4l2h264dec",
+          "v4l2h264dec"
+        ],
+        "decoderDeviceFds": [
+          "/dev/video10",
+          "/dev/video10"
+        ],
+        "frontAccepted": {
+          "from": 52,
+          "to": 85,
+          "seconds": 6
+        },
+        "garageDoorbellAccepted": {
+          "from": 54,
+          "to": 202,
+          "seconds": 16
+        },
+        "cpuBusyPercent": 42.0,
+        "finalRtspSocketQueuesBytes": {
+          "recv": 0,
+          "send": 0
+        },
+        "lastKmsAgeUpperMs": {
+          "front": 78.870228,
+          "garageDoorbell": 204.676744
+        },
+        "longestDecodedGapMs": {
+          "front": 1350.375,
+          "garageDoorbell": 2526.961
+        },
+        "initialIssues": "Connection refused during bridge/go2rtc restart, followed by low initial counts and clock timeouts; pipelines later recovered without another client restart."
+      },
+      "garagepi": {
+        "servicePid": 5087,
+        "serviceRestarts": 0,
+        "active": true,
+        "activation": "Was inactive when config changed; became active independently before final check. Agent did not start or stop it.",
+        "hardwareDecoders": [
+          "v4l2h264dec",
+          "v4l2h264dec"
+        ],
+        "decoderDeviceFds": [
+          "/dev/video10",
+          "/dev/video10"
+        ],
+        "frontAccepted": {
+          "from": 332,
+          "to": 603,
+          "seconds": 31
+        },
+        "garageDoorbellAccepted": {
+          "from": 85,
+          "to": 336,
+          "seconds": 33
+        },
+        "cpuBusyPercent": 73.43,
+        "finalRtspSocketQueuesBytes": {
+          "recv": 0,
+          "send": 0
+        },
+        "lastKmsAgeUpperMs": {
+          "front": 69.588828,
+          "garageDoorbell": 419.924415
+        },
+        "longestDecodedGapMs": {
+          "front": 1491.805,
+          "garageDoorbell": 2566.133
+        },
+        "observedWarnings": "v4l2 decreasing timestamps/initial frames not dequeued during earlier reconnect; counters advanced afterward."
+      },
+      "configSha256Both": "1bc970ab3bad4b33ca3c48b238e125b04881e7971d6cddec46541c4c9a25327d",
+      "scanoutVerified": false,
+      "sensorCaptureAgeVerified": false
+    }
+  },
+  "android": [
+    {
+      "device": "58",
+      "firstSampleUtc": "2026-10-22T21:17:04.059220+00:00",
+      "lastSampleUtc": "2026-10-22T21:17:25.325331+00:00",
+      "pid": "14093",
+      "progressDelta": {
+        "T8214510242321E6": {
+          "receivedUnits": 314,
+          "renderedFrames": 305
+        },
+        "T821451023461C88": {
+          "receivedUnits": 348,
+          "renderedFrames": 331
+        }
+      },
+      "cameras": {
+        "T8214510242321E6": {
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "queuedUnits": "0",
+          "pendingDecodeMediaMs": "0",
+          "lastDecodeAgeUpperMs": "37"
+        },
+        "T821451023461C88": {
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "queuedUnits": "0",
+          "pendingDecodeMediaMs": "0",
+          "lastDecodeAgeUpperMs": "44"
+        }
+      },
+      "unrelatedWyzeRetryObserved": true,
+      "physicalScreenVerified": false
+    },
+    {
+      "device": "85",
+      "firstSampleUtc": "2026-10-22T21:17:03.828203+00:00",
+      "lastSampleUtc": "2026-10-22T21:17:25.036388+00:00",
+      "pid": "25824",
+      "progressDelta": {
+        "T8214510242321E6": {
+          "receivedUnits": 314,
+          "renderedFrames": 303
+        },
+        "T821451023461C88": {
+          "receivedUnits": 349,
+          "renderedFrames": 339
+        }
+      },
+      "cameras": {
+        "T8214510242321E6": {
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "queuedUnits": "1",
+          "pendingDecodeMediaMs": "0",
+          "lastDecodeAgeUpperMs": "34"
+        },
+        "T821451023461C88": {
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "queuedUnits": "0",
+          "pendingDecodeMediaMs": "0",
+          "lastDecodeAgeUpperMs": "45"
+        }
+      },
+      "unrelatedWyzeRetryObserved": true,
+      "physicalScreenVerified": false
+    },
+    {
+      "device": "100",
+      "firstSampleUtc": "2026-10-22T21:17:03.923834+00:00",
+      "lastSampleUtc": "2026-10-22T21:17:25.105258+00:00",
+      "pid": "7625",
+      "progressDelta": {
+        "T8214510242321E6": {
+          "receivedUnits": 313,
+          "renderedFrames": 303
+        },
+        "T821451023461C88": {
+          "receivedUnits": 349,
+          "renderedFrames": 338
+        }
+      },
+      "cameras": {
+        "T8214510242321E6": {
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "queuedUnits": "0",
+          "pendingDecodeMediaMs": "0",
+          "lastDecodeAgeUpperMs": "46"
+        },
+        "T821451023461C88": {
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "queuedUnits": "0",
+          "pendingDecodeMediaMs": "0",
+          "lastDecodeAgeUpperMs": "47"
+        }
+      },
+      "unrelatedWyzeRetryObserved": true,
+      "physicalScreenVerified": false
+    }
+  ],
+  "androidConfiguration": {
+    "centerCamera": "T821451023461C88",
+    "hardwarePinned": [
+      "T8214510242321E6",
+      "T821451023461C88"
+    ],
+    "motionCameraPolicy": "battery only; new Garage Doorbell removed, Garage Interior Door retained",
+    "otherTilesAndLayoutPreserved": true,
+    "configuredActiveLayoutCountPerDevice": 1,
+    "layout": "TWO_TALL_RIGHT"
+  }
+}
