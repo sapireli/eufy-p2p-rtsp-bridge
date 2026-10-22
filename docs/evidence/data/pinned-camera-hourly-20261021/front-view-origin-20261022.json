@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "started": {
+    "wallMs": 1792703815277,
+    "monoUs": 444211383462
+  },
+  "seconds": 300,
+  "scope": "Call-boundary observations, not proof of UDP delivery; coded keyframe AUs private. No commands or new source consumers.",
+  "guardedDeployment": {
+    "pid": 224927,
+    "sdkGitCommit": "48e4f2f1d0dd5d255d928766cdae585bec6076d0",
+    "indexSha256": "dd649e91323a3b2b5159d68b99c369cfa1cbffc64cfa302392830e482ff4da47"
+  },
+  "initial": {
+    "sessionOrdinal": 1,
+    "localUdpPort": 46860,
+    "channel": 2,
+    "requestedStreamType": 2,
+    "consumers": 1
+  },
+  "output": "/var/lib/eufy-wall-bridge/front-view-origin-20261022",
+  "finished": {
+    "wallMs": 1792704115295,
+    "monoUs": 444511403127
+  },
+  "reason": "duration",
+  "events": [
+    {
+      "wallMs": 1792703815397,
+      "monoUs": 444211503348,
+      "kind": "incoming-video-type-change",
+      "sessionOrdinal": 1,
+      "localUdpPort": 46860,
+      "channel": 2,
+      "headerType": 53
+    },
+    {
+      "wallMs": 1792703817388,
+      "monoUs": 444213494228,
+      "kind": "coded-keyframe-geometry-change",
+      "sessionOrdinal": 1,
+      "localUdpPort": 46860,
+      "width": 1600,
+      "height": 2200,
+      "channel": 2,
+      "sourceTimestamp": 1702456010,
+      "incomingHeaderType": 53,
+      "codedBytes": 232893,
+      "savedAuOrdinal": 1
+    }
+  ],
+  "omitted": 0,
+  "savedAuBytes": 232893,
+  "savedAuCount": 1,
+  "cleanup": [
+    {
+      "method": "sendMediaPayloadLevel2",
+      "restored": true,
+      "foreignReplacementPreserved": false
+    },
+    {
+      "method": "sendControlLevel2",
+      "restored": true,
+      "foreignReplacementPreserved": false
+    },
+    {
+      "method": "sendSetPayload",
+      "restored": true,
+      "foreignReplacementPreserved": false
+    },
+    {
+      "event": "data",
+      "ownedAbsent": true,
+      "othersPreserved": true
+    },
+    {
+      "event": "video",
+      "ownedAbsent": true,
+      "othersPreserved": true
+    }
+  ],
+  "identityAfter": {
+    "sameSource": true,
+    "sameOwner": true,
+    "sameSession": true,
+    "sameSocket": true,
+    "samePublicSession": true,
+    "connected": true
+  },
+  "privateKeyframe": {
+    "bytes": 232893,
+    "sha256": "a2e97b0333b0908436ba0c531c926f117b8a2c612493b8841ed6110f6f9d490c",
+    "mediaCommitted": false
+  },
+  "postCompletionCheck": {
+    "checkedAtUtc": "2026-10-22T21:22:23Z",
+    "inspectorListening": false,
+    "bridgePID": 224927,
+    "bridgeActive": true
+  }
+}
