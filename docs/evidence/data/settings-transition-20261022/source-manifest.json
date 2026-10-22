@@ -1,0 +1,15 @@
+{
+  "sourceCommit": "693f758726fcbd7c10d9bd1a36bc56b2e95e9f9c",
+  "deployedFilesVerified": 9,
+  "files": {
+    "server.mjs": "82ab0edbda1c8d543113815adcb5848bf73cf0f6ab61cfb1ffd45efc5c8e900f",
+    "src/config.mjs": "25d6077c69c4b2900cf907d1c16169d56bcae0e23e74b3e51d14cba3553122bc",
+    "src/cameras.mjs": "dbab0eeb26046fea4c92cc0a1df9c983bd06473a59c021cb70e59f0afec25b1e",
+    "src/sdk-adapter.mjs": "94b9775e8b8fa2ba7a9b88db49e5afbdfc1e438c3eac592da5680b5255dc4c6a",
+    "src/http.mjs": "4cef81ed84acef4c1820e45cab11a0b967b9d1b414974264f1daf26d9d255ba2",
+    "src/settings-store.mjs": "0002d3665f51b30cee9528e7b1ce95c517624ae15b9bbb7a06da2e0175b52125",
+    "src/settings-http.mjs": "de91200e265f9d609baefe95af2b552779024a11d15d2562a0f509d96907f61a",
+    "src/settings-runtime.mjs": "4fbf9241c416a0291aa1f9224200930a5238e73339ac78a3ea82d69ce54b85e8",
+    "src/pins.mjs": "0d72423eda5e635bfc038df9a2885392b4c8d48c1a4033a2041b4f2b14a66c3a"
+  }
+}
