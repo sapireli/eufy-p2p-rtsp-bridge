@@ -1,0 +1,176 @@
+{
+  "monitor": {
+    "monitorPID": 195415,
+    "bridgePID": 195316,
+    "startWall": 1792648574.4167874,
+    "durationSeconds": 4500,
+    "samplingSeconds": 1,
+    "scope": "API source arrival ages and process liveness; no sensor capture time claim",
+    "finishedWall": 1792653074.4170544
+  },
+  "samples": 4500,
+  "inputSHA256": "3a561cd3c537d4773aa8bd52bca1e580c6b50f6505e8b607a2fa63a42f2b3e3a",
+  "bridgePIDs": [
+    195316
+  ],
+  "cameras": {
+    "Front Door CLE": {
+      "final": [
+        1792653073.4170527,
+        {
+          "name": "Front Door CLE",
+          "streaming": true,
+          "stalls": 1,
+          "sourceReceipt": {
+            "sourceId": "arrival-a7b91776416ae4b0",
+            "sequence": "246671",
+            "monotonicUs": "393469410835",
+            "frameId": "246671",
+            "ageMs": 121.374
+          }
+        }
+      ],
+      "transitions": [
+        {
+          "wall": 1792652142.4181955,
+          "streaming": false,
+          "stalls": 1
+        },
+        {
+          "wall": 1792652143.4169846,
+          "streaming": true,
+          "stalls": 1
+        }
+      ],
+      "postWireRecoveryObservationSeconds": 930.0406777858734,
+      "postRecoveryAllStreaming": true,
+      "postRecoveryStalls": [
+        1
+      ],
+      "maxSampledPostRecoveryReceiptAgeMs": 279.41
+    },
+    "Garage CLE": {
+      "final": [
+        1792653073.4170527,
+        {
+          "name": "Garage CLE",
+          "streaming": true,
+          "stalls": 1,
+          "sourceReceipt": {
+            "sourceId": "arrival-a7b91776416ae4b0",
+            "sequence": "246674",
+            "monotonicUs": "393469440409",
+            "frameId": "246674",
+            "ageMs": 89.895
+          }
+        }
+      ],
+      "transitions": [
+        {
+          "wall": 1792648594.4169536,
+          "streaming": true,
+          "stalls": 0
+        },
+        {
+          "wall": 1792652200.4171555,
+          "streaming": false,
+          "stalls": 1
+        },
+        {
+          "wall": 1792652201.417025,
+          "streaming": true,
+          "stalls": 1
+        }
+      ],
+      "postWireRecoveryObservationSeconds": 872.5584106445312,
+      "postRecoveryAllStreaming": true,
+      "postRecoveryStalls": [
+        1
+      ],
+      "maxSampledPostRecoveryReceiptAgeMs": 147.425
+    },
+    "Balcony CLE": {
+      "final": [
+        1792653073.4170527,
+        {
+          "name": "Balcony CLE",
+          "streaming": true,
+          "stalls": 1,
+          "sourceReceipt": {
+            "sourceId": "arrival-a7b91776416ae4b0",
+            "sequence": "246676",
+            "monotonicUs": "393469506767",
+            "frameId": "246676",
+            "ageMs": 21.587
+          }
+        }
+      ],
+      "transitions": [
+        {
+          "wall": 1792649222.4174538,
+          "streaming": false,
+          "stalls": 0
+        },
+        {
+          "wall": 1792649223.4175541,
+          "streaming": true,
+          "stalls": 0
+        },
+        {
+          "wall": 1792650081.4173965,
+          "streaming": false,
+          "stalls": 0
+        },
+        {
+          "wall": 1792650083.4170039,
+          "streaming": true,
+          "stalls": 0
+        },
+        {
+          "wall": 1792650137.417497,
+          "streaming": false,
+          "stalls": 0
+        },
+        {
+          "wall": 1792650138.4169314,
+          "streaming": true,
+          "stalls": 0
+        },
+        {
+          "wall": 1792650360.4172258,
+          "streaming": false,
+          "stalls": 0
+        },
+        {
+          "wall": 1792650362.4173567,
+          "streaming": true,
+          "stalls": 0
+        },
+        {
+          "wall": 1792651546.4170394,
+          "streaming": false,
+          "stalls": 1
+        },
+        {
+          "wall": 1792651572.4170086,
+          "streaming": true,
+          "stalls": 1
+        },
+        {
+          "wall": 1792651976.4180632,
+          "streaming": false,
+          "stalls": 1
+        },
+        {
+          "wall": 1792651977.41695,
+          "streaming": true,
+          "stalls": 1
+        }
+      ],
+      "postWireRecoveryObservationSeconds": null,
+      "postRecoveryAllStreaming": null,
+      "postRecoveryStalls": null,
+      "maxSampledPostRecoveryReceiptAgeMs": null
+    }
+  }
+}

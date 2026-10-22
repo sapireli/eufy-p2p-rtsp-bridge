@@ -1,0 +1,244 @@
+{
+  "rawCaptureSha256": "ad15982edfa63b3b0548c4fc327c65280a86e787f304ed04ba410a74c3e54037",
+  "captureIntegrityPass": true,
+  "captureMetadata": [
+    {
+      "phase": "capture-start",
+      "scope": "kernel-interface-packet-tap",
+      "interface": "eth0",
+      "startedUnixNs": "1792652095243179571",
+      "startedMonotonicNs": "392491349375116",
+      "receiveBufferBytes": 16777216,
+      "peerIds": [
+        "peer-1"
+      ],
+      "payloadStored": false,
+      "kernelFilter": "IPv4 UDP",
+      "receiveBufferForced": true,
+      "commandHeaders": true,
+      "commandHeaderInspectionBytes": 16,
+      "incomingLogicalHeaders": true,
+      "logicalReorderMetadataOnly": true
+    },
+    {
+      "phase": "capture-end",
+      "endedUnixNs": "1792652295244329942",
+      "endedMonotonicNs": "392691350518837",
+      "captured": 83722,
+      "ignored": 115910,
+      "untimestamped": 0,
+      "truncated": 0,
+      "packetTapSeen": 199633,
+      "packetTapDropped": 0,
+      "payloadStored": false
+    }
+  ],
+  "decision": "Initial raw media pauses still occurred. Latest deployment shortens observed recovery; does not prevent upstream cuts.",
+  "cameras": {
+    "Front Door CLE": {
+      "maximumRawGapSeconds": 7.506105661392212,
+      "previousObservedBaselineSeconds": [
+        28.188712,
+        30.264257
+      ],
+      "observedReductionPercent": [
+        73.37194526166286,
+        75.19811683666244
+      ],
+      "boundaryGap": {
+        "start": "2026-10-22T06:55:35.870270+00:00",
+        "end": "2026-10-22T06:55:43.376375+00:00",
+        "seconds": 7.506105661392212,
+        "fromEndpoint": [
+          "peer-1",
+          45640,
+          13929
+        ],
+        "toEndpoint": [
+          "peer-1",
+          50850,
+          24317
+        ],
+        "lastSequence": 735,
+        "nextSequence": 0,
+        "lastVideoAckMs": 0.9524822235107422,
+        "oldEndpointProtocolInsideGap": {
+          "('out', 209, 1)": 1,
+          "('in', 208, 2)": 10,
+          "('out', 209, 2)": 9,
+          "('out', 224, None)": 2,
+          "('in', 225, None)": 2,
+          "('out', 208, 0)": 2,
+          "('in', 209, 0)": 1,
+          "('in', 208, 0)": 1,
+          "('out', 240, None)": 1,
+          "('in', 240, None)": 1
+        },
+        "outgoingDataAndEndsNearGap": [
+          {
+            "at": "2026-10-22T06:55:41.872943+00:00",
+            "direction": "out",
+            "messageType": 208,
+            "dataType": 0,
+            "localPort": 45640,
+            "peerPort": 13929,
+            "sequence": 2,
+            "commandId": 1350,
+            "commandChannel": 2,
+            "commandType": 12,
+            "ackAt": "2026-10-22T06:55:41.877270+00:00",
+            "ackMs": 4.327058792114258
+          },
+          {
+            "at": "2026-10-22T06:55:41.976993+00:00",
+            "direction": "out",
+            "messageType": 208,
+            "dataType": 0,
+            "localPort": 45640,
+            "peerPort": 13929,
+            "sequence": 3,
+            "commandId": 1350,
+            "commandChannel": 2,
+            "commandType": 13,
+            "ackAt": null,
+            "ackMs": null
+          },
+          {
+            "at": "2026-10-22T06:55:41.977082+00:00",
+            "direction": "out",
+            "messageType": 240,
+            "localPort": 45640,
+            "peerPort": 13929
+          },
+          {
+            "at": "2026-10-22T06:55:41.985896+00:00",
+            "direction": "in",
+            "messageType": 240,
+            "localPort": 45640,
+            "peerPort": 13929
+          },
+          {
+            "at": "2026-10-22T06:55:42.932826+00:00",
+            "direction": "out",
+            "messageType": 208,
+            "dataType": 0,
+            "localPort": 50850,
+            "peerPort": 24317,
+            "sequence": 0,
+            "commandId": 1100,
+            "commandChannel": 255,
+            "commandType": 0,
+            "ackAt": "2026-10-22T06:55:43.001406+00:00",
+            "ackMs": 68.58086585998535
+          },
+          {
+            "at": "2026-10-22T06:55:43.192285+00:00",
+            "direction": "out",
+            "messageType": 208,
+            "dataType": 0,
+            "localPort": 50850,
+            "peerPort": 24317,
+            "sequence": 1,
+            "commandId": 1350,
+            "commandChannel": 2,
+            "commandType": 11,
+            "ackAt": "2026-10-22T06:55:43.193213+00:00",
+            "ackMs": 0.9279251098632812
+          }
+        ]
+      },
+      "lastConfirmedVideo": "2026-10-22T06:58:15.184245+00:00",
+      "postRecoveryObservationSeconds": 151.80787
+    },
+    "Garage CLE": {
+      "maximumRawGapSeconds": 7.202671766281128,
+      "previousObservedBaselineSeconds": [
+        26.804036
+      ],
+      "observedReductionPercent": [
+        73.1284058629039
+      ],
+      "boundaryGap": {
+        "start": "2026-10-22T06:56:33.655971+00:00",
+        "end": "2026-10-22T06:56:40.858642+00:00",
+        "seconds": 7.202671766281128,
+        "fromEndpoint": [
+          "peer-1",
+          53882,
+          17898
+        ],
+        "toEndpoint": [
+          "peer-1",
+          53882,
+          17898
+        ],
+        "lastSequence": 36839,
+        "nextSequence": 36840,
+        "lastVideoAckMs": 14.605283737182617,
+        "oldEndpointProtocolInsideGap": {
+          "('out', 209, 1)": 58,
+          "('in', 208, 2)": 16,
+          "('out', 209, 2)": 16,
+          "('out', 224, None)": 1,
+          "('in', 225, None)": 1,
+          "('out', 208, 0)": 3,
+          "('in', 209, 0)": 3,
+          "('in', 208, 0)": 3,
+          "('out', 209, 0)": 3
+        },
+        "outgoingDataAndEndsNearGap": [
+          {
+            "at": "2026-10-22T06:56:39.666299+00:00",
+            "direction": "out",
+            "messageType": 208,
+            "dataType": 0,
+            "localPort": 53882,
+            "peerPort": 17898,
+            "sequence": 69,
+            "commandId": 1350,
+            "commandChannel": 1,
+            "commandType": 79,
+            "ackAt": "2026-10-22T06:56:39.671016+00:00",
+            "ackMs": 4.7168731689453125
+          },
+          {
+            "at": "2026-10-22T06:56:39.979121+00:00",
+            "direction": "out",
+            "messageType": 208,
+            "dataType": 0,
+            "localPort": 53882,
+            "peerPort": 17898,
+            "sequence": 70,
+            "commandId": 1350,
+            "commandChannel": 1,
+            "commandType": 80,
+            "ackAt": "2026-10-22T06:56:39.986642+00:00",
+            "ackMs": 7.520437240600586
+          },
+          {
+            "at": "2026-10-22T06:56:40.457321+00:00",
+            "direction": "out",
+            "messageType": 208,
+            "dataType": 0,
+            "localPort": 53882,
+            "peerPort": 17898,
+            "sequence": 71,
+            "commandId": 1350,
+            "commandChannel": 1,
+            "commandType": 81,
+            "ackAt": "2026-10-22T06:56:40.461753+00:00",
+            "ackMs": 4.432439804077148
+          }
+        ]
+      },
+      "lastConfirmedVideo": "2026-10-22T06:58:15.234475+00:00",
+      "postRecoveryObservationSeconds": 94.375833
+    }
+  },
+  "limits": [
+    "One deployed boundary per camera; not universal repeated-event guarantee.",
+    "Raw upstream cuts remain; only recovery duration improved in observed run.",
+    "Packet ACK does not decrypt1350 command semantics.",
+    "Bridge/API journal must independently anchor source-retirement call and forwarded first frame; raw UDP identifies wire endpoints and arrival."
+  ]
+}

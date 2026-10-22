@@ -1,0 +1,890 @@
+{
+  "scope": "Read-only INFO logs and preferences. Render counts are informational MediaCodec callbacks, not physical scanout or capture-age measurements. No log clearing, restarts, DEBUG enablement or configuration writes.",
+  "devices": [
+    {
+      "device": "192.168.23.58",
+      "before": {
+        "device": "192.168.23.58",
+        "pid": "16814",
+        "timezoneOffset": "-0400",
+        "hardwarePinnedCameraIds": [
+          "T8214510242321E6",
+          "T8425T1124130A0C"
+        ],
+        "observedWallMs": 1792651997270
+      },
+      "after": {
+        "device": "192.168.23.58",
+        "observedWallMs": 1792652474406,
+        "pid": "16814",
+        "hardwarePinnedCameraIds": [
+          "T8214510242321E6",
+          "T8425T1124130A0C"
+        ],
+        "status": "read"
+      },
+      "appPidUnchanged": true,
+      "pinsUnchanged": true,
+      "hardwareDecoderStarts": [
+        {
+          "wallMs": 1792652144681,
+          "atUtc": "2026-10-22T06:55:44.681+00:00",
+          "pid": 16814,
+          "message": "Live decoder OMX.amlogic.avc.decoder.awesome started (HARDWARE, pinned=true)"
+        },
+        {
+          "wallMs": 1792652201938,
+          "atUtc": "2026-10-22T06:56:41.938+00:00",
+          "pid": 16814,
+          "message": "Live decoder OMX.amlogic.avc.decoder.awesome started (HARDWARE, pinned=true)"
+        }
+      ],
+      "cameraResults": [
+        {
+          "camera": "Front Door CLE",
+          "sn": "T8214510242321E6",
+          "diagnosticSamples": 78,
+          "firstDiagnostic": {
+            "wallMs": 1792652028638,
+            "atUtc": "2026-10-22T06:53:48.638+00:00",
+            "pid": 16814,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 28981,
+            "decodedFrames": 28952,
+            "renderedFrames": 28334,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 1932067980,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 966
+          },
+          "lastDiagnostic": {
+            "wallMs": 1792652413274,
+            "atUtc": "2026-10-22T07:00:13.274+00:00",
+            "pid": 16814,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 4042,
+            "decodedFrames": 4013,
+            "renderedFrames": 3960,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 269597997,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 950
+          },
+          "lastTwoDiagnostics": [
+            {
+              "wallMs": 1792652408273,
+              "atUtc": "2026-10-22T07:00:08.273+00:00",
+              "pid": 16814,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 3967,
+              "decodedFrames": 3938,
+              "renderedFrames": 3886,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 264596997,
+              "pendingDecodeMediaMs": 0,
+              "longestFrameGapMs": 950
+            },
+            {
+              "wallMs": 1792652413274,
+              "atUtc": "2026-10-22T07:00:13.274+00:00",
+              "pid": 16814,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 4042,
+              "decodedFrames": 4013,
+              "renderedFrames": 3960,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 269597997,
+              "pendingDecodeMediaMs": 0,
+              "longestFrameGapMs": 950
+            }
+          ],
+          "recoveries": [
+            {
+              "readTimeoutUtc": "2026-10-22T06:55:41.169+00:00",
+              "firstNewRenderUtc": "2026-10-22T06:55:46.117+00:00",
+              "readTimeoutToFirstRenderMs": 4948,
+              "releases": [
+                {
+                  "atUtc": "2026-10-22T06:55:42.170+00:00",
+                  "message": "Player released sn=tile-0 reason=rtsp-retry decodedFrames=30569 receivedUnits=30598"
+                }
+              ],
+              "firstReleaseToNewRenderMs": 3947,
+              "renderCallbackProgressPauseBounds": {
+                "lowerMs": 7418,
+                "upperMs": 12422,
+                "lastProgressPollBeforeFinalCountUtc": "2026-10-22T06:55:33.695+00:00",
+                "firstPollWithFinalCountUtc": "2026-10-22T06:55:38.699+00:00",
+                "scope": "Informational render-callback progress bounds; not measured physical freeze duration."
+              },
+              "siblingProgress": {
+                "camera": "Garage CLE",
+                "before": {
+                  "wallMs": 1792652137698,
+                  "atUtc": "2026-10-22T06:55:37.698+00:00",
+                  "pid": 16814,
+                  "decoder": "OMX.amlogic.avc.decoder.awesome",
+                  "receivedUnits": 30648,
+                  "decodedFrames": 30619,
+                  "renderedFrames": 29718,
+                  "queuedUnits": 0,
+                  "latestDecodedPtsUs": 2043330979,
+                  "pendingDecodeMediaMs": 0,
+                  "longestFrameGapMs": 417
+                },
+                "after": {
+                  "wallMs": 1792652147707,
+                  "atUtc": "2026-10-22T06:55:47.707+00:00",
+                  "pid": 16814,
+                  "decoder": "OMX.amlogic.avc.decoder.awesome",
+                  "receivedUnits": 30798,
+                  "decodedFrames": 30769,
+                  "renderedFrames": 29865,
+                  "queuedUnits": 0,
+                  "latestDecodedPtsUs": 2053331979,
+                  "pendingDecodeMediaMs": 0,
+                  "longestFrameGapMs": 417
+                },
+                "receivedDelta": 150,
+                "renderedDelta": 147
+              },
+              "firstRenderLog": "Rendered first frame for T8214510242321E6 after 3946ms"
+            }
+          ],
+          "events": [
+            {
+              "wallMs": 1792652141169,
+              "atUtc": "2026-10-22T06:55:41.169+00:00",
+              "pid": 16814,
+              "camera": "Front Door CLE",
+              "sn": "T8214510242321E6",
+              "message": "RTSP T8214510242321E6: Read timed out"
+            },
+            {
+              "wallMs": 1792652142170,
+              "atUtc": "2026-10-22T06:55:42.170+00:00",
+              "pid": 16814,
+              "camera": "Front Door CLE",
+              "sn": "T8214510242321E6",
+              "message": "Player released sn=tile-0 reason=rtsp-retry decodedFrames=30569 receivedUnits=30598"
+            },
+            {
+              "wallMs": 1792652142183,
+              "atUtc": "2026-10-22T06:55:42.183+00:00",
+              "pid": 16814,
+              "camera": "Front Door CLE",
+              "sn": "T8214510242321E6",
+              "message": "T8214510242321E6 RTSP TCP packet size=8192"
+            },
+            {
+              "wallMs": 1792652146117,
+              "atUtc": "2026-10-22T06:55:46.117+00:00",
+              "pid": 16814,
+              "camera": "Front Door CLE",
+              "sn": "T8214510242321E6",
+              "message": "Rendered first frame for T8214510242321E6 after 3946ms"
+            }
+          ]
+        },
+        {
+          "camera": "Garage CLE",
+          "sn": "T8425T1124130A0C",
+          "diagnosticSamples": 77,
+          "firstDiagnostic": {
+            "wallMs": 1792652032642,
+            "atUtc": "2026-10-22T06:53:52.642+00:00",
+            "pid": 16814,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 29073,
+            "decodedFrames": 29044,
+            "renderedFrames": 28183,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 1938331980,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 417
+          },
+          "lastDiagnostic": {
+            "wallMs": 1792652411095,
+            "atUtc": "2026-10-22T07:00:11.095+00:00",
+            "pid": 16814,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 3149,
+            "decodedFrames": 3120,
+            "renderedFrames": 2995,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 209934997,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 467
+          },
+          "lastTwoDiagnostics": [
+            {
+              "wallMs": 1792652406091,
+              "atUtc": "2026-10-22T07:00:06.091+00:00",
+              "pid": 16814,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 3074,
+              "decodedFrames": 3045,
+              "renderedFrames": 2922,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 204932997,
+              "pendingDecodeMediaMs": 0,
+              "longestFrameGapMs": 467
+            },
+            {
+              "wallMs": 1792652411095,
+              "atUtc": "2026-10-22T07:00:11.095+00:00",
+              "pid": 16814,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 3149,
+              "decodedFrames": 3120,
+              "renderedFrames": 2995,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 209934997,
+              "pendingDecodeMediaMs": 0,
+              "longestFrameGapMs": 467
+            }
+          ],
+          "recoveries": [
+            {
+              "readTimeoutUtc": "2026-10-22T06:56:38.984+00:00",
+              "firstNewRenderUtc": "2026-10-22T06:56:43.484+00:00",
+              "readTimeoutToFirstRenderMs": 4500,
+              "releases": [
+                {
+                  "atUtc": "2026-10-22T06:56:39.984+00:00",
+                  "message": "Player released sn=tile-1 reason=rtsp-retry decodedFrames=31463 receivedUnits=31492"
+                }
+              ],
+              "firstReleaseToNewRenderMs": 3500,
+              "renderCallbackProgressPauseBounds": {
+                "lowerMs": 5731,
+                "upperMs": 10736,
+                "lastProgressPollBeforeFinalCountUtc": "2026-10-22T06:56:32.748+00:00",
+                "firstPollWithFinalCountUtc": "2026-10-22T06:56:37.753+00:00",
+                "scope": "Informational render-callback progress bounds; not measured physical freeze duration."
+              },
+              "siblingProgress": {
+                "camera": "Front Door CLE",
+                "before": {
+                  "wallMs": 1792652198187,
+                  "atUtc": "2026-10-22T06:56:38.187+00:00",
+                  "pid": 16814,
+                  "decoder": "OMX.amlogic.avc.decoder.awesome",
+                  "receivedUnits": 819,
+                  "decodedFrames": 789,
+                  "renderedFrames": 776,
+                  "queuedUnits": 0,
+                  "latestDecodedPtsUs": 54530999,
+                  "pendingDecodeMediaMs": 68,
+                  "longestFrameGapMs": 950
+                },
+                "after": {
+                  "wallMs": 1792652208190,
+                  "atUtc": "2026-10-22T06:56:48.190+00:00",
+                  "pid": 16814,
+                  "decoder": "OMX.amlogic.avc.decoder.awesome",
+                  "receivedUnits": 968,
+                  "decodedFrames": 939,
+                  "renderedFrames": 926,
+                  "queuedUnits": 0,
+                  "latestDecodedPtsUs": 64532999,
+                  "pendingDecodeMediaMs": 0,
+                  "longestFrameGapMs": 950
+                },
+                "receivedDelta": 149,
+                "renderedDelta": 150
+              },
+              "firstRenderLog": "Rendered first frame for T8425T1124130A0C after 3496ms"
+            }
+          ],
+          "events": [
+            {
+              "wallMs": 1792652198984,
+              "atUtc": "2026-10-22T06:56:38.984+00:00",
+              "pid": 16814,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "RTSP T8425T1124130A0C: Read timed out"
+            },
+            {
+              "wallMs": 1792652199984,
+              "atUtc": "2026-10-22T06:56:39.984+00:00",
+              "pid": 16814,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "Player released sn=tile-1 reason=rtsp-retry decodedFrames=31463 receivedUnits=31492"
+            },
+            {
+              "wallMs": 1792652200011,
+              "atUtc": "2026-10-22T06:56:40.011+00:00",
+              "pid": 16814,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "T8425T1124130A0C RTSP TCP packet size=8192"
+            },
+            {
+              "wallMs": 1792652203484,
+              "atUtc": "2026-10-22T06:56:43.484+00:00",
+              "pid": 16814,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "Rendered first frame for T8425T1124130A0C after 3496ms"
+            }
+          ]
+        }
+      ],
+      "hardwareReclaimEvents": [],
+      "logRows": 412,
+      "logSha256": "7f22e1948ab3e3033e8ad8fc4b7377636c96028806e820ba5d3b07ab781c07bd"
+    },
+    {
+      "device": "192.168.23.85",
+      "before": {
+        "device": "192.168.23.85",
+        "pid": "6286",
+        "timezoneOffset": "-0400",
+        "hardwarePinnedCameraIds": [
+          "T8425T1124130A0C",
+          "T8214510242321E6"
+        ],
+        "observedWallMs": 1792651997367
+      },
+      "after": {
+        "device": "192.168.23.85",
+        "observedWallMs": 1792652474406,
+        "readError": "adb: device offline",
+        "status": "unavailable"
+      },
+      "appPidUnchanged": null,
+      "pinsUnchanged": null,
+      "hardwareDecoderStarts": [],
+      "cameraResults": [
+        {
+          "camera": "Front Door CLE",
+          "sn": "T8214510242321E6",
+          "diagnosticSamples": 1,
+          "firstDiagnostic": {
+            "wallMs": 1792652029514,
+            "atUtc": "2026-10-22T06:53:49.514+00:00",
+            "pid": 6286,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 1740,
+            "decodedFrames": 1730,
+            "renderedFrames": 1634,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 1933267980,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 730
+          },
+          "lastDiagnostic": {
+            "wallMs": 1792652029514,
+            "atUtc": "2026-10-22T06:53:49.514+00:00",
+            "pid": 6286,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 1740,
+            "decodedFrames": 1730,
+            "renderedFrames": 1634,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 1933267980,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 730
+          },
+          "lastTwoDiagnostics": [
+            {
+              "wallMs": 1792652029514,
+              "atUtc": "2026-10-22T06:53:49.514+00:00",
+              "pid": 6286,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 1740,
+              "decodedFrames": 1730,
+              "renderedFrames": 1634,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 1933267980,
+              "pendingDecodeMediaMs": 0,
+              "longestFrameGapMs": 730
+            }
+          ],
+          "recoveries": [],
+          "events": [
+            {
+              "wallMs": 1792652031624,
+              "atUtc": "2026-10-22T06:53:51.624+00:00",
+              "pid": 6286,
+              "camera": "Front Door CLE",
+              "sn": "T8214510242321E6",
+              "message": "Player released sn=a0c616b9-9d36-48fe-b5a4-89a9fe413fc3 reason=wall-stopped decodedFrames=1744 receivedUnits=1755"
+            }
+          ]
+        },
+        {
+          "camera": "Garage CLE",
+          "sn": "T8425T1124130A0C",
+          "diagnosticSamples": 1,
+          "firstDiagnostic": {
+            "wallMs": 1792652029514,
+            "atUtc": "2026-10-22T06:53:49.514+00:00",
+            "pid": 6286,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 1740,
+            "decodedFrames": 1727,
+            "renderedFrames": 1648,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 1935197980,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 333
+          },
+          "lastDiagnostic": {
+            "wallMs": 1792652029514,
+            "atUtc": "2026-10-22T06:53:49.514+00:00",
+            "pid": 6286,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 1740,
+            "decodedFrames": 1727,
+            "renderedFrames": 1648,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 1935197980,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 333
+          },
+          "lastTwoDiagnostics": [
+            {
+              "wallMs": 1792652029514,
+              "atUtc": "2026-10-22T06:53:49.514+00:00",
+              "pid": 6286,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 1740,
+              "decodedFrames": 1727,
+              "renderedFrames": 1648,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 1935197980,
+              "pendingDecodeMediaMs": 0,
+              "longestFrameGapMs": 333
+            }
+          ],
+          "recoveries": [],
+          "events": [
+            {
+              "wallMs": 1792652031629,
+              "atUtc": "2026-10-22T06:53:51.629+00:00",
+              "pid": 6286,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "Player released sn=7b411afc-55a8-4679-a320-6024d0b9dc8c reason=wall-stopped decodedFrames=1755 receivedUnits=1770"
+            }
+          ]
+        }
+      ],
+      "hardwareReclaimEvents": [],
+      "logRows": 14,
+      "logSha256": "32f6973b713cc30436f067d738976841ac828f05c4393b12b296100e89ae889f"
+    },
+    {
+      "device": "192.168.23.100",
+      "before": {
+        "device": "192.168.23.100",
+        "pid": "25671",
+        "timezoneOffset": "-0400",
+        "hardwarePinnedCameraIds": [
+          "T8214510242321E6",
+          "T8425T1124130A0C"
+        ],
+        "observedWallMs": 1792651997335
+      },
+      "after": {
+        "device": "192.168.23.100",
+        "observedWallMs": 1792652474406,
+        "pid": "25671",
+        "hardwarePinnedCameraIds": [
+          "T8214510242321E6",
+          "T8425T1124130A0C"
+        ],
+        "status": "read"
+      },
+      "appPidUnchanged": true,
+      "pinsUnchanged": true,
+      "hardwareDecoderStarts": [
+        {
+          "wallMs": 1792652144749,
+          "atUtc": "2026-10-22T06:55:44.749+00:00",
+          "pid": 25671,
+          "message": "Live decoder OMX.amlogic.avc.decoder.awesome started (HARDWARE, pinned=true)"
+        },
+        {
+          "wallMs": 1792652201948,
+          "atUtc": "2026-10-22T06:56:41.948+00:00",
+          "pid": 25671,
+          "message": "Live decoder OMX.amlogic.avc.decoder.awesome started (HARDWARE, pinned=true)"
+        }
+      ],
+      "cameraResults": [
+        {
+          "camera": "Front Door CLE",
+          "sn": "T8214510242321E6",
+          "diagnosticSamples": 78,
+          "firstDiagnostic": {
+            "wallMs": 1792652028220,
+            "atUtc": "2026-10-22T06:53:48.220+00:00",
+            "pid": 25671,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 28978,
+            "decodedFrames": 28949,
+            "renderedFrames": 28066,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 1931868980,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 966
+          },
+          "lastDiagnostic": {
+            "wallMs": 1792652413305,
+            "atUtc": "2026-10-22T07:00:13.305+00:00",
+            "pid": 25671,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 4042,
+            "decodedFrames": 4013,
+            "renderedFrames": 3962,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 269597997,
+            "pendingDecodeMediaMs": 0,
+            "longestFrameGapMs": 950
+          },
+          "lastTwoDiagnostics": [
+            {
+              "wallMs": 1792652408304,
+              "atUtc": "2026-10-22T07:00:08.304+00:00",
+              "pid": 25671,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 3967,
+              "decodedFrames": 3938,
+              "renderedFrames": 3887,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 264596997,
+              "pendingDecodeMediaMs": 0,
+              "longestFrameGapMs": 950
+            },
+            {
+              "wallMs": 1792652413305,
+              "atUtc": "2026-10-22T07:00:13.305+00:00",
+              "pid": 25671,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 4042,
+              "decodedFrames": 4013,
+              "renderedFrames": 3962,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 269597997,
+              "pendingDecodeMediaMs": 0,
+              "longestFrameGapMs": 950
+            }
+          ],
+          "recoveries": [
+            {
+              "readTimeoutUtc": "2026-10-22T06:55:41.169+00:00",
+              "firstNewRenderUtc": "2026-10-22T06:55:46.091+00:00",
+              "readTimeoutToFirstRenderMs": 4922,
+              "releases": [
+                {
+                  "atUtc": "2026-10-22T06:55:42.169+00:00",
+                  "message": "Player released sn=1b6a2093-b012-47b1-9c21-5e0c829906de reason=rtsp-retry decodedFrames=30569 receivedUnits=30598"
+                }
+              ],
+              "firstReleaseToNewRenderMs": 3922,
+              "renderCallbackProgressPauseBounds": {
+                "lowerMs": 7826,
+                "upperMs": 12827,
+                "lastProgressPollBeforeFinalCountUtc": "2026-10-22T06:55:33.264+00:00",
+                "firstPollWithFinalCountUtc": "2026-10-22T06:55:38.265+00:00",
+                "scope": "Informational render-callback progress bounds; not measured physical freeze duration."
+              },
+              "siblingProgress": {
+                "camera": "Garage CLE",
+                "before": {
+                  "wallMs": 1792652137260,
+                  "atUtc": "2026-10-22T06:55:37.260+00:00",
+                  "pid": 25671,
+                  "decoder": "OMX.amlogic.avc.decoder.awesome",
+                  "receivedUnits": 30642,
+                  "decodedFrames": 30612,
+                  "renderedFrames": 29337,
+                  "queuedUnits": 0,
+                  "latestDecodedPtsUs": 2042863979,
+                  "pendingDecodeMediaMs": 70,
+                  "longestFrameGapMs": 1316
+                },
+                "after": {
+                  "wallMs": 1792652147261,
+                  "atUtc": "2026-10-22T06:55:47.261+00:00",
+                  "pid": 25671,
+                  "decoder": "OMX.amlogic.avc.decoder.awesome",
+                  "receivedUnits": 30792,
+                  "decodedFrames": 30763,
+                  "renderedFrames": 29483,
+                  "queuedUnits": 0,
+                  "latestDecodedPtsUs": 2052930979,
+                  "pendingDecodeMediaMs": 0,
+                  "longestFrameGapMs": 1316
+                },
+                "receivedDelta": 150,
+                "renderedDelta": 146
+              },
+              "firstRenderLog": "Rendered first frame for T8214510242321E6 after 3920ms"
+            }
+          ],
+          "events": [
+            {
+              "wallMs": 1792652141169,
+              "atUtc": "2026-10-22T06:55:41.169+00:00",
+              "pid": 25671,
+              "camera": "Front Door CLE",
+              "sn": "T8214510242321E6",
+              "message": "RTSP T8214510242321E6: Read timed out"
+            },
+            {
+              "wallMs": 1792652142169,
+              "atUtc": "2026-10-22T06:55:42.169+00:00",
+              "pid": 25671,
+              "camera": "Front Door CLE",
+              "sn": "T8214510242321E6",
+              "message": "Player released sn=1b6a2093-b012-47b1-9c21-5e0c829906de reason=rtsp-retry decodedFrames=30569 receivedUnits=30598"
+            },
+            {
+              "wallMs": 1792652142180,
+              "atUtc": "2026-10-22T06:55:42.180+00:00",
+              "pid": 25671,
+              "camera": "Front Door CLE",
+              "sn": "T8214510242321E6",
+              "message": "T8214510242321E6 RTSP TCP packet size=8192"
+            },
+            {
+              "wallMs": 1792652146091,
+              "atUtc": "2026-10-22T06:55:46.091+00:00",
+              "pid": 25671,
+              "camera": "Front Door CLE",
+              "sn": "T8214510242321E6",
+              "message": "Rendered first frame for T8214510242321E6 after 3920ms"
+            }
+          ]
+        },
+        {
+          "camera": "Garage CLE",
+          "sn": "T8425T1124130A0C",
+          "diagnosticSamples": 78,
+          "firstDiagnostic": {
+            "wallMs": 1792652032207,
+            "atUtc": "2026-10-22T06:53:52.207+00:00",
+            "pid": 25671,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 29066,
+            "decodedFrames": 29036,
+            "renderedFrames": 27811,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 1937797980,
+            "pendingDecodeMediaMs": 67,
+            "longestFrameGapMs": 1316
+          },
+          "lastDiagnostic": {
+            "wallMs": 1792652412349,
+            "atUtc": "2026-10-22T07:00:12.349+00:00",
+            "pid": 25671,
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 3168,
+            "decodedFrames": 3138,
+            "renderedFrames": 2995,
+            "queuedUnits": 0,
+            "latestDecodedPtsUs": 211131997,
+            "pendingDecodeMediaMs": 67,
+            "longestFrameGapMs": 466
+          },
+          "lastTwoDiagnostics": [
+            {
+              "wallMs": 1792652407347,
+              "atUtc": "2026-10-22T07:00:07.347+00:00",
+              "pid": 25671,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 3092,
+              "decodedFrames": 3063,
+              "renderedFrames": 2924,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 206131997,
+              "pendingDecodeMediaMs": 0,
+              "longestFrameGapMs": 466
+            },
+            {
+              "wallMs": 1792652412349,
+              "atUtc": "2026-10-22T07:00:12.349+00:00",
+              "pid": 25671,
+              "decoder": "OMX.amlogic.avc.decoder.awesome",
+              "receivedUnits": 3168,
+              "decodedFrames": 3138,
+              "renderedFrames": 2995,
+              "queuedUnits": 0,
+              "latestDecodedPtsUs": 211131997,
+              "pendingDecodeMediaMs": 67,
+              "longestFrameGapMs": 466
+            }
+          ],
+          "recoveries": [
+            {
+              "readTimeoutUtc": "2026-10-22T06:56:38.992+00:00",
+              "firstNewRenderUtc": "2026-10-22T06:56:43.487+00:00",
+              "readTimeoutToFirstRenderMs": 4495,
+              "releases": [
+                {
+                  "atUtc": "2026-10-22T06:56:39.991+00:00",
+                  "message": "Player released sn=eaaa0778-6ff5-4140-98c2-3a346d08b29f reason=rtsp-retry decodedFrames=31463 receivedUnits=31492"
+                },
+                {
+                  "atUtc": "2026-10-22T06:56:41.233+00:00",
+                  "message": "Player released sn=eaaa0778-6ff5-4140-98c2-3a346d08b29f reason=rtsp-retry decodedFrames=0 receivedUnits=0"
+                }
+              ],
+              "firstReleaseToNewRenderMs": 3496,
+              "renderCallbackProgressPauseBounds": {
+                "lowerMs": 6204,
+                "upperMs": 11207,
+                "lastProgressPollBeforeFinalCountUtc": "2026-10-22T06:56:32.280+00:00",
+                "firstPollWithFinalCountUtc": "2026-10-22T06:56:37.283+00:00",
+                "scope": "Informational render-callback progress bounds; not measured physical freeze duration."
+              },
+              "siblingProgress": {
+                "camera": "Front Door CLE",
+                "before": {
+                  "wallMs": 1792652198207,
+                  "atUtc": "2026-10-22T06:56:38.207+00:00",
+                  "pid": 25671,
+                  "decoder": "OMX.amlogic.avc.decoder.awesome",
+                  "receivedUnits": 819,
+                  "decodedFrames": 790,
+                  "renderedFrames": 777,
+                  "queuedUnits": 0,
+                  "latestDecodedPtsUs": 54598999,
+                  "pendingDecodeMediaMs": 0,
+                  "longestFrameGapMs": 950
+                },
+                "after": {
+                  "wallMs": 1792652208215,
+                  "atUtc": "2026-10-22T06:56:48.215+00:00",
+                  "pid": 25671,
+                  "decoder": "OMX.amlogic.avc.decoder.awesome",
+                  "receivedUnits": 968,
+                  "decodedFrames": 939,
+                  "renderedFrames": 926,
+                  "queuedUnits": 0,
+                  "latestDecodedPtsUs": 64532999,
+                  "pendingDecodeMediaMs": 0,
+                  "longestFrameGapMs": 950
+                },
+                "receivedDelta": 149,
+                "renderedDelta": 149
+              },
+              "firstRenderLog": "Rendered first frame for T8425T1124130A0C after 2249ms"
+            }
+          ],
+          "events": [
+            {
+              "wallMs": 1792652198992,
+              "atUtc": "2026-10-22T06:56:38.992+00:00",
+              "pid": 25671,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "RTSP T8425T1124130A0C: Read timed out"
+            },
+            {
+              "wallMs": 1792652199991,
+              "atUtc": "2026-10-22T06:56:39.991+00:00",
+              "pid": 25671,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "Player released sn=eaaa0778-6ff5-4140-98c2-3a346d08b29f reason=rtsp-retry decodedFrames=31463 receivedUnits=31492"
+            },
+            {
+              "wallMs": 1792652200011,
+              "atUtc": "2026-10-22T06:56:40.011+00:00",
+              "pid": 25671,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "T8425T1124130A0C RTSP TCP packet size=8192"
+            },
+            {
+              "wallMs": 1792652200233,
+              "atUtc": "2026-10-22T06:56:40.233+00:00",
+              "pid": 25671,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "RTSP T8425T1124130A0C: Invalid status code 404"
+            },
+            {
+              "wallMs": 1792652201233,
+              "atUtc": "2026-10-22T06:56:41.233+00:00",
+              "pid": 25671,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "Player released sn=eaaa0778-6ff5-4140-98c2-3a346d08b29f reason=rtsp-retry decodedFrames=0 receivedUnits=0"
+            },
+            {
+              "wallMs": 1792652201246,
+              "atUtc": "2026-10-22T06:56:41.246+00:00",
+              "pid": 25671,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "T8425T1124130A0C RTSP TCP packet size=8192"
+            },
+            {
+              "wallMs": 1792652203487,
+              "atUtc": "2026-10-22T06:56:43.487+00:00",
+              "pid": 25671,
+              "camera": "Garage CLE",
+              "sn": "T8425T1124130A0C",
+              "message": "Rendered first frame for T8425T1124130A0C after 2249ms"
+            }
+          ]
+        }
+      ],
+      "hardwareReclaimEvents": [],
+      "logRows": 420,
+      "logSha256": "3eafa6ff023e2871d868ee13f1e8c78d6a5159708468663ffba08e8e680d406b"
+    }
+  ],
+  "captureCompletion": [
+    {
+      "device": "192.168.23.58",
+      "startedWallMs": 1792652027471,
+      "finishedWallMs": 1792652415127,
+      "logRows": 412,
+      "discardedOutlierRows": 5659,
+      "logcatExit": -15,
+      "stderr": ""
+    },
+    {
+      "device": "192.168.23.85",
+      "startedWallMs": 1792652027471,
+      "finishedWallMs": 1792652405615,
+      "logRows": 14,
+      "discardedOutlierRows": 54,
+      "logcatExit": 255,
+      "stderr": ""
+    },
+    {
+      "device": "192.168.23.100",
+      "startedWallMs": 1792652027473,
+      "finishedWallMs": 1792652415128,
+      "logRows": 420,
+      "discardedOutlierRows": 5779,
+      "logcatExit": -15,
+      "stderr": ""
+    }
+  ],
+  "outcomeSummary": {
+    "activeTvsObserved": 2,
+    "allActiveTvsRecoveredBothFeeds": true,
+    "postRecoveryCountersAdvancedThroughUtc": "2026-10-22T07:00:13Z",
+    "activeAppPidsAndHardwarePinsPreserved": true,
+    "hardwareDecoderReopenMode": "OMX.amlogic.avc.decoder.awesome HARDWARE,pinned=true for both camera reopenings on each active TV",
+    "hardwareReclaimEvents": 0,
+    "thirdTvLimitation": "192.168.23.85 released all players with wall-stopped at06:53:51UTC,before theboundarywindow. Itlater becameADBoffline; one allowedadbconnect attempttimedout. Noapprestartattempted. Itsboundaryrecovery/PID/pinsafterwindowcannotbeverified.",
+    "oneAdditionalRetry": "192.168.23.100 Garage firstreconnect receivedRTSP404 at06:56:40.233UTC; automaticsecondretryrenderedat06:56:43.487UTC."
+  },
+  "limitations": [
+    "INFO render-count progress is a MediaCodec callback observation, not physical SurfaceFlinger scanout or sensor freshness.",
+    "Recovery measuredfromplayerrelease excludesprior freeze/detection time; separatepollboundsareprovided.",
+    "NoDEBUGlogging,logclear,apprestart,TVpoweractionorconfigurationwrite."
+  ]
+}

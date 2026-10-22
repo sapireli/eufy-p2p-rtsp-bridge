@@ -1,0 +1,88 @@
+{
+  "scope": "Bounded semantic comparison; not whole-package equivalence or retrospective loaded-process attestation",
+  "previousArtifact": {
+    "path": "/tmp/eufy-pin-disconnect-20261021/bridge-update-20261022/previous-sdk-index.js",
+    "sha256": "326643d70f5926439bfbdb1c1dfc022e4ff4eab3dd4657fdfd19ac6123f22ded",
+    "provenance": "extracted rollback index; conflicts with prior deployment marker; old PID loaded bytes unverified"
+  },
+  "newSource": {
+    "commit": "66692a04a2516634277b1a33eb30205071ee7ff3",
+    "path": "/tmp/eufy-sdk-latest-compat-20261022"
+  },
+  "comparison": [
+    {
+      "method": "LiveStream.settleKeepalive / armStallWatch / nudge",
+      "previousLines": [
+        18885,
+        18948
+      ],
+      "newSource": "src/transport/p2p/live-stream.ts:221-283",
+      "result": "Equivalent: own attached-channel media settles periodic starts; silence6s reasserts START then every3s, no post-established terminal deadline in these methods."
+    },
+    {
+      "method": "SharedLiveSource.attachConsumer / watchReusedStream / onVideo",
+      "previousLines": [
+        [
+          19859,
+          19878
+        ],
+        [
+          20012,
+          20026
+        ],
+        [
+          20105,
+          20126
+        ]
+      ],
+      "newSource": "src/transport/p2p/shared-live-source.ts:477-495,635-649,740-763",
+      "result": "Equivalent: ordinary new attachment waits next live keyframe, reuse watch starts only when joining existing stream, first keyframe clears warm watch and establishes lifecycle live; persistent attached video silence does not independently arm warm deadline."
+    },
+    {
+      "method": "arrivalTime readable egress",
+      "previousLines": [
+        20669,
+        20677
+      ],
+      "newSource": "src/transport/p2p/readable-egress.ts:48-57",
+      "result": "Equivalent: wraps existing item.timestampMs; source assigns timestamp on incoming media, no timestamp rebase/replay in this adapter."
+    },
+    {
+      "method": "resetCameraStream / dropLiveSource / closeMediaSession",
+      "previousLines": [
+        [
+          21912,
+          21921
+        ],
+        [
+          22632,
+          22652
+        ]
+      ],
+      "newSource": "src/transport/p2p/command-router.ts:427-434,1211-1230",
+      "result": "Equivalent: dispose cached camera source, delete mapping, close dedicated media session only; async API does not await void manager.close completion."
+    }
+  ],
+  "characterizationReview": {
+    "path": "src/transport/p2p/__tests__/established-live-silence-characterization.spec.ts",
+    "sha256": "ff8672fa2ce5a393a68e29109142a0452b09e313dc9ad38b3d9ec87c3b3b8e90",
+    "materialIssues": [],
+    "realProductionClasses": [
+      "P2PSession.handleFrame",
+      "LiveStream",
+      "SharedLiveSource"
+    ],
+    "bypassed": [
+      "initial connection handshake",
+      "session send boundary intercepted"
+    ],
+    "persistentConsumer": true,
+    "assertions": "one keyframe then60 valid controls over60fake seconds;20 START, zero STOP/error/end before disposal; same owner/one consumer",
+    "limits": [
+      "logical frame injection bypasses UDP reassembly/socket heartbeat/peer",
+      "connected transport assumed, not independently proven by synthetic controls",
+      "live is lifecycle label, not documented freshness health promise",
+      "does not establish universal timeout, model coverage, or actual peer START response"
+    ]
+  }
+}
