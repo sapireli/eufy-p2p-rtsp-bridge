@@ -1,0 +1,274 @@
+{
+  "scope": "30-second steady-state receipt/client progress after deployment; does not verify hourly recovery or physical scanout",
+  "startUTC": "2026-10-22T05:58:51.961275+00:00",
+  "endUTC": "2026-10-22T05:59:24.881334+00:00",
+  "spanSeconds": 30.00042176246643,
+  "bridgePIDAfter": "MainPID=195316",
+  "bridgeSummary": [
+    {
+      "camera": "Front Door CLE",
+      "allSamplesStreaming": true,
+      "stallsFirst": 0,
+      "stallsLast": 0,
+      "receiptSequences": [
+        "9817",
+        "10065",
+        "10357",
+        "10616",
+        "10899",
+        "11161",
+        "11454"
+      ],
+      "inputDelta": 448,
+      "outputDelta": 448,
+      "sampleReceiptAgeMsMax": 224.434
+    },
+    {
+      "camera": "Garage CLE",
+      "allSamplesStreaming": true,
+      "stallsFirst": 0,
+      "stallsLast": 0,
+      "receiptSequences": [
+        "9815",
+        "10061",
+        "10363",
+        "10620",
+        "10900",
+        "11160",
+        "11452"
+      ],
+      "inputDelta": 450,
+      "outputDelta": 450,
+      "sampleReceiptAgeMsMax": 64.877
+    },
+    {
+      "camera": "Balcony CLE",
+      "allSamplesStreaming": true,
+      "stallsFirst": 0,
+      "stallsLast": 0,
+      "receiptSequences": [
+        "9816",
+        "10064",
+        "10365",
+        "10615",
+        "10898",
+        "11157",
+        "11453"
+      ],
+      "inputDelta": 739,
+      "outputDelta": 739,
+      "sampleReceiptAgeMsMax": 268.421
+    }
+  ],
+  "tvSummary": [
+    {
+      "target": "192.168.23.58:5555",
+      "pidBefore": "16814",
+      "pidAfter": "16814",
+      "progress": [
+        {
+          "camera": "wyze_cam",
+          "decoder": "OMX.google.h264.decoder",
+          "firstLogWall": 1792648731.77,
+          "lastLogWall": 1792648761.782,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "400",
+          "lastDecodeAgeUpperMs": "-1",
+          "decodedFramesDelta": 448,
+          "renderedFramesDelta": 448,
+          "receivedUnitsDelta": 448,
+          "logSpanSeconds": 30.01200008392334,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        },
+        {
+          "camera": "T8425T1124130A0C",
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "firstLogWall": 1792648728.804,
+          "lastLogWall": 1792648758.811,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "0",
+          "lastDecodeAgeUpperMs": "36",
+          "decodedFramesDelta": 450,
+          "renderedFramesDelta": 441,
+          "receivedUnitsDelta": 450,
+          "logSpanSeconds": 30.007000207901,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        },
+        {
+          "camera": "T8214510242321E6",
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "firstLogWall": 1792648728.82,
+          "lastLogWall": 1792648758.83,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "0",
+          "lastDecodeAgeUpperMs": "39",
+          "decodedFramesDelta": 438,
+          "renderedFramesDelta": 422,
+          "receivedUnitsDelta": 438,
+          "logSpanSeconds": 30.009999990463257,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        },
+        {
+          "camera": "T8423T60241702B1",
+          "decoder": "OMX.google.h264.decoder",
+          "firstLogWall": 1792648728.863,
+          "lastLogWall": 1792648758.876,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "398",
+          "lastDecodeAgeUpperMs": "498",
+          "decodedFramesDelta": 737,
+          "renderedFramesDelta": 735,
+          "receivedUnitsDelta": 739,
+          "logSpanSeconds": 30.013000011444092,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        }
+      ],
+      "failures": []
+    },
+    {
+      "target": "192.168.23.85:5555",
+      "pidBefore": "6286",
+      "pidAfter": "6286",
+      "progress": [
+        {
+          "camera": "T8423T60241702B1",
+          "decoder": "OMX.google.h264.decoder",
+          "firstLogWall": 1792648728.78,
+          "lastLogWall": 1792648758.789,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "442",
+          "lastDecodeAgeUpperMs": "508",
+          "decodedFramesDelta": 737,
+          "renderedFramesDelta": 736,
+          "receivedUnitsDelta": 739,
+          "logSpanSeconds": 30.009000062942505,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        },
+        {
+          "camera": "T8425T1124130A0C",
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "firstLogWall": 1792648728.892,
+          "lastLogWall": 1792648758.91,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "64",
+          "lastDecodeAgeUpperMs": "98",
+          "decodedFramesDelta": 448,
+          "renderedFramesDelta": 435,
+          "receivedUnitsDelta": 449,
+          "logSpanSeconds": 30.01800012588501,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        },
+        {
+          "camera": "T8214510242321E6",
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "firstLogWall": 1792648728.9,
+          "lastLogWall": 1792648758.932,
+          "queueLast": "1",
+          "pendingDecodeLastMs": "132",
+          "lastDecodeAgeUpperMs": "39",
+          "decodedFramesDelta": 436,
+          "renderedFramesDelta": 418,
+          "receivedUnitsDelta": 438,
+          "logSpanSeconds": 30.031999826431274,
+          "maximumOfBeforeAfterQueueSnapshots": 1
+        },
+        {
+          "camera": "wyze_cam",
+          "decoder": "OMX.google.h264.decoder",
+          "firstLogWall": 1792648731.734,
+          "lastLogWall": 1792648761.74,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "599",
+          "lastDecodeAgeUpperMs": "-1",
+          "decodedFramesDelta": 445,
+          "renderedFramesDelta": 445,
+          "receivedUnitsDelta": 448,
+          "logSpanSeconds": 30.00600004196167,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        }
+      ],
+      "failures": []
+    },
+    {
+      "target": "192.168.23.100:5555",
+      "pidBefore": "25671",
+      "pidAfter": "25671",
+      "progress": [
+        {
+          "camera": "wyze_cam",
+          "decoder": "OMX.google.h264.decoder",
+          "firstLogWall": 1792648731.792,
+          "lastLogWall": 1792648761.801,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "466",
+          "lastDecodeAgeUpperMs": "-1",
+          "decodedFramesDelta": 447,
+          "renderedFramesDelta": 446,
+          "receivedUnitsDelta": 448,
+          "logSpanSeconds": 30.009000062942505,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        },
+        {
+          "camera": "T8425T1124130A0C",
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "firstLogWall": 1792648728.798,
+          "lastLogWall": 1792648763.822,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "0",
+          "lastDecodeAgeUpperMs": "44",
+          "decodedFramesDelta": 526,
+          "renderedFramesDelta": 502,
+          "receivedUnitsDelta": 526,
+          "logSpanSeconds": 35.0239999294281,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        },
+        {
+          "camera": "T8423T60241702B1",
+          "decoder": "OMX.google.h264.decoder",
+          "firstLogWall": 1792648728.843,
+          "lastLogWall": 1792648763.857,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "440",
+          "lastDecodeAgeUpperMs": "1185",
+          "decodedFramesDelta": 837,
+          "renderedFramesDelta": 834,
+          "receivedUnitsDelta": 839,
+          "logSpanSeconds": 35.01400017738342,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        },
+        {
+          "camera": "T8214510242321E6",
+          "decoder": "OMX.amlogic.avc.decoder.awesome",
+          "firstLogWall": 1792648728.915,
+          "lastLogWall": 1792648763.927,
+          "queueLast": "0",
+          "pendingDecodeLastMs": "0",
+          "lastDecodeAgeUpperMs": "49",
+          "decodedFramesDelta": 517,
+          "renderedFramesDelta": 488,
+          "receivedUnitsDelta": 517,
+          "logSpanSeconds": 35.01200008392334,
+          "maximumOfBeforeAfterQueueSnapshots": 0
+        }
+      ],
+      "failures": []
+    }
+  ],
+  "startupLimit": "Garage had two cold warm-up timeouts before first stream; excluded from this steady-state window, not proof startup is fixed.",
+  "bridgeRecoveryMessagesDuringWindow": [],
+  "separateBalconyFindings": {
+    "sourceGeometryChangesDuringWindow": 4,
+    "softwareDecoderOnAllThreeTVs": true,
+    "latestInformationalDecodeAgeUpperMs": {
+      "58": 498,
+      "85": 508,
+      "100": 1185
+    },
+    "interpretation": "Continued software decode age/cadence issue; not fixed or investigated further by this deployment check."
+  },
+  "limits": [
+    "Bridge input/output advances observed in seven snapshots over30seconds, not physical sensor-to-screen validation.",
+    "TV diagnostics advance across30.0\u201335.0seconds; queuedUnits sampled before/after, not a continuous peak bound.",
+    "No hourly failure/recovery event occurred in this short steady-state sample."
+  ]
+}
