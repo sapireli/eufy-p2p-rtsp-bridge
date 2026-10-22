@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "scope": "Existing systemd journal only; no new media probe or raw packet capture. Watchdog-to-streaming is not the whole incoming-media gap or screen freeze.",
+  "observations": [
+    {
+      "timeUtc": "2026-10-22T07:55:49.404265+00:00",
+      "bridgePID": 195316,
+      "camera": "Front Door",
+      "message": "[bridge] Front Door: no bytes for 5 s \u2014 restarting feed (stall #2)"
+    },
+    {
+      "timeUtc": "2026-10-22T07:55:49.406639+00:00",
+      "bridgePID": 195316,
+      "camera": "Front Door",
+      "message": "[bridge] Front Door: stopped"
+    },
+    {
+      "timeUtc": "2026-10-22T07:55:49.412546+00:00",
+      "bridgePID": 195316,
+      "camera": "Front Door",
+      "message": "[bridge] Front Door: stalled \u2014 reopening in 1000 ms"
+    },
+    {
+      "timeUtc": "2026-10-22T07:55:50.079608+00:00",
+      "bridgePID": 195316,
+      "camera": "Front Door",
+      "message": "[bridge] Front Door: 1 failure(s) \u2014 retired camera source; sibling station streams preserved"
+    },
+    {
+      "timeUtc": "2026-10-22T07:55:51.629235+00:00",
+      "bridgePID": 195316,
+      "camera": "Front Door",
+      "message": "[bridge] Front Door: streaming"
+    },
+    {
+      "timeUtc": "2026-10-22T07:56:47.454825+00:00",
+      "bridgePID": 195316,
+      "camera": "Garage CLE",
+      "message": "[bridge] Garage CLE: no bytes for 7 s \u2014 restarting feed (stall #2)"
+    },
+    {
+      "timeUtc": "2026-10-22T07:56:47.458412+00:00",
+      "bridgePID": 195316,
+      "camera": "Garage CLE",
+      "message": "[bridge] Garage CLE: stopped"
+    },
+    {
+      "timeUtc": "2026-10-22T07:56:47.464779+00:00",
+      "bridgePID": 195316,
+      "camera": "Garage CLE",
+      "message": "[bridge] Garage CLE: stalled \u2014 reopening in 1000 ms"
+    },
+    {
+      "timeUtc": "2026-10-22T07:56:47.481911+00:00",
+      "bridgePID": 195316,
+      "camera": "Garage CLE",
+      "message": "[bridge] Garage CLE: 1 failure(s) \u2014 retired camera source; sibling station streams preserved"
+    },
+    {
+      "timeUtc": "2026-10-22T07:56:50.396548+00:00",
+      "bridgePID": 195316,
+      "camera": "Garage CLE",
+      "message": "[bridge] Garage CLE: streaming"
+    }
+  ],
+  "decision": "Both initial hourly cuts recurred. Faster recovery repeated; prevention is unproved."
+}

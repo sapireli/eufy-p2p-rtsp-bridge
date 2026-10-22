@@ -63,3 +63,17 @@ A 45-second read-only check at **07:50:53–07:51:38 UTC** found Front Door and 
 A separate read-only inventory identified no second active Eufy controller on the bridge host. Homebridge runs configuration, SSH and MQTT plugins; the checked configured command/topic fields and six schedule files contained no Eufy controller references. This excludes an identified competing actor on this host during the audit only; historical transient actors and other hosts remain outside scope. [Sanitized host audit](data/pinned-camera-hourly-20261021/competing-controller-host-audit.json).
 
 An independent review found no actionable defect in recovery commit `7bf46b9`'s one-shot retirement latch, fixed startup deadline, explicit threshold overrides or sibling isolation. These checks justify retaining the measured recovery repair. They do not establish a cause or prevention for the initial upstream cutoff.
+
+## Second hourly boundary
+
+Without another deployment or bridge restart, both initial interruptions recurred during the next hour. The existing systemd journal records Front Door's second watchdog at **07:55:49.404 UTC**, camera-source retirement at **07:55:50.080**, and streaming at **07:55:51.629**. Garage's second watchdog was at **07:56:47.455**, retirement at **07:56:47.482**, and streaming at **07:56:50.397**. All records came from the unchanged bridge PID 195316.
+
+Watchdog-to-streaming was therefore **2.225 seconds** for Front Door and **2.942 seconds** for Garage. These journal intervals exclude the silence before the watchdog and do not measure raw VIDEO gaps or physical-screen freezes. They support repeatable recovery after the second interruption and contradict any claim that the initial cutoff was prevented. No new packet capture or playback intervention was used. [Sanitized journal observations](data/pinned-camera-hourly-20261021/second-hour-recovery-journal.json).
+
+## Closure trial completed without reproduction
+
+The second, bounded listener-only observer ran **07:38:52.926–08:08:52.931 UTC** for 1,800.005 seconds on Balcony's existing source/owner/session/socket. It recorded **zero END, stop or close events**. All identities remained unchanged and connected/live. All four owned callbacks were removed while preserving the identities and order of other callbacks. The observer process exited, the loopback inspector stopped listening, and bridge PID 195316 remained active. [Result and cleanup checks](data/pinned-camera-hourly-20261021/balcony-eos-next-closure-no-event.json).
+
+This is an inconclusive reproduction window. It does not establish that earlier EOFs were fixed, nor implicate incoming END or local SDK disposal. The independent source audit shows that selected-peer END can close the source, but that conditional code path was not observed here; changing it would therefore be speculative. No SDK production change or periodic restart policy follows from this trial.
+
+The initial hourly VIDEO cutoff also remains unexplained despite repeatable faster recovery. An owner-app lifetime comparison is still missing: a fresh, successful `xctrace` inventory listed no connected iPhone. Existing short owner-app captures do not cross the relevant lifetime and cannot supply that comparison. No evidence-backed prevention intervention is available from the completed trials. Further progress requires new causal evidence, such as a captured actual EOF origin or an equivalent owner-app session observed across the hourly boundary. The recovery fix is retained; the broader disconnect objective is not complete.
