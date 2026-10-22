@@ -4,6 +4,7 @@ import { PassThrough } from "node:stream";
 import { createStreamManager } from "../src/stream-manager.mjs";
 import { createState } from "../src/state.mjs";
 import { createFreshness } from "../src/freshness.mjs";
+import { loadConfig } from "../src/config.mjs";
 
 // Keep test output pristine: capture the manager's console.log/warn/error for the whole file.
 const originals = {};
@@ -338,6 +339,37 @@ test("blocked slot failing for longer than exitAfterMs does not exit the process
   } finally {
     await sm.stopAll();
   }
+});
+
+test("default recovery retires the first failed established camera source before reopening, preserving its sibling", async () => {
+  const { cfg } = loadConfig({ env: { EUFY_EMAIL: "synthetic@example.com", EUFY_PASSWORD: "synthetic" }, configPath: "/nonexistent-eufy-recovery-test.yaml" });
+  cfg.stall.backoffMs = [5]; // Shorten only retry scheduling; keep the production retirement default.
+  const state = createState(), calls = [], feeds = { A: [], B: [] };
+  const sm = createStreamManager({
+    state, cfg,
+    getCamera: (sn) => ({ sn, enabled: true, mode: "always", stationSn: "STATION" }),
+    sdk: {
+      streamClientFor: async () => ({}),
+      dropStreamClient: async (sn) => { calls.push("reset:" + sn); return true; },
+      openFeed: async (_client, sn) => {
+        calls.push("open:" + sn);
+        const feed = new PassThrough(); feeds[sn].push(feed); return feed;
+      },
+      extractParamSets: () => undefined,
+    },
+  });
+  try {
+    await sm.ensureWarm("A"); await sm.ensureWarm("B");
+    feeds.A[0].write(KEY); feeds.B[0].write(KEY);
+    assert.equal(sm.streamStatus("A").streaming, true, "A delivered real media before failure");
+    calls.length = 0;
+    feeds.A[0].destroy(new Error("synthetic source failure"));
+    await waitUntil(() => feeds.A.length === 2);
+    assert.deepEqual(calls, ["reset:A", "open:A"], "first failed source is retired before reacquisition");
+    assert.equal(feeds.B.length, 1, "sibling was never reacquired");
+    assert.equal(feeds.B[0].destroyed, false, "sibling readable remains live");
+    assert.equal(sm.streamStatus("B").streaming, true);
+  } finally { await sm.stopAll(); }
 });
 
 test("repeated open failures recreate the stream client (fresh session) every Nth failure", async () => {
@@ -729,3 +761,101 @@ test("upstream arrival envelopes keep SDK queue age and advance even within one 
     assert.equal(ctx.state.streaming.has("A"), true);
   } finally { await sm.stopAll(); }
 });
+
+// An explicit SDK reset establishes a new source, whose startup may legitimately
+// take longer than the established source's five-second playback watchdog.
+test("a successfully retired camera can deliver its replacement's first frame after seven seconds", async () => {
+  const feeds = [];
+  const ctx = ctxWith({ feeds: [() => { const feed = new PassThrough({ objectMode: true }); feeds.push(feed); return feed; }] });
+  ctx.cfg.stall = { ...loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, configPath: "/nonexistent-eufy-recovery-test.yaml" }).cfg.stall, backoffMs: [1] };
+  let resets = 0, clock = 1_000_000n;
+  ctx.sdk.dropStreamClient = async () => { resets++; return true; };
+  ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => clock });
+  const sm = createStreamManager(ctx);
+  const frame = { data: KEY, sourceTimestamp: 1000, keyframe: true, codec: "h264" };
+  try {
+    await sm.ensureWarm("A");
+    feeds[0].write({ frame, receipt: { sourceId: "old", sequence: 1n, monotonicUs: clock } });
+    feeds[0].destroy(new Error("synthetic established-source failure"));
+    await waitUntil(() => feeds.length === 2);
+    const replacement = feeds[1], slot = ctx.state.slots.get("A");
+    const startedAt = slot.startedAt;
+    sm.streamTick(startedAt + 6000);
+    assert.equal(replacement.destroyed, false, "a confirmed new source keeps its startup window beyond five seconds");
+    clock += 7_000_000n;
+    replacement.write({ frame, receipt: { sourceId: "new", sequence: 1n, monotonicUs: clock } });
+    assert.equal(sm.streamStatus("A").streaming, true);
+    assert.equal(resets, 1, "cold startup did not cause another camera reset");
+    assert.equal(slot.failures, 0);
+  } finally { await sm.stopAll(); }
+});
+
+test("reset startup deadline survives cached primes and readable retries, then genuine media re-arms retirement", async (t) => {
+  let wall = 1_000_000;
+  t.mock.method(Date, "now", () => wall);
+  const feeds = [], ctx = ctxWith({ feeds: [() => { const f = new PassThrough({ objectMode: true }); feeds.push(f); return f; }] });
+  ctx.cfg.stall = { stallMs: 5000, startupStallMs: 30000, gapMs: 45000, exitAfterMs: 0, recreateClientAfter: 1, backoffMs: [1] };
+  let resets = 0, clock = 1_000_000n;
+  ctx.sdk.dropStreamClient = async () => { resets++; return true; };
+  ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => clock });
+  const manager = createStreamManager(ctx);
+  const frame = { data: KEY, sourceTimestamp: 1000, keyframe: true, codec: "h264" };
+  const receipt = Object.freeze({ sourceId: "old-source", sequence: 1n, monotonicUs: clock });
+  try {
+    await manager.ensureWarm("A"); feeds[0].write({ frame, receipt });
+    feeds[0].destroy(new Error("old source stopped"));
+    await waitUntil(() => feeds.length === 2);
+    const slot = ctx.state.slots.get("A"), resetAt = wall;
+    wall += 7000; clock += 7_000_000n;
+    feeds[1].write({ frame, receipt });
+    manager.streamTick(wall);
+    assert.equal(feeds[1].destroyed, false);
+    assert.equal(slot.lastSourceReceipt, receipt, "reset preserves the historical immutable watermark");
+    assert.equal(slot.lastBytesAt, resetAt, "cached prime cannot become fresh media");
+    assert.equal(slot.failures, 1, "cached prime cannot clear failure episode");
+    wall = resetAt + 20000; feeds[1].end();
+    await waitUntil(() => feeds.length === 3);
+    assert.equal(resets, 1, "readable recovery cannot retire the cold source again");
+    feeds[2].write({ frame, receipt });
+    wall = resetAt + 30001; manager.streamTick(wall);
+    assert.equal(feeds[2].destroyed, true, "reopening at twenty seconds cannot extend the original thirty-second deadline");
+    await waitUntil(() => feeds.length === 4);
+    assert.equal(resets, 1, "deadline failure cannot repeatedly reset the source");
+    // The SDK may autonomously rebuild after its own failure. Its generation is
+    // not exposed here: preserve the ordinary readable window and do not reset
+    // that producer while it takes seven seconds to deliver its first picture.
+    wall += 3000; manager.streamTick(wall);
+    assert.equal(feeds[3].destroyed, false, "expired startup anchor cannot immediately kill subsequent retries");
+    wall += 3000; manager.streamTick(wall);
+    assert.equal(feeds[3].destroyed, true, "later retry retains the ordinary five-second live watchdog");
+    await waitUntil(() => feeds.length === 5);
+    wall += 1000; clock += 31_000_000n;
+    feeds[4].write({ frame, receipt: { sourceId: "new-source", sequence: 1n, monotonicUs: clock } });
+    assert.equal(manager.streamStatus("A").streaming, true, "new source delivers seven seconds into recovery after the original deadline");
+    assert.equal(resets, 1, "readable retries did not reset the warming SDK producer");
+    assert.equal(slot.failures, 0);
+    wall += 1000; feeds[4].end();
+    await waitUntil(() => feeds.length === 6);
+    assert.equal(resets, 2, "a later genuine stream failure starts a new retirement episode");
+  } finally { await manager.stopAll(); }
+});
+
+for (const outcome of ["false", "throw"]) {
+  test(`a ${outcome} source reset cannot grant cold-start grace`, async () => {
+    const feeds = [], ctx = ctxWith({ feeds: [() => { const f = new PassThrough({ objectMode: true }); feeds.push(f); return f; }] });
+    ctx.cfg.stall = { stallMs: 5000, startupStallMs: 30000, gapMs: 45000, exitAfterMs: 0, recreateClientAfter: 1, backoffMs: [1] };
+    let calls = 0, clock = 1_000_000n;
+    ctx.sdk.dropStreamClient = async () => { if (++calls === 1 && outcome === "throw") throw Error("reset failed"); return false; };
+    ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => clock });
+    const manager = createStreamManager(ctx);
+    const frame = { data: KEY, sourceTimestamp: 1000, keyframe: true, codec: "h264" };
+    const receipt = { sourceId: "same-source", sequence: 1n, monotonicUs: clock };
+    try {
+      await manager.ensureWarm("A"); feeds[0].write({ frame, receipt });
+      feeds[0].end(); await waitUntil(() => feeds.length === 2);
+      feeds[1].write({ frame, receipt });
+      manager.streamTick(ctx.state.slots.get("A").startedAt + 6000);
+      assert.equal(feeds[1].destroyed, true, "unconfirmed reset retains the established-source watchdog");
+    } finally { await manager.stopAll(); }
+  });
+}

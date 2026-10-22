@@ -46,6 +46,8 @@ export function createStreamManager(ctx) {
       slot.receivedMedia = true;
       slot.firstFailureAt = 0;
       slot.failures = 0;
+      slot.sourceRetiredForFailure = false;
+      slot.sourceStartupStartedAt = undefined;
       slot.backoffIdx = 0;
       slot.gapFired = false; // new source media permits a fresh gap-disconnect later
     }
@@ -219,10 +221,15 @@ export function createStreamManager(ctx) {
       const stationSn = ctx.getCamera?.(sn)?.stationSn;
       // Retire this camera's cached SDK source before retrying. The SDK closes its dedicated media
       // connection when present and preserves shared station/control and sibling streams.
-      // Every Nth failure (default 1 = each); a shared base connection is deliberately retained.
-      if (cfg.stall.recreateClientAfter > 0 && slot.failures > 0 && slot.failures % cfg.stall.recreateClientAfter === 0) {
+      // Once per failure episode, at its configured Nth failure (default 1). A successful
+      // reset starts a cold-source deadline; readable retries must not reset that source again.
+      if (!slot.sourceRetiredForFailure && cfg.stall.recreateClientAfter > 0 && slot.failures > 0 && slot.failures % cfg.stall.recreateClientAfter === 0) {
         const dropped = await ctx.sdk.dropStreamClient?.(sn, stationSn);
-        if (dropped) console.log(`[bridge] ${sn}: ${slot.failures} failure(s) — retired camera source; sibling station streams preserved`);
+        if (dropped === true) {
+          slot.sourceRetiredForFailure = true;
+          slot.sourceStartupStartedAt = Date.now();
+          console.log(`[bridge] ${sn}: ${slot.failures} failure(s) — retired camera source; sibling station streams preserved`);
+        }
       }
       const client = await ctx.sdk.streamClientFor(sn, stationSn);
       slot.client = client;
@@ -305,13 +312,19 @@ export function createStreamManager(ctx) {
       if (ctx.getCamera?.(slot.sn)?.external) continue;
       // A reopened feed gets a fresh stallMs window from startedAt — lastBytesAt from a prior
       // (now-closed) feed must not count as silence against the new one.
-      const since = Math.max(slot.lastBytesAt, slot.startedAt);
+      const resetStartup = slot.sourceStartupStartedAt !== undefined;
+      // Only a confirmed explicit reset proves a new source. Preserve the historical receipt,
+      // but give this source one bounded startup window, unchanged by readable retries/primes.
+      const since = resetStartup ? slot.sourceStartupStartedAt : Math.max(slot.lastBytesAt, slot.startedAt);
       const silent = since ? now - since : 0;
       // A retained prime does not turn an established camera back into a cold
       // startup. Its next genuine source frame is still due under the live limit.
-      const stallMs = globalThis.__ewStallMs ?? (slot.receivedMedia || slot.lastSourceReceipt
+      const stallMs = globalThis.__ewStallMs ?? (!resetStartup && (slot.receivedMedia || slot.lastSourceReceipt)
         ? cfg.stall.stallMs
         : (cfg.stall.startupStallMs ?? cfg.stall.stallMs));
+      // Expiry consumes the explicit reset's one startup window. Later retries return to
+      // ordinary per-readable timing; an expired anchor must not kill them immediately.
+      if (resetStartup && silent >= stallMs) slot.sourceStartupStartedAt = undefined;
       if (slot.feed && silent >= stallMs && !wanted(slot.sn)) {
         closeFeed(slot); // its hold went away mid-stream; stopping is not a stall
         continue;
@@ -376,6 +389,8 @@ export function createStreamManager(ctx) {
       slot.restartTimer = null;
     }
     slot.failures = 0;
+    slot.sourceRetiredForFailure = false;
+    slot.sourceStartupStartedAt = undefined;
     slot.firstFailureAt = 0;
     slot.backoffIdx = 0;
     closeFeed(slot);

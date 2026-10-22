@@ -185,7 +185,8 @@ Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session 
 `/var/lib/eufy-wall-bridge/`.
 
 ## Robustness behaviour
-- 12 s without video bytes → feed restarted with backoff 2→60 s (`stalls` counter in /healthz).
+- An established feed silent for 5 s restarts with backoff 1→8 s (`stalls` counter in /healthz); cold startup retains its separate 30 s window. The watchdog checks every 2 s.
+- Before the first retry, the bridge retires only that camera’s cached SDK source. Shared station/control and sibling streams remain intact. `stall.recreate_client_after` defaults to `1`; an explicit `N` delays eligibility until the Nth consecutive failure, and `0` disables retirement. A successful reset grants one startup window anchored at retirement; readable retries and cached primes cannot extend it or trigger another successful retirement. After that window expires, later readable retries use the ordinary playback watchdog. Advancing source media clears the failure count and re-arms retirement for a later failure. Existing explicit settings remain unchanged.
 - 45 s gap → HTTP consumers (go2rtc) disconnected so they reconnect cleanly.
 - 5 min continuous failure on any camera → process exit(1); systemd restarts it (`Restart=always`).
 - go2rtc child dies → restarted after 3 s.

@@ -31,6 +31,8 @@ export function newSlot(sn) {
     startedAt: 0,
     firstFailureAt: 0,
     failures: 0,
+    sourceRetiredForFailure: false, // one successful camera reset per failure episode
+    sourceStartupStartedAt: undefined, // fixed deadline after a confirmed SDK source reset
     backoffIdx: 0,
     restartTimer: null,
     consumers: new Set(),

@@ -44,9 +44,10 @@ cameras:                         # keyed by camera serial; unlisted wired camera
 
 # stall:                         # media watchdog (defaults shown)
 #   stall_ms: 5000               # established feed silent this long → restart (checked every 2 s)
-#   startup_stall_ms: 30000      # first-media startup window for each newly opened feed
+#   startup_stall_ms: 30000      # cold-source startup window; reset retries share one deadline
 #   gap_ms: 45000                # consumers are disconnected after this long without bytes
 #   exit_after_ms: 300000        # continuous failure this long → exit(1) so systemd restarts us
+#   recreate_client_after: 1     # retire failed camera source once per failure episode (0 = disabled)
 #   backoff_ms: [1000, 2000, 4000, 8000]
 
 # go2rtc egress. "never" (default) passes every camera's own bitstream through directly — the wall

@@ -39,8 +39,15 @@ cameras:
   assert.deepEqual(cfg.cameras.T8410X, { name: "Garage" });
   assert.deepEqual(cfg.cameras.T8214X, { dualView: "split", powerOverride: "always-on" });
   assert.deepEqual(cfg.cameras.T8113X, { enabled: false });
-  assert.deepEqual(cfg.stall, { stallMs: 5000, startupStallMs: 30000, gapMs: 45000, exitAfterMs: 300000, recreateClientAfter: 8, backoffMs: [1000, 2000, 4000, 8000] });
+  assert.deepEqual(cfg.stall, { stallMs: 5000, startupStallMs: 30000, gapMs: 45000, exitAfterMs: 300000, recreateClientAfter: 1, backoffMs: [1000, 2000, 4000, 8000] });
   assert.equal(cfg.go2rtcBin, "go2rtc");
+});
+
+test("explicit camera-source retirement thresholds remain authoritative", () => {
+  for (const threshold of [0, 1, 3, 8]) {
+    const p = tmpYaml(`eufy: { email: a@b.c, password: x }\nstall: { recreate_client_after: ${threshold} }\n`);
+    assert.equal(loadConfig({ env: {}, configPath: p }).cfg.stall.recreateClientAfter, threshold);
+  }
 });
 
 test("rejects missing credentials and bad cidr", () => {

@@ -155,12 +155,11 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
       startupStallMs: Number(raw.stall?.startup_stall_ms ?? 30_000),
       gapMs: Number(raw.stall?.gap_ms ?? 45_000),
       exitAfterMs: Number(raw.stall?.exit_after_ms ?? 300_000),
-      // Tear the whole STATION session down only after this many consecutive failures (0 = never). A
-      // per-camera media open failing self-closes just that media session in the SDK, so a retry re-lookups
-      // its port without disturbing the shared control session or sibling cameras — tearing the station down
-      // on every camera flap would keep killing the connection all cameras share. Reserve teardown for a
-      // control session that looks truly dead (many failures in a row).
-      recreateClientAfter: Number(raw.stall?.recreate_client_after ?? 8),
+      // Retire only the failed camera's cached SDK media source before retrying. The default
+      // resets on the first failure; sibling streams and shared station/control remain intact.
+      // Explicit N makes retirement eligible at the Nth consecutive failure (0 disables it).
+      // At most one successful reset occurs until genuinely new media ends the failure episode.
+      recreateClientAfter: Number(raw.stall?.recreate_client_after ?? 1),
       // A failed open retries promptly; longer waits leave a feed unavailable even after its path recovers.
       backoffMs: raw.stall?.backoff_ms ?? [1000, 2000, 4000, 8000],
     },
