@@ -1,15 +1,17 @@
 # SDK PR handoff: managed live-start stream type selection
 
-## Current upstream change
+## Historical upstream change — merged October 8
 
-The active [upstream PR #337](https://github.com/mega-yfue/eufy-sdk/pull/337) sets the attached
+[Upstream PR #337](https://github.com/mega-yfue/eufy-sdk/pull/337), merged October 8, sets the attached
 media-start `payload.streamtype` to the current app's observed value `2` and adds one decrypted-wire
 regression spec. The own-session start already uses `2`; stop and media handling are unchanged.
 [PR #339](https://github.com/mega-yfue/eufy-sdk/pull/339) proposed a per-pull option but was closed
 after review requested the narrower default correction. That option remains in the deployed fork,
-where the bridge explicitly selects `2`; it is not part of the active upstream PR.
+where the bridge explicitly selects `2`; it is not part of that upstream PR.
 
-Need: on a HomeBase-attached T8214, a managed live request using the attached default caused the
+The current October 22 investigation is recorded in [the dual-view incident](dual-view-stream-selection.md#current-investigation--october-22). SDK `48e4f2f` already contains the attached default-2 correction; the newer 2048×1536 interval must not be attributed to the old selector defect without new evidence.
+
+Need established for the historical change: on a HomeBase-attached T8214, a managed live request using the attached default caused the
 encoded Split composition to change to PiP during motion. The SDK needs to send the captured
 first-party value `2` through its existing managed start, preserving encryption, shared-source
 ownership, and recovery. The comparison supports a wire correction on the tested device; behavior
