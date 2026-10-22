@@ -1,0 +1,270 @@
+{
+  "command": {
+    "wallMs": 1792633593776,
+    "monotonicUs": 373989882407,
+    "garageVideoAgeMs": 2035.559,
+    "frontVideoAgeMs": 60.989,
+    "pathSilentMs": 2504,
+    "sequenceBeforeStop": 455,
+    "afterStop": {
+      "wallMs": 1792633593780,
+      "monotonicUs": 373989886782
+    },
+    "sequenceAfterStop": 456,
+    "beforeStart": {
+      "wallMs": 1792633593982,
+      "monotonicUs": 373990088349
+    },
+    "sequenceBeforeStart": 456,
+    "startInvoked": true,
+    "sequenceAfterNudge": 457,
+    "sequenceAfterStart": 457,
+    "startDispatched": true,
+    "afterStart": {
+      "wallMs": 1792633593983,
+      "monotonicUs": 373990089612
+    },
+    "sameIdentitiesAfter": true
+  },
+  "finishReason": "outer-capture-complete",
+  "frameRows": 5660,
+  "omittedRows": 0,
+  "postStartObservationSeconds": 83.684932,
+  "sdkIdentityAfter": {
+    "garage": true,
+    "front": true
+  },
+  "cleanup": [
+    {
+      "channel": 1,
+      "ownedCallbackAbsent": true,
+      "otherCallbackIdentitiesPreserved": true
+    },
+    {
+      "channel": 2,
+      "ownedCallbackAbsent": true,
+      "otherCallbackIdentitiesPreserved": true
+    }
+  ],
+  "sources": [
+    {
+      "name": "Garage CLE",
+      "channel": 1,
+      "beforeStop": {
+        "frameRows": 1576,
+        "receiptCadenceFps": 15.130995,
+        "receiptGapMs": {
+          "min": 0.972,
+          "median": 61.462,
+          "p95": 126.451,
+          "p99": 168.317,
+          "max": 313.672
+        },
+        "sourceSteps": {
+          "min": 55,
+          "median": 67,
+          "p95": 69,
+          "p99": 70,
+          "max": 77
+        },
+        "keyframes": 52,
+        "sourceTimestampRegressions": 0,
+        "duplicateSourceTimestamps": 0,
+        "geometryHeaderCounts": {
+          "1920x2160": 1576
+        }
+      },
+      "betweenStopStartFrames": 0,
+      "afterStart": {
+        "frameRows": 1215,
+        "receiptCadenceFps": 14.609833,
+        "receiptGapMs": {
+          "min": 1.213,
+          "median": 61.309,
+          "p95": 133.68,
+          "p99": 174.472,
+          "max": 2605.69
+        },
+        "sourceSteps": {
+          "min": 55,
+          "median": 67.0,
+          "p95": 69,
+          "p99": 70,
+          "max": 2458
+        },
+        "keyframes": 42,
+        "sourceTimestampRegressions": 0,
+        "duplicateSourceTimestamps": 0,
+        "geometryHeaderCounts": {
+          "2304x2592": 1,
+          "1920x2160": 1214
+        }
+      },
+      "stopNeighbors": {
+        "lastBeforeUtc": "2026-10-22T01:46:31.740+00:00",
+        "firstAfterUtc": "2026-10-22T01:46:34.554+00:00",
+        "lastBeforeOffsetMs": -2035.559,
+        "firstAfterOffsetMs": 778.049,
+        "receiptGapMs": 2813.608,
+        "sourceTimestampStep": 2613,
+        "firstAfterKeyframe": 1,
+        "firstAfterWidth": 2304,
+        "firstAfterHeight": 2592
+      },
+      "startNeighbors": {
+        "lastBeforeUtc": "2026-10-22T01:46:31.740+00:00",
+        "firstAfterUtc": "2026-10-22T01:46:34.554+00:00",
+        "lastBeforeOffsetMs": -2242.764,
+        "firstAfterOffsetMs": 570.844,
+        "receiptGapMs": 2813.608,
+        "sourceTimestampStep": 2613,
+        "firstAfterKeyframe": 1,
+        "firstAfterWidth": 2304,
+        "firstAfterHeight": 2592
+      },
+      "firstPostStartKeyframeDelayMs": 570.844,
+      "api": {
+        "samples": 224,
+        "stallsBefore": 77,
+        "stallsAfter": 77,
+        "notStreamingSamples": 0
+      },
+      "firstTwoPostStartFrames": [
+        {
+          "sourceTimestamp": 1632230746,
+          "width": 2304,
+          "height": 2592,
+          "keyframe": 1,
+          "utc": "2026-10-22T01:46:34.554+00:00",
+          "delayAfterStartMs": 570.844
+        },
+        {
+          "sourceTimestamp": 1632233204,
+          "width": 1920,
+          "height": 2160,
+          "keyframe": 1,
+          "utc": "2026-10-22T01:46:37.159+00:00",
+          "delayAfterStartMs": 3176.534
+        }
+      ],
+      "afterFirstPostStartFrame": {
+        "frameRows": 1214,
+        "receiptCadenceFps": 15.070377,
+        "receiptGapMs": {
+          "min": 1.213,
+          "median": 61.308,
+          "p95": 133.441,
+          "p99": 169.909,
+          "max": 470.728
+        },
+        "sourceSteps": {
+          "min": 55,
+          "median": 67,
+          "p95": 69,
+          "p99": 70,
+          "max": 78
+        },
+        "keyframes": 41,
+        "sourceTimestampRegressions": 0,
+        "duplicateSourceTimestamps": 0,
+        "geometryHeaderCounts": {
+          "1920x2160": 1214
+        }
+      },
+      "firstToSecondPostStartGapMs": 2605.69
+    },
+    {
+      "name": "Front Door CLE",
+      "channel": 2,
+      "beforeStop": {
+        "frameRows": 1610,
+        "receiptCadenceFps": 15.174044,
+        "receiptGapMs": {
+          "min": 0.893,
+          "median": 41.342,
+          "p95": 220.861,
+          "p99": 498.762,
+          "max": 935.027
+        },
+        "sourceSteps": {
+          "min": 51,
+          "median": 67,
+          "p95": 70,
+          "p99": 73,
+          "max": 79
+        },
+        "keyframes": 53,
+        "sourceTimestampRegressions": 0,
+        "duplicateSourceTimestamps": 0,
+        "geometryHeaderCounts": {
+          "1600x2200": 1610
+        }
+      },
+      "betweenStopStartFrames": 3,
+      "afterStart": {
+        "frameRows": 1256,
+        "receiptCadenceFps": 15.013886,
+        "receiptGapMs": {
+          "min": 1.25,
+          "median": 47.492,
+          "p95": 199.953,
+          "p99": 292.544,
+          "max": 508.737
+        },
+        "sourceSteps": {
+          "min": 56,
+          "median": 67,
+          "p95": 70,
+          "p99": 73,
+          "max": 77
+        },
+        "keyframes": 41,
+        "sourceTimestampRegressions": 0,
+        "duplicateSourceTimestamps": 0,
+        "geometryHeaderCounts": {
+          "1600x2200": 1256
+        }
+      },
+      "stopNeighbors": {
+        "lastBeforeUtc": "2026-10-22T01:46:33.715+00:00",
+        "firstAfterUtc": "2026-10-22T01:46:33.919+00:00",
+        "lastBeforeOffsetMs": -60.989,
+        "firstAfterOffsetMs": 142.983,
+        "receiptGapMs": 203.972,
+        "sourceTimestampStep": 66,
+        "firstAfterKeyframe": 1,
+        "firstAfterWidth": 1600,
+        "firstAfterHeight": 2200
+      },
+      "startNeighbors": {
+        "lastBeforeUtc": "2026-10-22T01:46:33.976+00:00",
+        "firstAfterUtc": "2026-10-22T01:46:34.016+00:00",
+        "lastBeforeOffsetMs": -7.034,
+        "firstAfterOffsetMs": 32.839,
+        "receiptGapMs": 39.873,
+        "sourceTimestampStep": 67,
+        "firstAfterKeyframe": 0,
+        "firstAfterWidth": 1600,
+        "firstAfterHeight": 2200
+      },
+      "firstPostStartKeyframeDelayMs": 1990.85,
+      "api": {
+        "samples": 224,
+        "stallsBefore": 89,
+        "stallsAfter": 89,
+        "notStreamingSamples": 0
+      }
+    }
+  ],
+  "caveats": [
+    "Trigger was SDKvideo delivery silence;rawwireanalysisisneeded before callingthiscameraexpiry.",
+    "GeometryvaluesareSDKframeheaders,notindependentdecodedSPSmeasurements.",
+    "FirstGaragepostrestartframeishighergeometrykeyframefollowedby2.605690secondgapthenordinarygeometrykeyframe;notuniformimmediatecontinuousrecovery.",
+    "Beforeandafterwindowsareunequal;cadencecomparisonsarenotperformanceimprovementproof.",
+    "This experimentdoesnotproveonehourprevention."
+  ],
+  "provenance": {
+    "frames.json": "5a7194c6d22887c14e2949c0ce92c5104cbd4d6c2dde56e8554a4307b7940309",
+    "cameras.jsonl": "fe6ed5876d3597083b6d36b43942db0da6ad2239464bd6438ea492043b8e92ff"
+  }
+}
