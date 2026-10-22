@@ -1,0 +1,137 @@
+{
+  "question": "Did missing SDK VIDEO ACKs precede and cause Garage sender silence?",
+  "scope": "Read-only existing completed kernel-interface metadata capture and actual SDK observer counters; no new capture or device operation.",
+  "endpoint": {
+    "localPort": 47927,
+    "peer": "peer-1",
+    "peerPort": 14502,
+    "dataType": 1
+  },
+  "captureSha256": "0a57a5ddbf6484565b90bd6fbd32c3ee123b9e010bf81e1d584e8ebb9ef73bb8",
+  "sdkObserverSha256": "f4dcd6a887a5e4528865e01d3a78669d18beaf97574f2eac1cfe417e4bbdd2e5",
+  "gap": {
+    "lastIncomingSequence": 51956,
+    "nextIncomingSequence": 51957,
+    "lastIncomingUtc": "2026-10-21T23:45:08.781580+00:00",
+    "firstRecoveredUtc": "2026-10-21T23:45:35.585617+00:00",
+    "seconds": 26.80403629
+  },
+  "preCut": {
+    "receivedDatagrams": 8704,
+    "uniqueReceivedSequences": 8618,
+    "unacknowledgedReceivedSequencesBeforeRecovery": [],
+    "ackDelay": {
+      "count": 8618,
+      "minMs": 0.1233,
+      "medianMs": 5.743125,
+      "p95Ms": 39.525648,
+      "maxMs": 130.18917
+    },
+    "lastSecondAckDelay": {
+      "count": 201,
+      "minMs": 0.379275,
+      "medianMs": 4.6216,
+      "p95Ms": 10.400887,
+      "maxMs": 22.325449
+    },
+    "lastTenSecondsAckDelay": {
+      "count": 1749,
+      "minMs": 0.247975,
+      "medianMs": 4.550713,
+      "p95Ms": 45.998761,
+      "maxMs": 80.354584
+    },
+    "notYetAckedAtExactFinalArrival": [
+      51956
+    ],
+    "allAckedByUtc": "2026-10-21T23:45:08.782951+00:00",
+    "allAckedMsAfterFinalArrival": 1.370725,
+    "lastTenReceivedSequenceAcks": [
+      {
+        "sequence": 51947,
+        "receivedUnixNs": "1792626308558189977",
+        "firstSubsequentAckUnixNs": "1792626308560128802",
+        "ackDelayMs": 1.938825
+      },
+      {
+        "sequence": 51948,
+        "receivedUnixNs": "1792626308578444064",
+        "firstSubsequentAckUnixNs": "1792626308579494464",
+        "ackDelayMs": 1.0504
+      },
+      {
+        "sequence": 51949,
+        "receivedUnixNs": "1792626308599108363",
+        "firstSubsequentAckUnixNs": "1792626308605340113",
+        "ackDelayMs": 6.23175
+      },
+      {
+        "sequence": 51950,
+        "receivedUnixNs": "1792626308647794761",
+        "firstSubsequentAckUnixNs": "1792626308650603899",
+        "ackDelayMs": 2.809138
+      },
+      {
+        "sequence": 51951,
+        "receivedUnixNs": "1792626308679911098",
+        "firstSubsequentAckUnixNs": "1792626308680705648",
+        "ackDelayMs": 0.79455
+      },
+      {
+        "sequence": 51952,
+        "receivedUnixNs": "1792626308679912710",
+        "firstSubsequentAckUnixNs": "1792626308681717985",
+        "ackDelayMs": 1.805275
+      },
+      {
+        "sequence": 51953,
+        "receivedUnixNs": "1792626308700259547",
+        "firstSubsequentAckUnixNs": "1792626308701425984",
+        "ackDelayMs": 1.166437
+      },
+      {
+        "sequence": 51954,
+        "receivedUnixNs": "1792626308720499846",
+        "firstSubsequentAckUnixNs": "1792626308722195521",
+        "ackDelayMs": 1.695675
+      },
+      {
+        "sequence": 51955,
+        "receivedUnixNs": "1792626308761268820",
+        "firstSubsequentAckUnixNs": "1792626308762470269",
+        "ackDelayMs": 1.201449
+      },
+      {
+        "sequence": 51956,
+        "receivedUnixNs": "1792626308781580381",
+        "firstSubsequentAckUnixNs": "1792626308782951106",
+        "ackDelayMs": 1.370725
+      }
+    ],
+    "lastTenSecondsObservedSequenceHoles": [],
+    "wholePreCutSequenceHolesCount": 123,
+    "wholePreCutSequenceHolesLimit": "These are IDs not observed in an already-active capture; do not classify unobserved IDs as SDK failing to ACK received packets."
+  },
+  "sourceTimeline": {
+    "lastOldStream": "stream-2",
+    "oldDeliveredCount": 874,
+    "lastOldMediaTimestamp": 1624946332,
+    "lastOldDeliveredMonotonicUs": "366706095990",
+    "firstRecoveredStream": "stream-4",
+    "firstRecoveredDeliveredCount": 1,
+    "firstRecoveredMediaTimestamp": 1624972946,
+    "firstRecoveredDeliveredMonotonicUs": "366733021908",
+    "sdkDeliveryElapsedSeconds": 26.925918,
+    "mediaVsDeliveryDifferenceMs": 311.91799999999785,
+    "interpretation": "Raw media word advances26614 across26.925918s of SDK delivery silence, with healthy pre-cut calibration~1000.22rawunits/s. Consistent with advancing source timeline rather than immediately-next historical frame; does not establish sensor capture clock or physical latency.",
+    "mediaTimestampAdvanceRaw": 26614,
+    "hostMillisecondInterpretationAdvanceMs": 26614,
+    "unitContract": "SDK core/contracts.ts544\u2013545 preserves an unsigned32-bit source word; unit and clock origin unspecified. Bridge video-mpegts.mjs99\u2013100 interprets this validated host path as milliseconds.",
+    "healthyPreCutCalibration": {
+      "sourceTimestampAdvanceRaw": 56267,
+      "sdkDeliveryElapsedSeconds": 56.254673,
+      "rawUnitsPerSecond": 1000.219128462448
+    }
+  },
+  "verdict": "No SDK ACK starvation demonstrated: every unique VIDEO sequence actually observed before the cut was ACKed outbound, including51956 after1.370725ms; last10s has no observed sequence hole. Peer receipt of outgoing ACKs remains unmeasured, so this excludes SDK withholding at the captured interface, not all network loss or firmware ACK handling."
+}
