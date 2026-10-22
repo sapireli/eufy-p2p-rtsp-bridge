@@ -1,0 +1,421 @@
+{
+  "scope": "Passive16-byte logical headers, no encryptedbody decryption or stream-type semantic assumption",
+  "pilotOutgoing1350": {
+    "direction": "out",
+    "peer": "peer-1",
+    "localPort": 37189,
+    "peerPort": 21132,
+    "bytes": 550,
+    "messageType": 208,
+    "declaredPayloadBytes": 546,
+    "dataType": 0,
+    "sequence": 2,
+    "commandId": 1350,
+    "commandChannel": 2,
+    "commandSignCode": 8,
+    "commandType": 12,
+    "phase": "udp",
+    "unixNs": "1792630196993987258",
+    "unixMs": 1792630196993.9873
+  },
+  "pilotLastType11UnitStart": {
+    "unixNs": "1792630196981191158",
+    "sequence": 61975,
+    "side": "before",
+    "event": "unit-start",
+    "unitId": 702,
+    "confidence": "chain",
+    "commandId": 1300,
+    "logicalPayloadBytes": 1828,
+    "channel": 2,
+    "signCode": 0,
+    "type": 11,
+    "headerFlags": 1,
+    "headerTail": 94
+  },
+  "pilotLastType11UTC": "2026-10-22T00:49:56.981191+00:00",
+  "pilotFirstType12UnitStart": {
+    "unixNs": "1792630197023437294",
+    "sequence": 61978,
+    "side": "after",
+    "event": "unit-start",
+    "unitId": 704,
+    "confidence": "chain",
+    "commandId": 1300,
+    "logicalPayloadBytes": 1798,
+    "channel": 2,
+    "signCode": 0,
+    "type": 12,
+    "headerFlags": 1,
+    "headerTail": 94
+  },
+  "pilotFirstType12UTC": "2026-10-22T00:49:57.023437+00:00",
+  "pilotFirstType12DelayAfterCommandMs": 29.450036,
+  "pilotTenSecondCounts": {
+    "before": [
+      {
+        "type": 11,
+        "channel": 2,
+        "confidence": "chain",
+        "count": 167
+      }
+    ],
+    "after": [
+      {
+        "type": 12,
+        "channel": 2,
+        "confidence": "chain",
+        "count": 150
+      }
+    ]
+  },
+  "captures": [
+    {
+      "name": "original-recovery",
+      "allOutgoing1350": [
+        {
+          "unixNs": "1792629079782631026",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 1,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 11
+        }
+      ],
+      "VIDEOunitStartCounts": [
+        {
+          "localPort": 37189,
+          "type": 11,
+          "channel": 2,
+          "confidence": "tentative",
+          "count": 1,
+          "firstExample": {
+            "unixNs": "1792629080055730753",
+            "sequence": 0,
+            "event": "unit-start",
+            "unitId": 1,
+            "confidence": "tentative",
+            "commandId": 1300,
+            "logicalPayloadBytes": 99487,
+            "channel": 2,
+            "signCode": 1,
+            "type": 11,
+            "headerFlags": 1,
+            "headerTail": 94
+          }
+        },
+        {
+          "localPort": 37189,
+          "type": 11,
+          "channel": 2,
+          "confidence": "chain",
+          "count": 1464,
+          "firstExample": {
+            "unixNs": "1792629080100840664",
+            "sequence": 99,
+            "event": "unit-start",
+            "unitId": 3,
+            "confidence": "chain",
+            "commandId": 1300,
+            "logicalPayloadBytes": 30973,
+            "channel": 2,
+            "signCode": 0,
+            "type": 11,
+            "headerFlags": 1,
+            "headerTail": 94
+          }
+        }
+      ]
+    },
+    {
+      "name": "original-hour-after-nudge",
+      "allOutgoing1350": [
+        {
+          "unixNs": "1792632686269554565",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 3,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 13
+        },
+        {
+          "unixNs": "1792632686924804802",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 4,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 14
+        },
+        {
+          "unixNs": "1792632688267788589",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 5,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 15
+        },
+        {
+          "unixNs": "1792632689926003450",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 6,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 16
+        },
+        {
+          "unixNs": "1792632690269145350",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 7,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 17
+        },
+        {
+          "unixNs": "1792632692276373336",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 8,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 18
+        },
+        {
+          "unixNs": "1792632692926210736",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 9,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 19
+        },
+        {
+          "unixNs": "1792632694276735634",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 10,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 20
+        },
+        {
+          "unixNs": "1792632695926610809",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 11,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 21
+        },
+        {
+          "unixNs": "1792632696275964196",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 12,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 22
+        },
+        {
+          "unixNs": "1792632698277191744",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 13,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 23
+        },
+        {
+          "unixNs": "1792632698926621807",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 14,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 24
+        },
+        {
+          "unixNs": "1792632700287473568",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 15,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 25
+        },
+        {
+          "unixNs": "1792632701927029855",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 16,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 26
+        },
+        {
+          "unixNs": "1792632702304228266",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 17,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 27
+        },
+        {
+          "unixNs": "1792632704304864927",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 18,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 28
+        },
+        {
+          "unixNs": "1792632704927948653",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 19,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 29
+        },
+        {
+          "unixNs": "1792632706278871052",
+          "localPort": 37189,
+          "peerPort": 21132,
+          "sequence": 20,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 30
+        },
+        {
+          "unixNs": "1792632707039580498",
+          "localPort": 50328,
+          "peerPort": 12132,
+          "sequence": 1,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 11
+        },
+        {
+          "unixNs": "1792632709040594984",
+          "localPort": 50328,
+          "peerPort": 12132,
+          "sequence": 2,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 12
+        },
+        {
+          "unixNs": "1792632710039879158",
+          "localPort": 50328,
+          "peerPort": 12132,
+          "sequence": 3,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 13
+        },
+        {
+          "unixNs": "1792632711044300807",
+          "localPort": 50328,
+          "peerPort": 12132,
+          "sequence": 4,
+          "commandId": 1350,
+          "commandChannel": 2,
+          "commandType": 14
+        }
+      ],
+      "VIDEOunitStartCounts": [
+        {
+          "localPort": 37189,
+          "type": 12,
+          "channel": 2,
+          "confidence": "chain",
+          "count": 953,
+          "firstExample": {
+            "unixNs": "1792632618348294806",
+            "sequence": 12211,
+            "event": "unit-start",
+            "unitId": 2,
+            "confidence": "chain",
+            "commandId": 1300,
+            "logicalPayloadBytes": 2517,
+            "channel": 2,
+            "signCode": 0,
+            "type": 12,
+            "headerFlags": 1,
+            "headerTail": 94
+          }
+        },
+        {
+          "localPort": 50328,
+          "type": 12,
+          "channel": 2,
+          "confidence": "tentative",
+          "count": 1,
+          "firstExample": {
+            "unixNs": "1792632711206945564",
+            "sequence": 0,
+            "event": "unit-start",
+            "unitId": 1,
+            "confidence": "tentative",
+            "commandId": 1300,
+            "logicalPayloadBytes": 74271,
+            "channel": 2,
+            "signCode": 1,
+            "type": 12,
+            "headerFlags": 1,
+            "headerTail": 94
+          }
+        },
+        {
+          "localPort": 50328,
+          "type": 13,
+          "channel": 2,
+          "confidence": "chain",
+          "count": 5,
+          "firstExample": {
+            "unixNs": "1792632711295564710",
+            "sequence": 75,
+            "event": "unit-start",
+            "unitId": 3,
+            "confidence": "chain",
+            "commandId": 1300,
+            "logicalPayloadBytes": 83334,
+            "channel": 2,
+            "signCode": 1,
+            "type": 13,
+            "headerFlags": 1,
+            "headerTail": 94
+          }
+        },
+        {
+          "localPort": 50328,
+          "type": 14,
+          "channel": 2,
+          "confidence": "chain",
+          "count": 1897,
+          "firstExample": {
+            "unixNs": "1792632711561978525",
+            "sequence": 194,
+            "event": "unit-start",
+            "unitId": 13,
+            "confidence": "chain",
+            "commandId": 1300,
+            "logicalPayloadBytes": 20584,
+            "channel": 2,
+            "signCode": 0,
+            "type": 14,
+            "headerFlags": 1,
+            "headerTail": 94
+          }
+        }
+      ]
+    }
+  ]
+}

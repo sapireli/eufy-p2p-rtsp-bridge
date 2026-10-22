@@ -1,0 +1,295 @@
+{
+  "scope": "Original START plus one hour after one attached nudge; offline read-only analysis",
+  "captureSHA256": "338985c653c2373aee138579f5f9c76ea5dbef615efe4163cb5dfa6cf813db51",
+  "captureIntegrity": [
+    {
+      "phase": "capture-start",
+      "scope": "kernel-interface-packet-tap",
+      "interface": "eth0",
+      "startedUnixNs": "1792632618343148594",
+      "startedMonotonicNs": "373014449347326",
+      "receiveBufferBytes": 16777216,
+      "peerIds": [
+        "peer-1",
+        "peer-2"
+      ],
+      "payloadStored": false,
+      "kernelFilter": "IPv4 UDP",
+      "receiveBufferForced": true,
+      "commandHeaders": true,
+      "commandHeaderInspectionBytes": 16,
+      "incomingLogicalHeaders": true,
+      "logicalReorderMetadataOnly": true
+    },
+    {
+      "phase": "capture-end",
+      "endedUnixNs": "1792632838345349239",
+      "endedMonotonicNs": "373234451539521",
+      "captured": 154894,
+      "ignored": 61499,
+      "untimestamped": 0,
+      "truncated": 0,
+      "packetTapSeen": 216393,
+      "packetTapDropped": 0,
+      "payloadStored": false
+    }
+  ],
+  "originalSTARTUTC": "2026-10-22T00:31:19.782631+00:00",
+  "pilotNudgeUTC": "2026-10-22T00:49:56.993987+00:00",
+  "expectedOriginalBoundaryUTC": "2026-10-22T01:31:19.782631+00:00",
+  "actualLastVIDEO": {
+    "direction": "in",
+    "peer": "peer-1",
+    "localPort": 37189,
+    "peerPort": 21132,
+    "bytes": 232,
+    "messageType": 208,
+    "declaredPayloadBytes": 228,
+    "dataType": 1,
+    "sequence": 19299,
+    "incomingLogical": {
+      "sequenceState": "ordered",
+      "expectedSequence": 19300,
+      "pendingPackets": 0,
+      "boundary": "header",
+      "events": [
+        {
+          "event": "unit-start",
+          "unitId": 1947,
+          "confidence": "chain",
+          "commandId": 1301,
+          "logicalPayloadBytes": 208,
+          "channel": 2,
+          "signCode": 0,
+          "type": 12,
+          "headerFlags": 2,
+          "headerTail": 94
+        },
+        {
+          "event": "unit-complete",
+          "unitId": 1947
+        }
+      ]
+    },
+    "phase": "udp",
+    "unixNs": "1792632680942688481",
+    "unixMs": 1792632680942.6885
+  },
+  "actualCutUTC": "2026-10-22T01:31:20.942688+00:00",
+  "secondsAfterOriginalSTART": 3601.160057455,
+  "secondsAfterOriginalHourDeadline": 1.160057455,
+  "secondsAfterPilotNudge": 2483.948701223,
+  "lastVIDEOMatchingACK": {
+    "direction": "out",
+    "peer": "peer-1",
+    "localPort": 37189,
+    "peerPort": 21132,
+    "bytes": 10,
+    "messageType": 209,
+    "declaredPayloadBytes": 6,
+    "dataType": 1,
+    "ackCount": 1,
+    "sequence": 19299,
+    "ackSequences": [
+      19299
+    ],
+    "phase": "udp",
+    "unixNs": "1792632680943477493",
+    "unixMs": 1792632680943.4775
+  },
+  "lastVIDEOPacketACKDelayMs": 0.789012,
+  "preCut50SecondsAllHomeBaseOutgoingDATA": [],
+  "preCut50SecondsAllHomeBaseOutgoingEND": [],
+  "firstOldEndpointRecoveryCommand": {
+    "direction": "out",
+    "peer": "peer-1",
+    "localPort": 37189,
+    "peerPort": 21132,
+    "bytes": 550,
+    "messageType": 208,
+    "declaredPayloadBytes": 546,
+    "dataType": 0,
+    "sequence": 3,
+    "commandId": 1350,
+    "commandChannel": 2,
+    "commandSignCode": 8,
+    "commandType": 13,
+    "phase": "udp",
+    "unixNs": "1792632686269554565",
+    "unixMs": 1792632686269.5544
+  },
+  "newEndpointRecoverySTART": {
+    "direction": "out",
+    "peer": "peer-1",
+    "localPort": 50328,
+    "peerPort": 12132,
+    "bytes": 550,
+    "messageType": 208,
+    "declaredPayloadBytes": 546,
+    "dataType": 0,
+    "sequence": 1,
+    "commandId": 1350,
+    "commandChannel": 2,
+    "commandSignCode": 8,
+    "commandType": 11,
+    "phase": "udp",
+    "unixNs": "1792632707039580498",
+    "unixMs": 1792632707039.5806
+  },
+  "targetEndpointSummaries": [
+    {
+      "peer": "peer-1",
+      "localPort": 37189,
+      "peerPort": 21132,
+      "initialEndpoint": true,
+      "samePeerTargetChannelConfirmed": false,
+      "targetChannelVideoStartCount": 953,
+      "observedVideoChannels": [
+        2
+      ],
+      "targetChannelOnDifferentPeer": false,
+      "firstPacket": "2026-10-22T01:30:18.347536+00:00",
+      "lastPacket": "2026-10-22T01:31:46.324526+00:00",
+      "incomingVIDEO": 7325,
+      "firstVIDEO": "2026-10-22T01:30:18.348042+00:00",
+      "lastVIDEO": "2026-10-22T01:31:20.942688+00:00",
+      "lastVIDEOBeforeOldCut": "2026-10-22T01:31:19.747449+00:00",
+      "firstVIDEOAfterOldCut": "2026-10-22T01:31:19.787727+00:00",
+      "maxPacketGapMs": 817.3439502716064,
+      "gapsAtLeast500ms": [
+        {
+          "start": "2026-10-22T01:30:48.618889+00:00",
+          "end": "2026-10-22T01:30:49.436233+00:00",
+          "seconds": 0.8173439502716064,
+          "fromSequence": 15788,
+          "toSequence": 15789,
+          "sequenceAdvance": 1
+        },
+        {
+          "start": "2026-10-22T01:30:49.831029+00:00",
+          "end": "2026-10-22T01:30:50.416543+00:00",
+          "seconds": 0.5855143070220947,
+          "fromSequence": 15790,
+          "toSequence": 15791,
+          "sequenceAdvance": 1
+        }
+      ],
+      "protocolCountsWithin30sOfOldCut": {
+        "in-d0-data1": 3553,
+        "out-d1-data1": 3553,
+        "in-d0-data2": 125,
+        "out-d1-data2": 125,
+        "out-e0-data-": 11,
+        "in-e1-data-": 11,
+        "out-d0-data0": 18,
+        "in-d1-data0": 17,
+        "in-d0-data0": 18,
+        "out-d1-data0": 18,
+        "out-f0-data-": 1,
+        "in-f0-data-": 1
+      },
+      "ends": [
+        {
+          "at": "2026-10-22T01:31:46.278965+00:00",
+          "direction": "out"
+        },
+        {
+          "at": "2026-10-22T01:31:46.324526+00:00",
+          "direction": "in"
+        }
+      ]
+    },
+    {
+      "peer": "peer-1",
+      "localPort": 50328,
+      "peerPort": 12132,
+      "initialEndpoint": false,
+      "samePeerTargetChannelConfirmed": true,
+      "targetChannelVideoStartCount": 1903,
+      "observedVideoChannels": [
+        2
+      ],
+      "targetChannelOnDifferentPeer": false,
+      "firstPacket": "2026-10-22T01:31:46.457390+00:00",
+      "lastPacket": "2026-10-22T01:33:58.279515+00:00",
+      "incomingVIDEO": 15303,
+      "firstVIDEO": "2026-10-22T01:31:51.206945+00:00",
+      "lastVIDEO": "2026-10-22T01:33:58.278224+00:00",
+      "lastVIDEOBeforeOldCut": null,
+      "firstVIDEOAfterOldCut": "2026-10-22T01:31:51.206945+00:00",
+      "maxPacketGapMs": 433.5331916809082,
+      "gapsAtLeast500ms": [],
+      "protocolCountsWithin30sOfOldCut": {
+        "in-41-data-": 1,
+        "out-41-data-": 3,
+        "in-43-data-": 51,
+        "in-42-data-": 4,
+        "out-d0-data0": 3,
+        "out-e0-data-": 1,
+        "in-d1-data7": 1,
+        "in-e1-data-": 1,
+        "in-d1-data0": 3,
+        "in-d0-data2": 8,
+        "out-d1-data2": 8
+      },
+      "ends": []
+    }
+  ],
+  "targetGaps": [
+    {
+      "from": "2026-10-22T01:30:48.618889+00:00",
+      "to": "2026-10-22T01:30:49.436233+00:00",
+      "seconds": 0.8173439502716064,
+      "fromPort": 37189,
+      "toPort": 37189,
+      "previousEndpointProtocolCountsInsideGap": {
+        "out-d1-data1": 71
+      }
+    },
+    {
+      "from": "2026-10-22T01:30:49.831029+00:00",
+      "to": "2026-10-22T01:30:50.416543+00:00",
+      "seconds": 0.5855143070220947,
+      "fromPort": 37189,
+      "toPort": 37189,
+      "previousEndpointProtocolCountsInsideGap": {
+        "out-d1-data1": 1
+      }
+    },
+    {
+      "from": "2026-10-22T01:31:20.942688+00:00",
+      "to": "2026-10-22T01:31:51.206945+00:00",
+      "seconds": 30.264256954193115,
+      "fromPort": 37189,
+      "toPort": 50328,
+      "previousEndpointProtocolCountsInsideGap": {
+        "out-d1-data1": 1,
+        "out-e0-data-": 5,
+        "in-e1-data-": 5,
+        "in-d0-data2": 79,
+        "out-d1-data2": 79,
+        "out-d0-data0": 18,
+        "in-d1-data0": 17,
+        "in-d0-data0": 18,
+        "out-d1-data0": 18,
+        "out-f0-data-": 1,
+        "in-f0-data-": 1
+      }
+    }
+  ],
+  "apiFirst": {
+    "at": "2026-10-22T01:30:18.093265+00:00",
+    "streaming": true,
+    "stalls": 86,
+    "receiptAgeMs": 133.56,
+    "receiptSequence": "4146863"
+  },
+  "apiLast": {
+    "at": "2026-10-22T01:34:01.093225+00:00",
+    "streaming": true,
+    "stalls": 89,
+    "receiptAgeMs": 21.355,
+    "receiptSequence": "4157525"
+  },
+  "conclusion": "One attached nudge did not shift/prevent initial input loss at original near-hour lifetime. Same old peer control survives initial VIDEO loss, endpoint replacement occurs later during recovery. No universal periodic-maintenance or vendor-hard-limit conclusion."
+}

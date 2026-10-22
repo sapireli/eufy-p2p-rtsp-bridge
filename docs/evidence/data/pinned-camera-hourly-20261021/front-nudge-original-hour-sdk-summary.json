@@ -1,0 +1,167 @@
+{
+  "scope": "Original-hour SDK and bridge API observation after one attached1003 nudge. No one-hour prevention achieved.",
+  "capture": {
+    "startUtc": "2026-10-22T01:30:18.080000+00:00",
+    "endUtc": "2026-10-22T01:33:58.084000+00:00",
+    "endReason": "duration"
+  },
+  "originalBoundaryUtc": "2026-10-22T01:31:19.782631Z",
+  "commandUtc": "2026-10-22T00:49:56.992Z",
+  "oldFront": {
+    "stream": "stream-1",
+    "session": "session-1",
+    "firstObservedUtc": "2026-10-22T01:30:18.081+00:00",
+    "lastObservedUtc": "2026-10-22T01:31:45.305+00:00",
+    "sourceIds": [],
+    "finalCounters": {
+      "acceptedData": 974,
+      "unknownChannelData": 0,
+      "assembled": 974,
+      "gatedCompleteUnits": 0,
+      "delivered": 974,
+      "keyframes": 33
+    },
+    "maximumGatedCompleteUnits": 0,
+    "waitingKeyframeSamples": 0,
+    "counterResets": [],
+    "stageDivergences": [],
+    "noDeliveryWindows": [
+      {
+        "firstFlatSampleUtc": "2026-10-22T01:31:22.268+00:00",
+        "lastDeliveredWallEstimateUtc": "2026-10-22T01:31:20.924+00:00",
+        "counters": {
+          "acceptedData": 974,
+          "unknownChannelData": 0,
+          "assembled": 974,
+          "gatedCompleteUnits": 0,
+          "delivered": 974,
+          "keyframes": 33
+        },
+        "waitingKeyframe": false,
+        "maximumNoDeliveryMs": 24380.542,
+        "lastFlatSampleUtc": "2026-10-22T01:31:45.305+00:00"
+      }
+    ],
+    "counterUnitCaution": "DATA counts logical1300 messages; assembled counts access units. Split units can change their ratio without loss."
+  },
+  "newFront": {
+    "stream": "stream-4",
+    "session": "session-4",
+    "firstObservedUtc": "2026-10-22T01:31:47.311+00:00",
+    "lastObservedUtc": "2026-10-22T01:33:57.801+00:00",
+    "sourceIds": [],
+    "finalCounters": {
+      "acceptedData": 1900,
+      "unknownChannelData": 0,
+      "assembled": 1900,
+      "gatedCompleteUnits": 0,
+      "delivered": 1900,
+      "keyframes": 66
+    },
+    "maximumGatedCompleteUnits": 0,
+    "waitingKeyframeSamples": 0,
+    "counterResets": [],
+    "stageDivergences": [],
+    "noDeliveryWindows": [],
+    "counterUnitCaution": "DATA counts logical1300 messages; assembled counts access units. Split units can change their ratio without loss."
+  },
+  "lastOldDeliveryMonoUs": "373077031023",
+  "lastOldSourceTimestamp": 1631318562,
+  "lastApiSourceReceipt": {
+    "firstObservedUtc": "2026-10-22T01:31:21.093+00:00",
+    "firstRepeatedUtc": "2026-10-22T01:31:22.092+00:00",
+    "receiptIdentity": [
+      "arrival-fa833a2eff57a73f",
+      "4150368",
+      "4150368",
+      "373077029712"
+    ],
+    "maximumReceiptAgeMs": 30175.651,
+    "missingReceipt": false,
+    "lastObservedUtc": "2026-10-22T01:31:51.092+00:00"
+  },
+  "sdkDeliveryAfterReceiptUs": 1311,
+  "firstNewDeliverySampleUtc": "2026-10-22T01:31:51.317000+00:00",
+  "firstNewDeliverySampleCount": 2,
+  "apiFrontStalls": [
+    86,
+    89
+  ],
+  "frontVideoGapEvents": [],
+  "otherSessionVideoGapEvents": [
+    {
+      "atUtc": "2026-10-22T01:31:52.412+00:00",
+      "session": "session-3",
+      "gaps": 1
+    }
+  ],
+  "cleanup": {
+    "startedWallMs": 1792632618082,
+    "finishedWallMs": 1792632840099,
+    "commandWallMs": 1792630196992,
+    "output": "/var/lib/eufy-wall-bridge/front-nudge-hour-sdk-20261022.jsonl",
+    "seconds": 220,
+    "observerStopCalled": true,
+    "listenerTotals": [
+      {
+        "sessionOrdinal": 1,
+        "data": 2,
+        "videoGap": 1,
+        "commandResult": 0
+      },
+      {
+        "sessionOrdinal": 2,
+        "data": 1,
+        "videoGap": 1,
+        "commandResult": 0
+      },
+      {
+        "sessionOrdinal": 3,
+        "data": 2,
+        "videoGap": 1,
+        "commandResult": 0
+      }
+    ],
+    "identityAfter": {
+      "sameSource": false,
+      "sameOwner": false,
+      "sameSession": true,
+      "samePublicSession": false
+    },
+    "sequenceBefore": 3,
+    "sequenceAfter": 21,
+    "peer": {
+      "host": "192.168.23.233",
+      "port": 21132
+    },
+    "localPort": 37189,
+    "cleanupScope": "Owned diagnostic stop called; totals are current counts, not an original-count equality claim."
+  },
+  "cleanupInterpretation": "Old weak-reference source/owner no longer current; oldsession pointer remains same but is not thepublic-current session. Diagnosticstopcalled. Listener totals are current counts; this doesnot assert original-listener-count equality.",
+  "verdict": "Front DATA, assembled and delivered counters all stop974with0gated units andnoFrontvideoGap; earliestmissingstageisatorbeforeDATA. Nudge preservedimmediateflow butdidnotshift/preventtheoriginalhourcut. Newstream/session recoverswithoutgating.",
+  "provenance": {
+    "front-nudge-hour-sdk-20261022.jsonl": "778d22e8eb90c75af247c51606a65e5b5f4420f3db3cc7979aa3802efb61a5a2",
+    "front-nudge-hour-20261022/cameras.jsonl": "b182aaebedffa9c94cfb74a1e44539038ed803ab53b98061f3f0a02c247aeaab",
+    "front-nudge-hour-20261022/cleanup.txt": "5cc660c0b9391e34ad5c8bdb408482965cdaf4fc22d31ab0f81fc4af0b35b529"
+  },
+  "sampledCadence": {
+    "stream-1": {
+      "deliveredCounterDifference": 928,
+      "sourceTimestampSpan": 61863,
+      "receiptSpanUs": 61869150,
+      "nominalSourceUnitsPerSecondAssumed": 1000,
+      "sourceCadenceFps": 15.0008890613129,
+      "receiptCadenceFps": 14.999397922874325,
+      "scope": "Firstnonzero throughlastSDKdelivery metadata; notper-framegap distribution."
+    },
+    "stream-4": {
+      "deliveredCounterDifference": 1898,
+      "sourceTimestampSpan": 126535,
+      "receiptSpanUs": 126342840,
+      "nominalSourceUnitsPerSecondAssumed": 1000,
+      "sourceCadenceFps": 14.999802426206188,
+      "receiptCadenceFps": 15.022616240065524,
+      "scope": "Firstnonzero throughlastSDKdelivery metadata; notper-framegap distribution."
+    }
+  }
+}
