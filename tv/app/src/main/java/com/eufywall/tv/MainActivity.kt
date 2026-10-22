@@ -50,6 +50,7 @@ class MainActivity : Activity() {
     private val work = Executors.newSingleThreadExecutor()
     private val http = OkHttpClient.Builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(5, TimeUnit.SECONDS).build()
     private val prefs by lazy { getSharedPreferences("wall", MODE_PRIVATE) }
+    private val bridgeSettings by lazy { BridgeSettingsScreen(this, http, { bridge }, { cameras }, ::setupPage, ::button) { loadCameras(bridge, false) } }
     private val owner by lazy { prefs.getString("owner", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("owner", it).apply() } }
     private var bridge = ""
     private var cameras = listOf<Camera>()
@@ -221,6 +222,7 @@ class MainActivity : Activity() {
         wallConfig.tiles.take(5).forEach { tile -> root.addView(text(viewName(tile), 20f)) }
         if (wallConfig.tiles.size > 5) root.addView(text("And ${wallConfig.tiles.size - 5} more", 18f))
         if (wallConfig.tiles.isEmpty()) root.addView(text("Add the cameras you want to watch. Battery cameras stay asleep until they wake or you choose Wake.", 18f))
+        root.addView(button("Shared bridge settings") { bridgeSettings.show() }, LinearLayout.LayoutParams(-1, -2))
         root.addView(button("Connection settings") { showConnectionSettings("Connected to ${bridge.removePrefix("http://")}") },
             LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 24, 0, 0) })
         focusFirst(watch)
@@ -492,7 +494,8 @@ class MainActivity : Activity() {
         work.execute {
             try {
                 val url = "$bridge/api/cameras/$sn/view?mode=$next"
-                http.newCall(Request.Builder().url(url).post(ByteArray(0).toRequestBody(null)).build()).execute().use { response ->
+                http.newCall(bridgeSettings.authorize(Request.Builder().url(url)).post(ByteArray(0).toRequestBody(null)).build()).execute().use { response ->
+                    if (response.code == 401 || response.code == 403) error("Pair this TV in Shared bridge settings first.")
                     if (!response.isSuccessful) error(response.body?.string() ?: "HTTP ${response.code}")
                 }
                 ui.post {
@@ -834,7 +837,12 @@ class MainActivity : Activity() {
     }
 
     @Deprecated("Deprecated in Java")
-    override fun onBackPressed() { cancelCameraLoad(); if (wallVisible) showSetup() else if (editingWall || (connectionSettings && cameras.isNotEmpty())) showSetup() else super.onBackPressed() }
+    override fun onBackPressed() { if (bridgeSettings.visible) { bridgeSettings.leave(); loadCameras(bridge, false); return }; cancelCameraLoad(); if (wallVisible) showSetup() else if (editingWall || (connectionSettings && cameras.isNotEmpty())) showSetup() else super.onBackPressed() }
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        bridgeSettings.result(requestCode, resultCode, data)
+    }
     override fun onStart() {
         super.onStart()
         activityStarted = true
@@ -852,5 +860,5 @@ class MainActivity : Activity() {
         stopDiscovery()
         super.onStop()
     }
-    override fun onDestroy() { destroyed = true; cancelCameraLoad(); stopDiscovery(); wallVisible = false; stopWall(); holds.close(); snapshots.close(); work.shutdown(); super.onDestroy() }
+    override fun onDestroy() { bridgeSettings.close(); destroyed = true; cancelCameraLoad(); stopDiscovery(); wallVisible = false; stopWall(); holds.close(); snapshots.close(); work.shutdown(); super.onDestroy() }
 }

@@ -202,3 +202,14 @@ gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArgumen
 Open **Edit wall → camera → Hardware priority** and choose **Pinned**. The preference belongs to the camera, persists across app restarts, and applies wherever that camera is displayed. A pinned camera may reclaim an unpinned owner's slot after a resource-exhaustion error, even when its coded picture is smaller. Once allocated, its hardware slot cannot be reclaimed by another camera, including another pinned camera. Automatic cameras continue to prefer hardware and use picture-size rebalancing for unpinned slots.
 
 Pins express priority, not a hardware-only requirement: if hardware cannot initialize, the stream can still use software fallback. Pinning more cameras than the device can accommodate does not create additional hardware capacity. Front Door and Garage Doorbell are pinned on the deployed Fire TVs; GaragePi retains two hardware-decoded streams side by side.
+
+
+## Shared bridge settings
+
+Choose **Shared bridge settings** from the setup screen. Pair with the administrator token printed by the bridge installer. The token is stored in the app's private, non-backed-up storage for that bridge address and is sent only to settings operations and the shared camera image control.
+
+Camera controls include the name, enable switch, battery/hardwired override, streaming policy, quality, codec, motion hold, transcoding, hardware decode policy and requested Split/PiP composition. Composition and source settings affect every viewer. A requested image setting is not proof that the camera is currently sending that composition.
+
+The bridge screen also controls LAN-only connections, global transcoding, default quality/image/hold, and an advanced JSON merge editor for other shared settings. Clearing a field with `null` removes its override. A revision conflict asks you to reload rather than overwriting another client's change. Changes needing a service restart expose an explicit restart button with confirmation.
+
+Export/import uses Android's document picker when available. Fire TVs without a document provider can use **Export backup as text** and **Import backup from text** with a remote keyboard or clipboard. Import replaces shared bridge settings after confirmation; it does not replace this TV's wall layout, camera selection or decoder pins. Backups exclude login credentials and the administrator token.
