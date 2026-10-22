@@ -34,10 +34,17 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "settings" {
+		if err := runSettings(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	cfgPath := flag.String("config", "/etc/eufy-wall.yaml", "config file")
 	dryRun := flag.Bool("dry-run", false, "print the resolved layout and pipeline, then exit")
 	timingDiagnostics := flag.String("timing-diagnostics", "", "optional bounded private frame-phase metadata file (updated native plugin required)")
 	printLayout := flag.Bool("print-layout", false, "print the resolved layout table, then exit")
+	settingsTokenFile := flag.String("settings-token-file", "", "bridge admin token file for -view-camera/-view-mode (or EUFY_WALL_ADMIN_TOKEN)")
 	viewCamera := flag.String("view-camera", "", "camera name or serial to change (then exit)")
 	viewMode := flag.String("view-mode", "", "dual-lens mode: split, pip-tl, pip-tr, pip-bl, pip-br, or single")
 	flag.Parse()
@@ -63,7 +70,11 @@ func main() {
 		if *viewCamera == "" || *viewMode == "" {
 			log.Fatal("[wall] both -view-camera and -view-mode are required")
 		}
-		if err := changeView(c.RTSPBase, *viewCamera, *viewMode); err != nil {
+		token, err := settingsAdminToken(*settingsTokenFile)
+		if err != nil {
+			log.Fatalf("[wall] view switch: %v", err)
+		}
+		if err := changeViewWithToken(c.RTSPBase, *viewCamera, *viewMode, token); err != nil {
 			log.Fatalf("[wall] view switch: %v", err)
 		}
 		log.Printf("[wall] %s view changed to %s", *viewCamera, *viewMode)
@@ -369,14 +380,22 @@ func detectAspectsAt(c *config.Config, base string) error {
 
 // changeView uses the bridge's camera list so an operator can name a camera instead of looking up its serial.
 func changeView(rtspBase, camera, mode string) error {
+	token, err := settingsAdminToken("")
+	if err != nil {
+		return err
+	}
+	return changeViewWithToken(rtspBase, camera, mode, token)
+}
+
+func changeViewWithToken(rtspBase, camera, mode, token string) error {
 	base := wsclient.APIBase(rtspBase)
 	if base == "" {
 		return fmt.Errorf("cannot derive bridge API from rtsp_base %q", rtspBase)
 	}
-	return changeViewAt(base, camera, mode)
+	return changeViewAt(base, camera, mode, token)
 }
 
-func changeViewAt(base, camera, mode string) error {
+func changeViewAt(base, camera, mode string, tokens ...string) error {
 	valid := map[string]bool{"split": true, "pip-tl": true, "pip-tr": true, "pip-bl": true, "pip-br": true, "single": true}
 	if !valid[mode] {
 		return fmt.Errorf("invalid mode %q", mode)
@@ -416,14 +435,34 @@ func changeViewAt(base, camera, mode string) error {
 	if err != nil {
 		return err
 	}
+	if len(tokens) > 0 && tokens[0] != "" {
+		request.Header.Set("Authorization", "Bearer "+tokens[0])
+	}
 	result, err := client.Do(request)
 	if err != nil {
 		return err
 	}
 	defer result.Body.Close()
+	if result.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("shared view changes require bridge administrator access; use -settings-token-file FILE or EUFY_WALL_ADMIN_TOKEN, or settings --token-file FILE camera NAME dual_view JSON_VALUE")
+	}
 	if result.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(result.Body, 512))
 		return fmt.Errorf("bridge HTTP %d: %s", result.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var reply struct {
+		Apply struct {
+			State string `json:"state"`
+			Error string `json:"error"`
+		} `json:"apply"`
+	}
+	// Older servers may return an empty body and have no durable apply state.
+	body, readErr := io.ReadAll(io.LimitReader(result.Body, 4096))
+	if readErr != nil {
+		return readErr
+	}
+	if len(body) > 0 && json.Unmarshal(body, &reply) == nil && reply.Apply.State == "failed" {
+		return fmt.Errorf("view setting was saved but could not be applied: %s; inspect shared settings before retrying", reply.Apply.Error)
 	}
 	return nil
 }
