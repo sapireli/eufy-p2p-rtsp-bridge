@@ -1,0 +1,26 @@
+{
+  "experiment": "same-session attached1003 reassert original-hour comparison",
+  "status": "scheduled; outcome unverified",
+  "verifiedAtUTC": "2026-10-22T00:57:28Z",
+  "captureStartUTC": "2026-10-22T01:30:15Z",
+  "captureSeconds": 220,
+  "apiSamples": 224,
+  "originalSourceStartUTC": "2026-10-22T00:31:20Z",
+  "interventionUTC": "2026-10-22T00:49:56.992Z",
+  "remotePid": 184205,
+  "bridgePid": 151516,
+  "remoteScript": "/tmp/eufy-front-nudge-hour-capture.py",
+  "outputDirectory": "/var/lib/eufy-wall-bridge/front-nudge-hour-20261022",
+  "sdkOutput": "/var/lib/eufy-wall-bridge/front-nudge-hour-sdk-20261022.jsonl",
+  "guards": [
+    "bridgePID151516",
+    "Frontstalls86andnoreopenlog",
+    "source/owner/session WeakRef identity",
+    "dedicatedchannel2oneowner",
+    "exactsequence3",
+    "local37189peer21132",
+    "recentmedia"
+  ],
+  "productionCodeChanges": false,
+  "periodicPolicyEnabled": false
+}
