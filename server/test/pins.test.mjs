@@ -119,3 +119,14 @@ test("simultaneous switches of one camera are applied in request order", async (
   assert.deepEqual(saved, ["pip-br", "split"]);
   assert.equal(cam.dualView, "split");
 });
+
+test('an explicit settings edit sends only its changed camera property', async () => {
+  const ctx=ctxWith({cam:{sn:'T8214C',enabled:true,isDual:true,viewModeCmd:6243,dualView:'split',quality:'720P'}});
+  const pins=createPins(ctx);
+  await pins.applyPins('T8214C',{force:true,fields:['quality']});
+  assert.equal(ctx.sent.length,0);
+  assert.equal(ctx.props.length,1);
+  await pins.applyPins('T8214C',{force:true,fields:['dualView']});
+  assert.equal(ctx.sent.length,1);
+  assert.equal(ctx.props.length,1);
+});

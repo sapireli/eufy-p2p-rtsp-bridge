@@ -12,10 +12,11 @@ export function configForSettings(settings, cfg) {
 
 export function createSettingsRuntime(ctx, store) {
   let applied = store.load();
-  let status = { state: 'applied', revision: applied.revision, restartRequired: [] };
+  let status = { state: ctx.state.flags.ready ? 'applied' : 'waiting-for-login', revision: applied.revision, restartRequired: [] };
   let queue = Promise.resolve();
   const snapshot = () => ({ ...store.load(), apply: { ...structuredClone(status), scope: 'bridge-policy', cameraVideoVerified: false } });
   async function update(operation) {
+    if (ctx.state.flags.booting) throw Object.assign(new Error("Bridge is initializing; retry after login completes"), { statusCode: 503 });
     // The store validates the full document before writing. Validate device-dependent policy too.
     const preview = operation.preview();
     const nextCfg = configForSettings(preview, ctx.cfg);
@@ -59,13 +60,14 @@ export function createSettingsRuntime(ctx, store) {
           if (!cam.enabled || (cam.mode !== 'always' && !ctx.holds.isHeld(cam.sn))) ctx.stopCamera(cam.sn);
           else if (cam.mode === 'always' || ctx.holds.isHeld(cam.sn)) void ctx.ensureWarm(cam.sn);
           if (previous.dualView !== cam.dualView || previous.quality !== cam.quality) {
-            const result = await ctx.applyPins(cam.sn, { force: true });
+            const fields = ["dualView", "quality"].filter(field => previous[field] !== cam[field]);
+            const result = await ctx.applyPins(cam.sn, { force: true, fields });
             if (Object.values(result).some(v => v === 'error' || v === 'unsupported')) throw new Error(`Camera ${cam.sn} could not apply its requested view or quality; desired settings remain saved`);
           }
         }
         await ctx.ws?.broadcastSnapshot?.();
       }
-      status = { state: restartRequired.length ? 'restart-required' : 'applied', revision: saved.revision, restartRequired };
+      status = { state: restartRequired.length ? 'restart-required' : ctx.state.flags.ready ? 'applied' : 'waiting-for-login', revision: saved.revision, restartRequired };
       if (!restartRequired.length) applied = saved;
     } catch (error) {
       status = { state: 'failed', revision: saved.revision, restartRequired, error: error.message };
@@ -80,6 +82,11 @@ export function createSettingsRuntime(ctx, store) {
   }
   return {
     snapshot,
+    markReady(results = {}) {
+      const failures = Object.entries(results).filter(([, fields]) => Object.values(fields).some(value => value === 'error' || value === 'unsupported')).map(([sn]) => sn);
+      if (failures.length) status = { ...status, state: 'failed', error: `Camera settings could not be applied: ${failures.join(', ')}` };
+      else if (status.state === 'waiting-for-login') status = { ...status, state: 'applied' };
+    },
     patch(input) { return enqueue({ preview: () => store.previewPatch(input), commit: () => store.patch(input) }); },
     import(input) { return enqueue({ preview: () => store.previewImport(input), commit: () => store.import(input) }); },
   };

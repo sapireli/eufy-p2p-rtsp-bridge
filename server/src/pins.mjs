@@ -18,7 +18,7 @@ export function createPins(ctx) {
   const lastPinnedAt = new Map(); // sn -> ms
   const viewSwitches = new Map(); // serialize switches of one camera from multiple clients
 
-  async function applyPins(sn, { force = false } = {}) {
+  async function applyPins(sn, { force = false, fields = ["dualView", "quality"] } = {}) {
     const cam = ctx.getCamera(sn);
     const result = { dualView: "skip", quality: "skip" };
     if (!cam || !cam.enabled || cam.external) return result;
@@ -26,7 +26,7 @@ export function createPins(ctx) {
     if (!force && Date.now() - last < REPIN_MIN_GAP_MS) return { dualView: "recent", quality: "recent" };
     lastPinnedAt.set(sn, Date.now());
 
-    if (cam.isDual && cam.viewModeCmd && cam.dualView) {
+    if (fields.includes("dualView") && cam.isDual && cam.viewModeCmd && cam.dualView) {
       try {
         const client = await ctx.sdk.streamClientFor(sn, cam.stationSn); // same station session the stream will use
         await ctx.sdk.sendSetPayload(client, sn, cam.viewModeCmd, { restore: 1, video_type: DUAL_VIEW_VALUES[cam.dualView] });
@@ -38,7 +38,7 @@ export function createPins(ctx) {
       }
     }
 
-    if (cam.quality) {
+    if (fields.includes("quality") && cam.quality) {
       try {
         await ctx.eufy.setProperty(sn, "streamingQuality", cam.quality);
         console.log(`[bridge] ${sn}: streaming quality pinned to ${cam.quality}`);

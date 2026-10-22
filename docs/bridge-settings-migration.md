@@ -22,7 +22,7 @@ Read the pairing token locally from `<data directory>/settings-admin-token`. The
 
 ## Applying changes
 
-Camera power claims, stream modes, holds, quality/view requests and recovery timers apply without restarting the entire bridge. A power-claim change retires only that camera's media source so its next open uses the new claim. Unchanged sibling cameras retain their sessions. Unsupported camera setters produce a failed apply result; desired settings remain saved so the operator can correct or restore them.
+Camera power claims, stream modes, holds, quality/view requests and recovery timers apply without restarting the entire bridge. A power-claim change retires only that camera's media source so its next open uses the new claim. Unchanged sibling cameras retain their sessions. Only the changed view or quality property is sent to the camera. Before login, changes report `waiting-for-login`; edits during boot return503 for a later retry. Unsupported camera setters produce a failed apply result; desired settings remain saved so the operator can correct or restore them.
 
 Changes to LAN policy, SDK polling, motion event subscriptions, freshness, go2rtc settings or stream registration require an explicit bridge restart. Clients show `restart-required`; saving does not automatically interrupt every display. Camera name, enabled state, codec declaration and transcode/decode overrides also require restart because they affect go2rtc registration. The restart API is available under the supported systemd service (`Restart=always`); an unsupervised foreground process reports that it must be restarted manually.
 

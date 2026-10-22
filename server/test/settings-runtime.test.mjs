@@ -56,3 +56,19 @@ test("backup import uses the same device validation and application path",async 
   const result=await runtime.import({revision:1,backup});
   assert.equal(result.settings.cameras.A.mode,"on_motion");assert.equal(result.apply.state,"applied");
 });
+
+test('pre-login settings wait for boot and unsupported camera setters are reported honestly', async t => {
+  const {ctx,store}=fixture(t);
+  ctx.state.flags.ready=false;
+  const runtime=createSettingsRuntime(ctx,store);
+  assert.equal(runtime.snapshot().apply.state,'waiting-for-login');
+  const saved=await runtime.patch({revision:1,settings:{defaults:{hold_seconds:61}}});
+  assert.equal(saved.apply.state,'waiting-for-login');
+  ctx.state.flags.booting=true;
+  await assert.rejects(runtime.patch({revision:2,settings:{defaults:{hold_seconds:62}}}),error=>error.statusCode===503);
+  assert.equal(store.load().revision,2);
+  ctx.state.flags.ready=true;ctx.state.flags.booting=false;
+  runtime.markReady({A:{quality:'unsupported'}});
+  assert.equal(runtime.snapshot().apply.state,'failed');
+  assert.match(runtime.snapshot().apply.error,/A/);
+});

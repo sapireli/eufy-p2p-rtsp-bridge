@@ -103,10 +103,11 @@ ctx.completeBoot = async function completeBoot() {
     console.log(`[bridge] cameras: ${cams.map((c) => `${c.sn}(${c.name}${c.enabled ? "" : ", off"}${c.isDual ? ", dual" : ""})`).join(", ")}`);
     ctx.attachLanGuard(eufy, "control");
     ctx.lanUpgrade.start(); // pin stations LAN-first before the initial opens
-    await ctx.applyAllPins();
+    const pinResults = await ctx.applyAllPins();
     await ctx.writeGo2rtc();
     ctx.startGo2rtc();
     flags.ready = true;
+    ctx.settings.markReady(pinResults);
     flags.lastActivity = Date.now();
     // HTTP/WS listen before login completes. Refresh early clients with stream
     // keys and transport capabilities before warming emits any live-state events.

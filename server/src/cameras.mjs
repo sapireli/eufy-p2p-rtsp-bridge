@@ -1,6 +1,7 @@
 // Camera registry: SDK device list ∩ config → the set of cameras this bridge serves, plus the /api shape.
 
 import { streamKeys, nativeRenditionFor } from "./go2rtc.mjs";
+import { SettingsValidationError } from "./settings-store.mjs";
 
 /** Dual-lens models → the SET_PAYLOAD sub-command that sets their composed view (from bropat's client). */
 export const DUAL_MODELS = {
@@ -41,7 +42,7 @@ export function createCameras(ctx) {
       const modelKey = String(m.model ?? "").slice(0, 5).toUpperCase();
       const isDual = modelKey in DUAL_MODELS;
       if (!powered && mode === "always")
-        throw new Error(`cameras.${m.sn}.mode=always requires power_override: always-on for a battery-budgeted camera`);
+        throw new SettingsValidationError(`cameras.${m.sn}.mode=always requires power_override: always-on for a battery-budgeted camera`);
       // Parent station (HomeBase) serial; equals the camera's own sn for a standalone camera. Used to
       // serialise per-HomeBase P2P session opens (so their level-2 E2E keys don't race) and to decide
       // which cameras need the local-port sweep (HomeBase-attached only).
@@ -72,10 +73,10 @@ export function createCameras(ctx) {
       });
     }
     for (const key of Object.keys(config.go2rtcImported?.streams ?? {})) {
-      if (out.some((camera) => camera.sn === key)) throw new Error(`imported camera id conflicts with SDK camera: ${key}`);
+      if (out.some((camera) => camera.sn === key)) throw new SettingsValidationError(`imported camera id conflicts with SDK camera: ${key}`);
       const c = config.cameras[key] ?? {};
-      if (c.mode && c.mode !== "always") throw new Error(`imported camera ${key} supports always mode only`);
-      if (c.transcode && c.transcode !== "never") throw new Error(`imported camera ${key} uses direct passthrough`);
+      if (c.mode && c.mode !== "always") throw new SettingsValidationError(`imported camera ${key} supports always mode only`);
+      if (c.transcode && c.transcode !== "never") throw new SettingsValidationError(`imported camera ${key} uses direct passthrough`);
       out.push({ sn: key, name: c.name ?? key, model: "external", modelName: "go2rtc camera",
         external: true, enabled: c.enabled ?? true, powered: true, powerOverride: "auto", mode: "always",
         holdSeconds: config.defaults.holdSeconds, quality: null, codec: c.codec, transcode: "never",
