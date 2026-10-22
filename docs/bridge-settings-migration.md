@@ -10,6 +10,8 @@ The import preserves camera overrides, defaults, LAN policy, transcoding, freshn
 
 Legacy operating-field import remains available for this transition release and the next release. Remove it in the following release after both clients have shipped, existing installations have migrated, and backup/restore has passed deployment verification. Publish that removal in the release notes. This document records the removal gate; it does not claim that legacy import has already been removed.
 
+New installations use `server/bootstrap.example.yaml`, which contains startup options only. The old `server/config.example.yaml` remains a legacy migration example and is not the installer default. Existing files are preserved on upgrades.
+
 Startup settings remain outside the client API: account credentials/session identity, data directory, listener addresses/ports, internal self-host address and executable paths. Keep those in the service environment or a small bootstrap file. The Linux display's `/etc/eufy-wall.yaml` is a separate local configuration and is not deprecated by this migration.
 
 ## Client controls
@@ -47,7 +49,23 @@ Settings use the former YAML field names: `cameras`, `defaults`, `lan`, `go2rtc`
 1. Confirm both clients can read and update the bridge settings.
 2. Export a private backup and test restoration.
 3. Confirm `settings.json` contains the intended settings after a bridge restart.
-4. Remove only operating sections from the old YAML. Preserve required bootstrap settings and credentials.
+4. With the bridge stopped, retire imported YAML fields using the command below. Preserve required bootstrap settings and credentials.
 5. Retain a private pre-migration backup until sustained playback is verified.
 
 Do not delete `settings.json` to reset a camera. Doing so re-enables first-run legacy import during the transition and can restore obsolete policies.
+
+### Retire an imported YAML file
+
+After the checks above, run the offline cleanup tool:
+
+```sh
+sudo systemctl stop eufy-wall-bridge
+sudo node /opt/eufy-wall-bridge/server/retire-legacy-config.mjs \
+  --config /etc/eufy-wall-bridge.yaml \
+  --data-dir /var/lib/eufy-wall-bridge
+sudo systemctl start eufy-wall-bridge
+```
+
+If cleanup fails, inspect the reported error before starting the bridge again. The tool requires an existing valid settings store and never creates or reimports one. It preserves startup values, ownership and permissions, creates a unique private backup of the exact original YAML, and removes only imported operating fields. Repeating it is a no-op. Unknown keys, malformed files, symlink paths or concurrent file changes are rejected. Use canonical regular-file paths if the deployment uses symlinks.
+
+The cleanup does not delete the persistent store, administrator token, session or legacy external-source file. Remove old `BRIDGE_GO2RTC_*` operating overrides from the service environment after confirming they have been imported; keep credentials and startup options. Retiring a particular installation's old file is separate from removing the legacy importer in the scheduled release.

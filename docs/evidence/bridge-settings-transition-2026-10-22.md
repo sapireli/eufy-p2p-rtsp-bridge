@@ -51,3 +51,13 @@ The comparison does not establish a settings-code regression: Front failed on pr
 ## Remaining migration work
 
 The persistent store is authoritative now, and normal operating changes use the clients. Legacy first-run import remains during the documented transition period. Its eventual removal is a separate release gate, not completed by this deployment. Preserve bootstrap options and backups. See [migration policy](../bridge-settings-migration.md).
+
+## Installer and legacy-file retirement follow-up
+
+The installer now uses a startup-only bootstrap example for new installations and preserves existing files on upgrades. Its credential template directs operating changes to client controls. An offline retirement tool removes imported operating fields from an existing YAML file after validating the persistent store. It preserves bootstrap values and access permissions and writes an exact0600 backup. It never creates a missing store or starts/stops a service.
+
+The complete server suite now passes305 tests, including eight retirement tests and a fresh-bootstrap/reload test. `bash -n deploy/install-server.sh` passes.
+
+The retirement tool was installed on the bridge and exercised against private copies of the real configuration and revision3 store. It removed `cameras`, `lan`, `go2rtc`, `freshness` and `stall`; the resulting bootstrap loaded an identical effective configuration, the store bytes stayed unchanged, the backup mode was0600, original config mode0600 was preserved and the second run made no change. The live YAML still matches its pre-migration backup byte-for-byte and the live store remains revision3. No service restart or live configuration cleanup was performed for this follow-up.
+
+Legacy importer removal remains gated on the documented release period. This tool prepares per-installation cleanup; it does not remove that compatibility code early. The previously recorded playback failure is not claimed resolved by these installer/tool changes.
