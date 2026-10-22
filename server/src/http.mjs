@@ -1,3 +1,4 @@
+import { createSettingsHttp, authorizedSettings } from "./settings-http.mjs";
 // HTTP surface. Video is plain chunked HTTP (go2rtc pulls it); everything else is small JSON for curl,
 // the display clients (/api/cameras) and monitoring (/healthz). First-run auth is driven with curl.
 
@@ -10,6 +11,7 @@ function json(res, code, body) {
 export function createHttpHandler(ctx) {
   const { state } = ctx;
   const { flags } = state;
+  const settingsHttp = ctx.settings ? createSettingsHttp(ctx) : null;
 
   async function auth(req, res, url, kind) {
     if (kind === "status") return json(res, 200, ctx.authStatus());
@@ -56,6 +58,8 @@ export function createHttpHandler(ctx) {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
     const [, kind, arg] = url.pathname.split("/");
     const host = (req.headers.host ?? "127.0.0.1").replace(/:\d+$/, "");
+
+    if (url.pathname.startsWith("/api/settings") && settingsHttp) return settingsHttp(req, res, url, json);
 
     if (url.pathname === "/healthz") {
       const idle = Date.now() - flags.lastActivity;
@@ -173,6 +177,12 @@ export function createHttpHandler(ctx) {
       if (!["split", "pip-tl", "pip-tr", "pip-bl", "pip-br", "single"].includes(mode))
         return json(res, 400, { error: "invalid dual view mode" });
       try {
+        if (ctx.settings) {
+          if (!authorizedSettings(req, ctx.settingsAdminToken)) return json(res, 401, { error: "Bridge settings admin token required" });
+          const revision = ctx.settings.snapshot().revision;
+          const result = await ctx.settings.patch({ revision, settings: { cameras: { [sn]: { dual_view: mode } } } });
+          return json(res, result.apply.state === "failed" ? 502 : 200, { sn, dualView: mode, apply: result.apply });
+        }
         await ctx.setDualView(sn, mode);
         return json(res, 200, { sn, dualView: mode });
       } catch (e) {

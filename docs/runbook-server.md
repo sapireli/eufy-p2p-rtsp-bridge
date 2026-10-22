@@ -1,3 +1,5 @@
+> Bridge operating settings now migrate once into the persistent settings store. Use client controls for subsequent edits; see [settings migration](bridge-settings-migration.md). The YAML examples below describe legacy migration inputs and bootstrap deployment.
+
 # Runbook — eufy-wall-bridge (server)
 
 ## Install (Debian, arm64 or x86, no Docker)

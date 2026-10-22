@@ -42,3 +42,7 @@ cameras:
 ```
 
 Keep the source file and generated go2rtc configuration private: source URLs may contain camera encryption keys. Only stream entries are imported; account passwords and API keys are unnecessary for an already-configured native Wyze source. Imported cameras use RTSP directly and do not advertise Eufy controls or SDK receipt-based freshness. The source file is read at bridge startup, and imported streams survive generated-config refreshes.
+
+## Shared bridge settings
+
+Manage shared camera policies from Android’s **Shared bridge settings** screen or `eufy-wall settings` on Linux. Existing bridge YAML operating fields import once into the persistent store and are then deprecated. See [migration, pairing and backup/restore](docs/bridge-settings-migration.md). Display layouts and decoder preferences remain local.

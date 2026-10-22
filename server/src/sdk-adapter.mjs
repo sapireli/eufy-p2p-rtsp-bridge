@@ -9,11 +9,6 @@ import { inCidr } from "./lan-guard.mjs";
  *   invoked for every per-camera client as soon as it is constructed (server.mjs points it at the LAN guard).
  */
 export function createSdk({ cfg, DEBUG, hooks = {} }) {
-  const powerClaims = Object.fromEntries(
-    Object.entries(cfg.cameras ?? {})
-      .filter(([, camera]) => camera.powerOverride && camera.powerOverride !== "auto")
-      .map(([sn, camera]) => [sn, camera.powerOverride]),
-  );
   const eufy = new EufyMega({
     email: cfg.email,
     password: cfg.password,
@@ -72,7 +67,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     async openFeed(client, sn) {
       const cam = (await client.getDevice(sn)).camera?.();
       if (!cam?.openReadable) throw new Error(`${sn}: no live video (not a camera or openReadable unavailable)`);
-      const claim = powerClaims[sn];
+      const claim = cfg.cameras?.[sn]?.powerOverride;
       const powered = claim === "always-on" ? "wired" : claim === "battery" ? "battery" : undefined;
       return cam.openReadable({ objectMode: true, arrivalTime: true, streamType: 2, ...(powered ? { powered } : {}) });
     },
@@ -102,7 +97,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
     async describe(sn) {
       const dev = await eufy.getDevice(sn);
       const m = dev.describe();
-      const powerOverride = powerClaims[sn] ?? "auto";
+      const powerOverride = cfg.cameras?.[sn]?.powerOverride ?? "auto";
       const automaticTier = cameraPowerTier(m.model, new Set(m.capabilities));
       return {
         sn: m.sn,
@@ -112,6 +107,7 @@ export function createSdk({ cfg, DEBUG, hooks = {} }) {
         isCamera: m.capabilities.includes("camera") || m.capabilities.includes("video"),
         battery: dev.has("battery"),
         powerOverride,
+        automaticPowerTier: automaticTier,
         powerTier: powerOverride === "auto" ? automaticTier : powerOverride === "always-on" ? "wired" : "battery",
       };
     },

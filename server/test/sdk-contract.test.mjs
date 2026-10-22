@@ -122,3 +122,17 @@ test("P2PSession exposes connectAddress and close (used by lan-guard)", () => {
   assert.match(src, /this\.connectAddress = /, "connectAddress field assigned on connect");
   assert.match(src, /async close\(\)/, "close() method");
 });
+
+test('camera power claims are read again for subsequent pulls after client settings edits', async () => {
+  const sn = 'T8000P0000000000';
+  const cfg = { email:'synthetic@example.com',password:'synthetic',country:'US',session:'/tmp/synthetic-sdk-session',cameras:{[sn]:{powerOverride:'always-on'}},lan:{stationAddresses:{}} };
+  const {eufy,sdk:adapter}=createSdk({cfg,DEBUG:false});
+  eufy.getDevice=async()=>({describe:()=>({sn,name:'Synthetic',model:'T8214',capabilities:['camera','battery']}),has:()=>true,camera:()=>({openReadable:async options=>options})});
+  assert.equal((await adapter.openFeed(eufy,sn)).powered,'wired');
+  cfg.cameras={[sn]:{powerOverride:'battery'}};
+  assert.equal((await adapter.openFeed(eufy,sn)).powered,'battery');
+  assert.equal((await adapter.describe(sn)).powerTier,'battery');
+  delete cfg.cameras[sn];
+  assert.equal(Object.hasOwn(await adapter.openFeed(eufy,sn),'powered'),false);
+  assert.equal((await adapter.describe(sn)).powerOverride,'auto');
+});

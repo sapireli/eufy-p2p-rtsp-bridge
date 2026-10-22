@@ -14,7 +14,8 @@ import { createSdk } from "./src/sdk-adapter.mjs";
 import { createCameras } from "./src/cameras.mjs";
 import { reportLanPreflight } from "./src/lan-preflight.mjs";
 import { createPins } from "./src/pins.mjs";
-import { createViewModes } from "./src/view-modes.mjs";
+import { createSettingsRuntime } from "./src/settings-runtime.mjs";
+import { loadAdminToken } from "./src/settings-http.mjs";
 import { createStreamManager } from "./src/stream-manager.mjs";
 import { createLanGuard } from "./src/lan-guard.mjs";
 import { createLanUpgrade } from "./src/lan-upgrade.mjs";
@@ -30,7 +31,7 @@ import { installRecoveryRepin } from "./src/recovery.mjs";
 import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
 import { createWatchdog } from "./src/vendor/ha-bridge/watchdog.mjs";
 
-const { cfg, DEBUG } = loadConfig();
+const { cfg, DEBUG, settingsStore } = loadConfig({ persistent: true });
 fs.mkdirSync(cfg.dataDir, { recursive: true });
 
 const state = createState();
@@ -38,7 +39,10 @@ const hooks = {};
 const { eufy, sdk } = createSdk({ cfg, DEBUG, hooks });
 const ctx = { cfg, DEBUG, eufy, sdk, state, SCHEMA_VERSION: 1, PUSH_STALL_MS: 15 * 60_000 };
 ctx.freshness = createFreshness(ctx);
-ctx.viewModes = createViewModes(cfg.dataDir);
+ctx.settingsStore = settingsStore;
+ctx.settingsAdminToken = loadAdminToken(cfg.dataDir);
+ctx.viewModes = { get: (sn) => cfg.cameras[sn]?.dualView };
+console.log(`[bridge] settings pairing token: ${cfg.dataDir}/settings-admin-token (read locally; keep private)`);
 
 // Vendored auth/watchdog broadcast auth changes to "clients"; we have none in phase 1 → log.
 ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);
@@ -53,6 +57,9 @@ ctx.holds = createHolds(ctx);
 // the floor by an undefined broadcaster.
 ctx.ws = createWsHub(ctx);
 ctx.broadcastEvent = (event) => ctx.ws.broadcast(event);
+ctx.settings = createSettingsRuntime(ctx, settingsStore);
+// systemd sets INVOCATION_ID; its Restart=always policy owns process replacement.
+if (process.env.INVOCATION_ID) ctx.requestSettingsRestart = () => { void shutdown(); };
 
 /**
  * Motion takes a hold rather than starting a stream directly: see src/holds.mjs. Events arrive over push

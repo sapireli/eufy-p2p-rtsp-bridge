@@ -1,3 +1,6 @@
+# Legacy migration input: operating settings import once into data_dir/settings.json.
+# After migration use Android Shared bridge settings or Linux eufy-wall settings.
+# See docs/bridge-settings-migration.md; editing these operating fields then has no effect.
 # eufy-wall-bridge configuration. Copy to config.yaml (or set BRIDGE_CONFIG). Secrets may instead come
 # from the environment: EUFY_EMAIL, EUFY_PASSWORD, EUFY_COUNTRY (env wins over this file).
 eufy:

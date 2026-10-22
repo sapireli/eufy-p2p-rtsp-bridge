@@ -19,7 +19,7 @@ export const DUAL_VIEW_VALUES = { "pip-tl": 2, "pip-tr": 3, "pip-bl": 4, "pip-br
 export function createCameras(ctx) {
   let cache = [];
 
-  async function refreshCameras() {
+  async function refreshCameras({ config = ctx.cfg, commit = true } = {}) {
     const devices = await ctx.eufy.getDevices();
     const out = [];
     for (const d of devices) {
@@ -31,8 +31,9 @@ export function createCameras(ctx) {
         continue;
       }
       if (!m.isCamera) continue;
-      const c = ctx.cfg.cameras[m.sn] ?? {};
-      const powered = m.powerTier === "wired";
+      const c = config.cameras[m.sn] ?? {};
+      const claim = c.powerOverride ?? (m.automaticPowerTier !== undefined ? "auto" : m.powerOverride ?? "auto");
+      const powered = claim === "auto" ? (m.automaticPowerTier ?? m.powerTier) === "wired" : claim === "always-on";
       // A battery camera is enabled now, but it does not stream continuously: its mode decides when.
       // Phase 1 skipped them outright because always-on is the only thing it could do with one.
       const enabled = c.enabled ?? true;
@@ -54,11 +55,11 @@ export function createCameras(ctx) {
         standalone: stationSn === m.sn,
         battery: m.battery,
         powered,
-        powerOverride: m.powerOverride ?? "auto",
+        powerOverride: claim,
         enabled,
         mode,
-        holdSeconds: c.holdSeconds ?? ctx.cfg.defaults.holdSeconds,
-        quality: c.quality ?? ctx.cfg.defaults.quality ?? null,
+        holdSeconds: c.holdSeconds ?? config.defaults.holdSeconds,
+        quality: c.quality ?? config.defaults.quality ?? null,
         // Declared codec, if the operator set one. go2rtc prefers what a live feed actually reported and
         // falls back to this, so declaring it only removes the cold-start probe — it cannot be wrong for
         // long if it disagrees with the device.
@@ -67,20 +68,20 @@ export function createCameras(ctx) {
         vaapiDecode: c.vaapiDecode,
         isDual,
         viewModeCmd: isDual ? DUAL_MODELS[modelKey] : null,
-        dualView: isDual ? (ctx.viewModes?.get(m.sn) ?? c.dualView ?? ctx.cfg.defaults.dualView) : null,
+        dualView: isDual ? (ctx.viewModes?.get(m.sn) ?? c.dualView ?? config.defaults.dualView) : null,
       });
     }
-    for (const key of Object.keys(ctx.cfg.go2rtcImported?.streams ?? {})) {
+    for (const key of Object.keys(config.go2rtcImported?.streams ?? {})) {
       if (out.some((camera) => camera.sn === key)) throw new Error(`imported camera id conflicts with SDK camera: ${key}`);
-      const c = ctx.cfg.cameras[key] ?? {};
+      const c = config.cameras[key] ?? {};
       if (c.mode && c.mode !== "always") throw new Error(`imported camera ${key} supports always mode only`);
       if (c.transcode && c.transcode !== "never") throw new Error(`imported camera ${key} uses direct passthrough`);
       out.push({ sn: key, name: c.name ?? key, model: "external", modelName: "go2rtc camera",
         external: true, enabled: c.enabled ?? true, powered: true, powerOverride: "auto", mode: "always",
-        holdSeconds: ctx.cfg.defaults.holdSeconds, quality: null, codec: c.codec, transcode: "never",
+        holdSeconds: config.defaults.holdSeconds, quality: null, codec: c.codec, transcode: "never",
         isDual: false, dualView: null });
     }
-    cache = out;
+    if (commit) cache = out;
     return out;
   }
 
