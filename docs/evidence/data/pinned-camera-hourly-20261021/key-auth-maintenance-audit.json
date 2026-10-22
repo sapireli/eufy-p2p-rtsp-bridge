@@ -1,0 +1,43 @@
+{
+  "checkout": "/private/tmp/eufy-sdk-prime-continuity-fix",
+  "sourceAnchors": {
+    "DSKExpiration": "src/transport/http/mega-client.ts:788\u2013815;src/transport/p2p/command-router.ts:516;src/transport/p2p/p2p-session.ts:907\u2013929",
+    "gatewayRotationLimitation": "src/transport/p2p/p2p-session.ts:2248\u20132253",
+    "level2Encryption": "src/transport/p2p/p2p-session.ts:1735\u20131742",
+    "attachedStart": "src/transport/p2p/p2p-session.ts:1616\u20131664",
+    "keyPersistence": "src/transport/p2p/p2p-session.ts:558\u2013560,1719\u20131726,2347",
+    "authExpiry": "src/client/eufy-mega.ts:495\u2013499,2504\u20132508"
+  },
+  "findings": {
+    "gatewayRotation": "NewGATEWAYINFOcannotrenegotiatewhileexistingkeyheld; a limitation, notobservedcutcause",
+    "gateway1100Garage": 0,
+    "gateway1100Front": [
+      {
+        "utc": "2026-10-22T00:31:19.678488455Z",
+        "localUdpPort": 37189,
+        "channel": 255,
+        "signCode": 1,
+        "payloadBytes": 144,
+        "meaning": "Normalreplacement-sessionhandshakeaftercut;notoldsessionrekey"
+      }
+    ],
+    "cryptoExpiryCounterexample": "Garageoldstream2/newstream4useSAMEsession2,existingkeys deliver1394recoveredframes.",
+    "DSKExpiration": "Returnedbycloud,butonlykeyselectedforlookup;notincludedinattachedstartorvideodecode",
+    "accountAuth": "Attachedstartincludesstaticaccountidentifiers,notHTTPbearertokenorproviderexpiry;HTTPsessionclear doesnotclearexistingP2Pkeys.",
+    "nonceAndSequence": "Random12byteGCMnonce;32bitcryptosequenceand16bitcommandsequencewrap;noelapsedexpiry",
+    "rawVideo": "RawVIDEOdatagramsstopbeforeSDKdecryption/gating. Localdecryptkeyfailurecannotcausemissingwirepackets.",
+    "nudge": "SameLiveStream/sessionreassertsfull1003;freshnonceanddynamicheaderstreamslot,notidenticalkeepalive"
+  },
+  "caveats": [
+    "Nopeerfirmware/backendleasepolicyestablished.",
+    "No1100atcutisboundedtoexistinglogicalmetadata;parserallowlists1100inDATA/CONTROLbutreportsotherunsupportedheaders.",
+    "NoSDKcryptochangesjustified.",
+    "Noonehourpreventionclaimfromimmediatenudge."
+  ],
+  "provenance": {
+    "hour-udp-final.jsonl": "0a57a5ddbf6484565b90bd6fbd32c3ee123b9e010bf81e1d584e8ebb9ef73bb8",
+    "front-ping-boundary-20261022/udp.jsonl": "8751f40a221a08259b9c1afa2146d60226535bc6fcd27bc56fc7ff556b954ea3",
+    "garage-hour-boundary-20261021.jsonl": "f4dcd6a887a5e4528865e01d3a78669d18beaf97574f2eac1cfe417e4bbdd2e5"
+  },
+  "productionChangesByAudit": false
+}

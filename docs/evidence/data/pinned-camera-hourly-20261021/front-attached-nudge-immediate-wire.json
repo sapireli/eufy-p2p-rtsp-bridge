@@ -1,0 +1,133 @@
+{
+  "captureSHA256": "51b16be1775504b8bae9677251fd074f3f25f40e7c018a33cc3e15815eee1174",
+  "commandCountOnTargetEndpoint": 1,
+  "commands": [
+    {
+      "direction": "out",
+      "peer": "peer-1",
+      "localPort": 37189,
+      "peerPort": 21132,
+      "bytes": 550,
+      "messageType": 208,
+      "declaredPayloadBytes": 546,
+      "dataType": 0,
+      "sequence": 2,
+      "commandId": 1350,
+      "commandChannel": 2,
+      "commandSignCode": 8,
+      "commandType": 12,
+      "phase": "udp",
+      "unixNs": "1792630196993987258",
+      "unixMs": 1792630196993.9873
+    }
+  ],
+  "commandACK": {
+    "direction": "in",
+    "peer": "peer-1",
+    "localPort": 37189,
+    "peerPort": 21132,
+    "bytes": 10,
+    "messageType": 209,
+    "declaredPayloadBytes": 6,
+    "dataType": 0,
+    "ackCount": 1,
+    "sequence": 2,
+    "ackSequences": [
+      2
+    ],
+    "phase": "udp",
+    "unixNs": "1792630197002116245",
+    "unixMs": 1792630197002.1162
+  },
+  "ackDelayMs": 8.128987,
+  "captureIntegrity": [
+    {
+      "phase": "capture-start",
+      "scope": "kernel-interface-packet-tap",
+      "interface": "eth0",
+      "startedUnixNs": "1792630174688681971",
+      "startedMonotonicNs": "370572001926686",
+      "receiveBufferBytes": 16777216,
+      "peerIds": [
+        "peer-1"
+      ],
+      "payloadStored": false,
+      "kernelFilter": "IPv4 UDP",
+      "receiveBufferForced": true,
+      "commandHeaders": true,
+      "commandHeaderInspectionBytes": 16,
+      "incomingLogicalHeaders": true,
+      "logicalReorderMetadataOnly": true
+    },
+    {
+      "phase": "capture-end",
+      "endedUnixNs": "1792630274698039606",
+      "endedMonotonicNs": "370672011264121",
+      "captured": 46809,
+      "ignored": 47288,
+      "untimestamped": 0,
+      "truncated": 0,
+      "packetTapSeen": 94098,
+      "packetTapDropped": 0,
+      "payloadStored": false
+    }
+  ],
+  "cameras": [
+    {
+      "name": "Front Door CLE",
+      "localPort": 37189,
+      "peerPortsObserved": [
+        21132
+      ],
+      "VIDEOcount": 11581,
+      "maxVIDEOPacketGapMs": 385.273298,
+      "gapsAtLeast500ms": 0,
+      "VIDEOimmediatelyBeforeCommand": {
+        "unixNs": "1792630196981567596",
+        "sequence": 61976,
+        "bytes": 828
+      },
+      "VIDEOimmediatelyAfterCommand": {
+        "unixNs": "1792630197002332657",
+        "sequence": 61977,
+        "bytes": 214
+      },
+      "sequenceAdvanceAcrossCommand": 1,
+      "packetGapAcrossCommandMs": 20.765061,
+      "firstVIDEO": "2026-10-22T00:49:34.724905+00:00",
+      "lastVIDEO": "2026-10-22T00:51:14.681930+00:00",
+      "ENDpackets": [],
+      "incomingLogical1300Starts": 1505
+    },
+    {
+      "name": "Garage CLE",
+      "localPort": 47927,
+      "peerPortsObserved": [
+        14502
+      ],
+      "VIDEOcount": 11319,
+      "maxVIDEOPacketGapMs": 142.365382,
+      "gapsAtLeast500ms": 0,
+      "VIDEOimmediatelyBeforeCommand": {
+        "unixNs": "1792630196976883583",
+        "sequence": 8659,
+        "bytes": 233
+      },
+      "VIDEOimmediatelyAfterCommand": {
+        "unixNs": "1792630196997478920",
+        "sequence": 8660,
+        "bytes": 351
+      },
+      "sequenceAdvanceAcrossCommand": 1,
+      "packetGapAcrossCommandMs": 20.595337,
+      "firstVIDEO": "2026-10-22T00:49:34.690055+00:00",
+      "lastVIDEO": "2026-10-22T00:51:14.696787+00:00",
+      "ENDpackets": [],
+      "incomingLogical1300Starts": 1501
+    }
+  ],
+  "limits": [
+    "Outer1350 headers do not decrypt innerJSON; existing experiment metadata identifies this one packet as the attached media start/nudge.",
+    "No hourly lease effect can be inferred from this immediate100s capture."
+  ]
+}

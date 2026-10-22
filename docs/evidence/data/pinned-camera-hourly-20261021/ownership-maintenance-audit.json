@@ -1,0 +1,84 @@
+{
+  "sdk": {
+    "revision": "e2231c562e439a22a7e16acd11c80cb297cc40a3",
+    "checkout": "/private/tmp/eufy-sdk-prime-continuity-fix"
+  },
+  "captureInputs": [
+    {
+      "path": "hour-udp-final.jsonl",
+      "sha256": "0a57a5ddbf6484565b90bd6fbd32c3ee123b9e010bf81e1d584e8ebb9ef73bb8",
+      "target": "Garage CLE",
+      "initialPort": 47927,
+      "videoCut": "2026-10-21T23:45:08.781580Z",
+      "preCutWindowSeconds": 50,
+      "homeBaseOutgoingDataAnyType": 0,
+      "homeBaseOutgoingEnd": 0,
+      "otherOutgoingTypes": [
+        "VIDEO ACK",
+        "CONTROL ACK",
+        "UDP PING"
+      ],
+      "lastVideoSequence": 51956,
+      "lastVideoUnixNs": "1792626308781580381",
+      "matchingOutgoingAckUnixNs": "1792626308782951106",
+      "ackDelayMs": 1.370725
+    },
+    {
+      "path": "front-ping-boundary-20261022/udp.jsonl",
+      "sha256": "8751f40a221a08259b9c1afa2146d60226535bc6fcd27bc56fc7ff556b954ea3",
+      "target": "Front Door CLE",
+      "initialPort": 58818,
+      "videoCut": "2026-10-22T00:30:51.867019Z",
+      "preCutWindowSeconds": 50,
+      "homeBaseOutgoingDataAnyType": 0,
+      "homeBaseOutgoingEnd": 0,
+      "otherOutgoingTypes": [
+        "VIDEO ACK",
+        "CONTROL ACK",
+        "UDP PING"
+      ],
+      "lastVideoSequence": 21107,
+      "lastVideoUnixNs": "1792629051867018916",
+      "matchingOutgoingAckUnixNs": "1792629051871636966",
+      "ackDelayMs": 4.61805
+    }
+  ],
+  "sourceAnchors": [
+    {
+      "path": "src/transport/p2p/shared-live-source.ts",
+      "lines": "802-816,930-982",
+      "finding": "Battery budget armed only for battery sources; last-consumer detach arms linger; teardown calls stream.stop."
+    },
+    {
+      "path": "src/transport/p2p/live-stream.ts",
+      "lines": "198-212,235-278,300-320",
+      "finding": "Attached media settles periodic full starts; stall reassertion follows own-media silence; stop detaches listeners and sends stopLiveMedia."
+    },
+    {
+      "path": "src/transport/p2p/session-manager.ts",
+      "lines": "198-240,278-302,320-372",
+      "finding": "Retain cancels idle; wired session has no idle timer; idle/reset closure reaches session.close."
+    },
+    {
+      "path": "src/transport/p2p/p2p-session.ts",
+      "lines": "554-560,780-830,1058-1092,1416-1436,2342-2370",
+      "finding": "Key set has no expiry; connect socket changes are connection establishment; stop sends DATA; close clears key/sequencing and sends END."
+    },
+    {
+      "path": "/Users/eliransapir/code/eufy-wall-balcony-fix/server/src/holds.mjs",
+      "lines": "73-80",
+      "finding": "Always-mode cameras are not stopped by hold expiry."
+    },
+    {
+      "path": "/Users/eliransapir/code/eufy-wall-balcony-fix/server/src/lan-upgrade.mjs",
+      "lines": "26-30,140-145",
+      "finding": "LAN-upgrade driver is inactive when lan.force is true; resets would close station sessions."
+    }
+  ],
+  "heartbeatMetadata": {
+    "allHomeBasePingPongPacketBytes": 4,
+    "allHomeBasePingPongDeclaredPayloadBytes": 0,
+    "finding": "No changing heartbeat payload/echo field in these captures."
+  },
+  "conclusion": "No observed pre-cut ownership action or demonstrated ownership defect explains initial media loss. These exclusions cover source teardown, socket/session/key close, sibling/base DATA commands, and omitted last-packet local ACK. Packet-tap ACK presence does not prove peer receipt, and missing protocol renewal/start semantics remain outside this exclusion."
+}

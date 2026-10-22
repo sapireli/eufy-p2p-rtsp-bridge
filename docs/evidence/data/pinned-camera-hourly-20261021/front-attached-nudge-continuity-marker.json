@@ -1,0 +1,14 @@
+{
+  "markedWallMs": 1792630513271,
+  "commandWallMs": 1792630196992,
+  "sequence": 3,
+  "channel": 2,
+  "lastDeliveredMediaAgeMs": 1207,
+  "dedicated": true,
+  "peer": {
+    "host": "192.168.23.233",
+    "port": 21132
+  },
+  "localPort": 37189,
+  "markerUsesWeakRefs": true
+}

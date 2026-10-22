@@ -1,0 +1,274 @@
+{
+  "commandUtc": "2026-10-22T00:49:56.992+00:00",
+  "frameRows": 2745,
+  "omittedRows": 0,
+  "malformedFrames": 0,
+  "identityBefore": {
+    "sameSource": true,
+    "sameOwner": true,
+    "sameSession": true,
+    "samePublicSession": true,
+    "connected": true,
+    "sourceLive": true
+  },
+  "identityAfter": {
+    "sameSource": true,
+    "sameOwner": true,
+    "sameSession": true,
+    "samePublicSession": true,
+    "connected": true,
+    "sourceLive": true
+  },
+  "cleanup": [
+    {
+      "sourceOrdinal": 1,
+      "ownedCallbackAbsent": true,
+      "otherCallbackIdentitiesPreserved": true
+    },
+    {
+      "sourceOrdinal": 2,
+      "ownedCallbackAbsent": true,
+      "otherCallbackIdentitiesPreserved": true
+    }
+  ],
+  "sources": [
+    {
+      "sourceOrdinal": 1,
+      "name": "Front Door CLE",
+      "channel": 2,
+      "all": {
+        "frames": 1380,
+        "observedReceiptFps": 15.3278,
+        "receiptGapMs": {
+          "min": 1.256,
+          "median": 41.603,
+          "p95": 238.5,
+          "p99": 399.299,
+          "max": 561.235
+        },
+        "sourceTimestampSteps": {
+          "min": 59,
+          "median": 67,
+          "p95": 71,
+          "p99": 73,
+          "max": 76
+        },
+        "keyframes": 46,
+        "duplicateSourceTimestamps": 0,
+        "sourceTimestampRegressions": 0
+      },
+      "before": {
+        "frames": 341,
+        "observedReceiptFps": 17.0301,
+        "receiptGapMs": {
+          "min": 1.628,
+          "median": 41.402,
+          "p95": 157.61,
+          "p99": 333.744,
+          "max": 412.405
+        },
+        "sourceTimestampSteps": {
+          "min": 59,
+          "median": 67.0,
+          "p95": 71,
+          "p99": 73,
+          "max": 75
+        },
+        "keyframes": 11,
+        "duplicateSourceTimestamps": 0,
+        "sourceTimestampRegressions": 0
+      },
+      "beforeExcludingFirst2Seconds": {
+        "frames": 284,
+        "observedReceiptFps": 15.7344,
+        "receiptGapMs": {
+          "min": 1.669,
+          "median": 41.773,
+          "p95": 179.562,
+          "p99": 338.409,
+          "max": 412.405
+        },
+        "sourceTimestampSteps": {
+          "min": 59,
+          "median": 67,
+          "p95": 71,
+          "p99": 73,
+          "max": 75
+        },
+        "keyframes": 9,
+        "duplicateSourceTimestamps": 0,
+        "sourceTimestampRegressions": 0
+      },
+      "after": {
+        "frames": 1039,
+        "observedReceiptFps": 14.837,
+        "receiptGapMs": {
+          "min": 1.256,
+          "median": 41.671,
+          "p95": 255.779,
+          "p99": 406.489,
+          "max": 561.235
+        },
+        "sourceTimestampSteps": {
+          "min": 59,
+          "median": 67.0,
+          "p95": 71,
+          "p99": 73,
+          "max": 76
+        },
+        "keyframes": 35,
+        "duplicateSourceTimestamps": 0,
+        "sourceTimestampRegressions": 0
+      },
+      "geometryCounts": {
+        "1600x2200": 1380
+      },
+      "commandNeighbors": {
+        "lastBeforeOffsetMs": -9.918,
+        "firstAfterOffsetMs": 32.401,
+        "receiptGapMs": 42.319,
+        "sourceTimestampStep": 70,
+        "beforeKeyframe": 0,
+        "afterKeyframe": 0,
+        "firstPostCommandKeyframeOffsetMs": 533.518
+      },
+      "api": {
+        "samples": 101,
+        "stallsBefore": 86,
+        "stallsAfter": 86,
+        "notStreamingSamples": 0,
+        "receiptAgeMs": {
+          "min": 5.536,
+          "median": 37.25,
+          "p95": 225.23,
+          "p99": 309.63,
+          "max": 351.701
+        }
+      }
+    },
+    {
+      "sourceOrdinal": 2,
+      "name": "Garage CLE",
+      "channel": 1,
+      "all": {
+        "frames": 1365,
+        "observedReceiptFps": 15.1619,
+        "receiptGapMs": {
+          "min": 1.189,
+          "median": 61.46,
+          "p95": 133.344,
+          "p99": 178.779,
+          "max": 212.001
+        },
+        "sourceTimestampSteps": {
+          "min": 56,
+          "median": 67.0,
+          "p95": 69,
+          "p99": 70,
+          "max": 78
+        },
+        "keyframes": 47,
+        "duplicateSourceTimestamps": 0,
+        "sourceTimestampRegressions": 0
+      },
+      "before": {
+        "frames": 315,
+        "observedReceiptFps": 15.7369,
+        "receiptGapMs": {
+          "min": 1.807,
+          "median": 61.42,
+          "p95": 136.914,
+          "p99": 161.775,
+          "max": 192.567
+        },
+        "sourceTimestampSteps": {
+          "min": 61,
+          "median": 67.0,
+          "p95": 69,
+          "p99": 70,
+          "max": 71
+        },
+        "keyframes": 11,
+        "duplicateSourceTimestamps": 0,
+        "sourceTimestampRegressions": 0
+      },
+      "beforeExcludingFirst2Seconds": {
+        "frames": 270,
+        "observedReceiptFps": 14.9871,
+        "receiptGapMs": {
+          "min": 1.807,
+          "median": 61.624,
+          "p95": 134.434,
+          "p99": 161.775,
+          "max": 192.567
+        },
+        "sourceTimestampSteps": {
+          "min": 61,
+          "median": 67,
+          "p95": 69,
+          "p99": 70,
+          "max": 71
+        },
+        "keyframes": 9,
+        "duplicateSourceTimestamps": 0,
+        "sourceTimestampRegressions": 0
+      },
+      "after": {
+        "frames": 1050,
+        "observedReceiptFps": 14.9944,
+        "receiptGapMs": {
+          "min": 1.189,
+          "median": 61.484,
+          "p95": 129.302,
+          "p99": 179.801,
+          "max": 212.001
+        },
+        "sourceTimestampSteps": {
+          "min": 56,
+          "median": 67,
+          "p95": 69,
+          "p99": 70,
+          "max": 78
+        },
+        "keyframes": 36,
+        "duplicateSourceTimestamps": 0,
+        "sourceTimestampRegressions": 0
+      },
+      "geometryCounts": {
+        "1920x2160": 1365
+      },
+      "commandNeighbors": {
+        "lastBeforeOffsetMs": -43.451,
+        "firstAfterOffsetMs": 6.221,
+        "receiptGapMs": 49.672,
+        "sourceTimestampStep": 70,
+        "beforeKeyframe": 0,
+        "afterKeyframe": 0,
+        "firstPostCommandKeyframeOffsetMs": 1627.815
+      },
+      "api": {
+        "samples": 101,
+        "stallsBefore": 77,
+        "stallsAfter": 77,
+        "notStreamingSamples": 0,
+        "receiptAgeMs": {
+          "min": 5.47,
+          "median": 35.956,
+          "p95": 93.052,
+          "p99": 109.808,
+          "max": 112.503
+        }
+      }
+    }
+  ],
+  "caveats": [
+    "Only20secondbaselineand70secondsafter; differentwindowlengths prevent a comparativejitter/performanceclaim.",
+    "Initialbaseline contains a receiptburst, so settledbaseline afterfirst2seconds is shown separately.",
+    "Source timestamps establish cadence/continuity, not validated capture-to-display age.",
+    "Noonehour-boundarypreventionclaim fromthis90secondobservation."
+  ],
+  "provenance": {
+    "frames.json": "5fb5e25e466691ca453b934d3e3a74af9942692bbfc7ce55d1e38b721e28e459",
+    "cameras.jsonl": "2ab07da86bd1a944d941565d140350bbb5dd19604df94742bfaef0580237b311"
+  }
+}

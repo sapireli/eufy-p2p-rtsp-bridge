@@ -1,0 +1,63 @@
+{
+  "incident": "Balcony P2P reconnect failures 2026-10-22 00:45 onward",
+  "checkedAtUTC": "2026-10-22T00:48:36Z",
+  "historicalPeer": {
+    "host": "192.168.23.89",
+    "source": "front-ping-boundary-20261022/installed.json",
+    "scope": "selected endpoint from earlier boundary capture, not proven current attempted endpoint"
+  },
+  "currentAttemptedPeerProven": false,
+  "currentPeerEvidenceLimits": [
+    "No current peer address in inspected non-debug service journal.",
+    "Read-only /debug/p2p returned {error:not found}; no debug enabling or inspector attempted."
+  ],
+  "reachabilityTrial": {
+    "atUTC": "2026-10-22T00:48:25Z",
+    "target": "192.168.23.89",
+    "packetsSent": 3,
+    "replies": 0,
+    "packetLossPercent": 100,
+    "neighborBefore": "192.168.23.89 dev eth0 INCOMPLETE",
+    "neighborAfter": "192.168.23.89 dev eth0 INCOMPLETE",
+    "earlierNeighbor": "FAILED",
+    "interpretation": "Historical endpoint currently unreachable from bridge; actual current SDK target remains unproven."
+  },
+  "timeline": [
+    {
+      "atUTC": "00:45:42",
+      "event": "Balcony no bytes7s; first watchdog restart in incident."
+    },
+    {
+      "atUTC": "00:46:05\u201300:46:50",
+      "event": "SDK P2P session connect deadlines and reconnect failures, no preceding FFmpeg/GPU decoder fatal observed in bounded journal."
+    },
+    {
+      "atUTC": "00:47:05",
+      "event": "Brief streaming recovery; hardware-decode-encode attempted."
+    },
+    {
+      "atUTC": "00:47:18",
+      "event": "No bytes7s; stopped again."
+    },
+    {
+      "atUTC": "00:47:24\u201300:47:30",
+      "event": "Further stalls7 and8."
+    },
+    {
+      "atUTC": "00:47:41\u201300:48:27",
+      "event": "Repeated ~15s station P2P establishment failures."
+    }
+  ],
+  "otherObservedIssues": [
+    {
+      "atUTC": "00:47:40\u201300:47:43",
+      "event": "go2rtc RTSP writes to Fire TV .85 timed out; downstream writes are separate from source P2P establishment failure."
+    }
+  ],
+  "conclusion": "Current Balcony outage is a source P2P establishment failure, with historical LAN endpoint also unreachable. This does not prove camera WiFi/AP/driver root cause, current IP selection, or same cause as Garage hourly cutoff. No SDK/transcoder change justified by this bounded evidence.",
+  "actionsTaken": [
+    "Read existing journal and health/read-only debug API.",
+    "Exactly3 ICMP echo probes to historical endpoint."
+  ],
+  "productionMutations": false
+}
