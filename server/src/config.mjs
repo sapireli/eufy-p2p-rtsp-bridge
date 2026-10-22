@@ -4,6 +4,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "yaml";
+import { SettingsStore } from "./settings-store.mjs";
 
 const CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
 
@@ -70,9 +71,25 @@ function cameraEntry(sn, raw) {
   return out;
 }
 
-export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG || "./config.yaml" } = {}) {
-  const raw = existsSync(configPath) ? (parse(readFileSync(configPath, "utf8")) ?? {}) : {};
+export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG || "./config.yaml", persistent = false, raw: suppliedRaw } = {}) {
+  let raw = suppliedRaw ?? (existsSync(configPath) ? (parse(readFileSync(configPath, "utf8")) ?? {}) : {});
   const dataDir = resolve(env.BRIDGE_DATA_DIR || raw.data_dir || "./data");
+  let settingsStore;
+  if (persistent) {
+    const legacyRaw = structuredClone(raw);
+    const operatingEnv = { BRIDGE_GO2RTC_TRANSCODE: ["transcode", String], BRIDGE_GO2RTC_MAX_HEIGHT: ["max_height", Number], BRIDGE_GO2RTC_VAAPI_DEVICE: ["vaapi_device", String], BRIDGE_GO2RTC_VAAPI_DECODE: ["vaapi_decode", (value) => ["true", "1"].includes(String(value).toLowerCase())] };
+    for (const [key, [field, convert]] of Object.entries(operatingEnv)) {
+      if (env[key] != null) {
+        legacyRaw.go2rtc ??= {};
+        legacyRaw.go2rtc[field] = convert(env[key]);
+      }
+    }
+    settingsStore = new SettingsStore({ dataDir, legacyRaw });
+    const { settings } = settingsStore.load();
+    raw = { ...raw, defaults: undefined, cameras: undefined, lan: undefined, go2rtc: undefined, freshness: undefined, stall: undefined, poll_ms: undefined, ...settings };
+    // Runtime operating settings now come exclusively from the persistent store.
+    env = Object.fromEntries(Object.entries(env).filter(([key]) => !["BRIDGE_GO2RTC_TRANSCODE", "BRIDGE_GO2RTC_MAX_HEIGHT", "BRIDGE_GO2RTC_VAAPI_DEVICE", "BRIDGE_GO2RTC_VAAPI_DECODE"].includes(key)));
+  }
   const lanRaw = raw.lan ?? {};
   const sourcesPath = raw.go2rtc?.sources_file;
   const imported = sourcesPath ? (parse(readFileSync(resolve(sourcesPath), "utf8")) ?? {}) : {};
@@ -94,7 +111,7 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     dataDir,
     session: resolve(dataDir, ".eufy-session.json"),
     go2rtcConfig: resolve(dataDir, "go2rtc.yaml"),
-    go2rtcImported: { streams: imported.streams ?? {} },
+    go2rtcImported: { streams: raw.go2rtc?.streams ?? imported.streams ?? {} },
     go2rtcBin: env.GO2RTC_BIN || raw.go2rtc_bin || "go2rtc",
     // How go2rtc should egress each camera. "never" (default) passes the device bitstream through with
     // -c:v copy: the wall decodes H.265 in hardware, so there is nothing to gain from re-encoding on the
@@ -170,5 +187,5 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
   if (cfg.defaults.dualView != null && !DUAL_VIEWS.has(cfg.defaults.dualView))
     throw new Error(`defaults.dual_view must be one of ${[...DUAL_VIEWS].join(", ")}`);
   const DEBUG = /^(1|true|yes)$/i.test(env.BRIDGE_DEBUG ?? "");
-  return { cfg, DEBUG };
+  return { cfg, DEBUG, settingsStore };
 }

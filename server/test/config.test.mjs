@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig, isValidCidr } from "../src/config.mjs";
@@ -143,4 +143,19 @@ test("per-camera VAAPI decode accepts only explicit booleans without changing gl
   for (const invalid of ['"false"', '1', '[]']) {
     assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "test@example.invalid", EUFY_PASSWORD: "test-password" }, configPath: tmpYaml(`cameras: { ONE: { vaapi_decode: ${invalid} } }`) }), /vaapi_decode must be a boolean/);
   }
+});
+
+test('persistent settings import once, override legacy YAML and operating env thereafter', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bridge-settings-config-'));
+  const path = join(dir, 'legacy.yaml');
+  writeFileSync(path, `eufy:\n  email: test@example.com\n  password: private\ndata_dir: ${dir}\ngo2rtc:\n  transcode: never\ncameras:\n  CAM:\n    power_override: battery\n`);
+  const first = loadConfig({ configPath: path, persistent: true, env: { BRIDGE_GO2RTC_TRANSCODE: 'auto' } });
+  assert.equal(first.cfg.go2rtcTranscode, 'auto');
+  first.settingsStore.patch({ revision: 1, settings: { go2rtc: { transcode: 'always' }, cameras: { CAM: { power_override: 'always-on' } } } });
+  const next = loadConfig({ configPath: path, persistent: true, env: { BRIDGE_GO2RTC_TRANSCODE: 'never' } });
+  assert.equal(next.cfg.go2rtcTranscode, 'always');
+  assert.equal(next.cfg.cameras.CAM.powerOverride, 'always-on');
+  assert.equal(next.cfg.email, 'test@example.com');
+  assert.equal(JSON.stringify(next.settingsStore.export()).includes('private'), false);
+  rmSync(dir, { recursive: true, force: true });
 });
