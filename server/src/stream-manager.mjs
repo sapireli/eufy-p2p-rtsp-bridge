@@ -18,6 +18,7 @@ export function createStreamManager(ctx) {
   const { state, cfg } = ctx;
   const exit = (code) => (ctx.exit ?? process.exit)(code);
   const slotFor = (sn) => state.slots.get(sn) ?? state.slots.set(sn, newSlot(sn)).get(sn);
+  let stopped = false;
   const stationChains = new Map(); // parentStationSn -> Promise: serialises P2P opens per HomeBase
 
   function onChunk(slot, event) {
@@ -169,14 +170,12 @@ export function createStreamManager(ctx) {
       console.log(`[bridge] ${slot.sn}: stopped`);
       ctx.broadcastEvent?.({ type: "streamState", sn: slot.sn, state: "idle" });
     }
-    if (f) {
-      // A reopened feed starts a new coded reference chain, even when its SDK
-      // sourceId survives. Consumers must not retain the old decoder or PTS map.
-      const consumers = [...slot.consumers];
-      slot.consumers.clear();
-      for (const consumer of consumers) consumer.end();
-      f.removeAllListeners(); f.destroy();
-    }
+    // Consumers waiting for an asynchronous open also belong to this attempt.
+    // A reopened feed starts a new coded chain; none may retain an old decoder/PTS map.
+    const consumers = [...slot.consumers];
+    slot.consumers.clear();
+    for (const consumer of consumers) consumer.end();
+    if (f) { f.removeAllListeners(); f.destroy(); }
   }
 
   /**
@@ -185,12 +184,14 @@ export function createStreamManager(ctx) {
    * the guard re-check the peer and clear the block, so refusing to reconnect would be a one-way door.
    */
   async function ensureWarm(sn) {
+    if (stopped) return;
     const cam = ctx.getCamera?.(sn);
     if (cam && (!cam.enabled || cam.external)) return;
     if (!wanted(sn)) return;
     const slot = slotFor(sn);
     if (slot.feed || slot.opening) return;
     slot.opening = true;
+    const generation = slot.openGeneration ??= 0;
     // Serialise opens per parent station: two cameras behind one HomeBase each open their own P2P
     // session (session-per-camera), and if they connect at once they race the station's level-2 E2E
     // key negotiation — the loser fails with "level-2 key not ready". Chaining the opens for a station
@@ -198,19 +199,23 @@ export function createStreamManager(ctx) {
     // are their own chain, so different stations still open in parallel.
     const station = cam?.stationSn ?? sn;
     const prev = stationChains.get(station) ?? Promise.resolve();
-    const mine = prev.catch(() => {}).then(() => openFeedInto(slot, sn));
+    const mine = prev.catch(() => {}).then(() => openFeedInto(slot, sn, generation));
     stationChains.set(station, mine);
     try {
       await mine;
     } finally {
       if (stationChains.get(station) === mine) stationChains.delete(station);
       slot.opening = false;
+      if (stopped || !wanted(sn)) stopCamera(sn);
+      else if (generation !== slot.openGeneration && !slot.feed) void ensureWarm(sn);
     }
   }
 
   /** The actual open, run serialised per station by ensureWarm. */
-  async function openFeedInto(slot, sn) {
-    if (slot.feed) return; // opened while queued
+  async function openFeedInto(slot, sn, generation) {
+    const current = () => !stopped && generation === slot.openGeneration && wanted(sn);
+    if (slot.feed || !current()) return; // opened or intentionally stopped while queued
+    let pendingFeed;
     // A battery camera takes a second or two to wake. Saying so lets a tile show a still and a "coming"
     // state instead of a black rectangle, which otherwise looks indistinguishable from a broken camera.
     if (!state.streaming.has(sn)) {
@@ -225,6 +230,7 @@ export function createStreamManager(ctx) {
       // reset starts a cold-source deadline; readable retries must not reset that source again.
       if (!slot.sourceRetiredForFailure && cfg.stall.recreateClientAfter > 0 && slot.failures > 0 && slot.failures % cfg.stall.recreateClientAfter === 0) {
         const dropped = await ctx.sdk.dropStreamClient?.(sn, stationSn);
+        if (!current()) return;
         if (dropped === true) {
           slot.sourceRetiredForFailure = true;
           slot.sourceStartupStartedAt = Date.now();
@@ -232,14 +238,16 @@ export function createStreamManager(ctx) {
         }
       }
       const client = await ctx.sdk.streamClientFor(sn, stationSn);
+      if (!current()) return;
       slot.client = client;
       ctx.attachLanGuard?.(client, sn);
-      const feed = await ctx.sdk.openFeed(client, sn);
-      if (await ctx.checkMediaSessions?.(client, stationSn ?? sn, sn) === "blocked") {
-        feed.destroy();
-        throw new Error("media session peer is outside the configured LAN");
-      }
+      const feed = pendingFeed = await ctx.sdk.openFeed(client, sn);
+      if (!current()) return;
+      const mediaStatus = await ctx.checkMediaSessions?.(client, stationSn ?? sn, sn);
+      if (!current()) return;
+      if (mediaStatus === "blocked") throw new Error("media session peer is outside the configured LAN");
       slot.feed = feed;
+      pendingFeed = undefined;
       slot.startedAt = Date.now();
       slot.receivedMedia = false;
       feed.on("data", (chunk) => {
@@ -249,6 +257,7 @@ export function createStreamManager(ctx) {
       const onEnd = (why) => () => {
         if (slot.feed !== feed) return;
         closeFeed(slot);
+        if (!wanted(sn)) { stopCamera(sn); return; }
         noteFailure(slot);
         scheduleReopen(slot, why);
       };
@@ -256,9 +265,14 @@ export function createStreamManager(ctx) {
       feed.on("end", onEnd("feed ended"));
       feed.on("close", onEnd("feed closed"));
     } catch (e) {
+      if (!current()) return;
       console.error(`[bridge] ${sn}: open failed: ${e?.message ?? e}`);
       noteFailure(slot);
       scheduleReopen(slot, "open failed");
+    } finally {
+      // A readable that arrives after cancellation never becomes an owned feed.
+      // Destroying it detaches its SDK consumer without touching sibling sources.
+      pendingFeed?.destroy();
     }
   }
 
@@ -310,6 +324,9 @@ export function createStreamManager(ctx) {
   function streamTick(now = Date.now()) {
     for (const slot of state.slots.values()) {
       if (ctx.getCamera?.(slot.sn)?.external) continue;
+      // Intentional idle ends the recovery episode, even if an asynchronous failure
+      // arrived after the last hold expired. Only demanded cameras can fail continuously.
+      if (!wanted(slot.sn)) { stopCamera(slot.sn); continue; }
       // A reopened feed gets a fresh stallMs window from startedAt — lastBytesAt from a prior
       // (now-closed) feed must not count as silence against the new one.
       const resetStartup = slot.sourceStartupStartedAt !== undefined;
@@ -356,9 +373,11 @@ export function createStreamManager(ctx) {
   }
 
   async function stopAll() {
+    stopped = true;
     for (const slot of state.slots.values()) {
       if (slot.restartTimer) clearTimeout(slot.restartTimer);
       slot.restartTimer = null;
+      slot.openGeneration = (slot.openGeneration ?? 0) + 1;
       for (const c of slot.consumers) c.end();
       slot.consumers.clear();
       closeFeed(slot);
@@ -384,6 +403,7 @@ export function createStreamManager(ctx) {
   function stopCamera(sn) {
     const slot = state.slots.get(sn);
     if (!slot) return;
+    slot.openGeneration = (slot.openGeneration ?? 0) + 1;
     if (slot.restartTimer) {
       clearTimeout(slot.restartTimer);
       slot.restartTimer = null;

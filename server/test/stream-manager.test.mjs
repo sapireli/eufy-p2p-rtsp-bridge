@@ -859,3 +859,127 @@ for (const outcome of ["false", "throw"]) {
     } finally { await manager.stopAll(); }
   });
 }
+
+for (const completion of ["readable", "failure"]) {
+  test(`hold expiry cancels an in-flight open's late ${completion} without creating an idle failure deadline`, async () => {
+    let held = true, resolveOpen, rejectOpen;
+    const feed = new PassThrough(), exits = [];
+    const ctx = ctxWith({ feeds: [() => feed], exit: (code) => exits.push(code) });
+    ctx.getCamera = () => ({ enabled: true, mode: "on_motion" });
+    ctx.holds = { isHeld: () => held };
+    ctx.sdk.openFeed = () => new Promise((resolve, reject) => { resolveOpen = resolve; rejectOpen = reject; });
+    const sm = createStreamManager(ctx);
+    try {
+      const pending = sm.ensureWarm("A");
+      await new Promise(resolve => setImmediate(resolve));
+      const consumer = fakeRes(); sm.attachConsumer("A", consumer);
+      held = false; sm.stopCamera("A");
+      assert.equal(consumer.destroyed, true, "hold expiry ends consumers waiting for the pending open");
+      if (completion === "readable") resolveOpen(feed); else rejectOpen(Error("connection failed after hold expired"));
+      await pending;
+      const slot = ctx.state.slots.get("A");
+      assert.equal(slot.feed, undefined, "late completion cannot publish a stopped camera's feed");
+      if (completion === "readable") assert.equal(feed.destroyed, true, "late readable detaches its SDK consumer");
+      assert.equal(slot.firstFailureAt, 0, "intentional idle has no continuous-failure deadline");
+      assert.equal(slot.failures, 0);
+      assert.equal(slot.restartTimer, null);
+      assert.equal(ctx.state.starting.has("A"), false);
+      sm.streamTick(Date.now() + 301000);
+      assert.deepEqual(exits, [], "idle motion camera cannot restart the bridge five minutes later");
+    } finally { await sm.stopAll(); }
+  });
+}
+
+for (const stage of ["source retirement", "stream client", "media policy check"]) {
+  test(`hold expiry during ${stage} cannot continue an obsolete open`, async () => {
+    let held = true, release, entered = false, opens = 0;
+    const paused = () => new Promise(resolve => { entered = true; release = resolve; });
+    const feed = new PassThrough(), ctx = ctxWith({ feeds: [() => feed] });
+    ctx.getCamera = () => ({ enabled: true, mode: "on_motion" });
+    ctx.holds = { isHeld: () => held };
+    ctx.cfg.stall.recreateClientAfter = 1;
+    ctx.sdk.dropStreamClient = stage === "source retirement" ? paused : async () => true;
+    ctx.sdk.streamClientFor = stage === "stream client" ? paused : async () => ({});
+    ctx.sdk.openFeed = async () => { opens++; return feed; };
+    if (stage === "media policy check") ctx.checkMediaSessions = paused;
+    const sm = createStreamManager(ctx);
+    try {
+      if (stage === "source retirement") {
+        const slot = (await import("../src/state.mjs")).newSlot("A");
+        slot.failures = 1; ctx.state.slots.set("A", slot);
+      }
+      const pending = sm.ensureWarm("A");
+      await waitUntil(() => entered);
+      held = false; sm.stopCamera("A"); release(stage === "source retirement" ? true : {});
+      await pending;
+      const slot = ctx.state.slots.get("A");
+      assert.equal(slot.feed, undefined);
+      assert.equal(slot.failures, 0);
+      assert.equal(slot.sourceRetiredForFailure, false, "late retirement completion cannot revive recovery state");
+      assert.equal(slot.sourceStartupStartedAt, undefined);
+      assert.equal(opens, stage === "media policy check" ? 1 : 0);
+      if (opens) assert.equal(feed.destroyed, true);
+    } finally { await sm.stopAll(); }
+  });
+}
+
+test("a queued motion-camera open is cancelled before acquiring an SDK consumer", async () => {
+  let held = true, release;
+  const opened = [], ctx = ctxWith({ feeds: [() => new PassThrough()] });
+  ctx.getCamera = sn => ({ enabled: true, mode: sn === "B" ? "on_motion" : "always", stationSn: "SHARED" });
+  ctx.holds = { isHeld: () => held };
+  ctx.sdk.openFeed = async (_client, sn) => { opened.push(sn); return sn === "A" ? new Promise(resolve => { release = resolve; }) : new PassThrough(); };
+  const sm = createStreamManager(ctx);
+  try {
+    const first = sm.ensureWarm("A");
+    await waitUntil(() => !!release);
+    const queued = sm.ensureWarm("B");
+    held = false; sm.stopCamera("B"); release(new PassThrough());
+    await Promise.all([first, queued]);
+    assert.deepEqual(opened, ["A"], "expired queued hold cannot wake its camera");
+    assert.equal(ctx.state.starting.has("B"), false);
+  } finally { await sm.stopAll(); }
+});
+
+test("a renewed hold waits for cancellation and opens afresh while its failure watchdog stays active", async () => {
+  let held = true, release, opens = 0;
+  const old = new PassThrough(), fresh = new PassThrough(), exits = [];
+  const ctx = ctxWith({ feeds: [], exit: code => exits.push(code) });
+  ctx.getCamera = () => ({ enabled: true, mode: "on_motion" });
+  ctx.holds = { isHeld: () => held };
+  ctx.sdk.openFeed = async () => ++opens === 1 ? new Promise(resolve => { release = resolve; }) : fresh;
+  const sm = createStreamManager(ctx);
+  try {
+    const pending = sm.ensureWarm("A");
+    await waitUntil(() => !!release);
+    held = false; sm.stopCamera("A"); held = true;
+    await sm.ensureWarm("A"); // The old station operation is still pending.
+    release(old); await pending;
+    await waitUntil(() => ctx.state.slots.get("A").feed === fresh);
+    assert.equal(old.destroyed, true, "renewed demand cannot adopt the cancelled attempt");
+    assert.equal(opens, 2);
+    fresh.write(KEY);
+    assert.equal(sm.streamStatus("A").streaming, true);
+    fresh.destroy(Error("a genuinely held camera failed"));
+    await new Promise(resolve => setImmediate(resolve));
+    const slot = ctx.state.slots.get("A");
+    assert.ok(slot.firstFailureAt > 0);
+    sm.streamTick(slot.firstFailureAt + 301000);
+    assert.deepEqual(exits, [1], "continuous-failure watchdog still applies while motion camera is held");
+  } finally { await sm.stopAll(); }
+});
+
+test("shutdown discards an in-flight readable without reopening demanded cameras", async () => {
+  let release, opens = 0;
+  const feed = new PassThrough(), ctx = ctxWith({ feeds: [] });
+  ctx.sdk.openFeed = () => { opens++; return new Promise(resolve => { release = resolve; }); };
+  const sm = createStreamManager(ctx);
+  const pending = sm.ensureWarm("A");
+  await waitUntil(() => !!release);
+  await sm.stopAll();
+  release(feed); await pending;
+  await sm.ensureWarm("A");
+  assert.equal(feed.destroyed, true);
+  assert.equal(ctx.state.slots.get("A").feed, undefined);
+  assert.equal(opens, 1, "shutdown cannot re-arm work for an always-on camera");
+});

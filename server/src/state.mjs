@@ -27,6 +27,7 @@ export function newSlot(sn) {
     feed: undefined,
     client: undefined,
     opening: false,
+    openGeneration: 0, // intentional stop invalidates queued/in-flight opens
     lastBytesAt: 0,
     startedAt: 0,
     firstFailureAt: 0,
