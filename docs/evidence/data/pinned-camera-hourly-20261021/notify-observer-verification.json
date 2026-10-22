@@ -1,0 +1,13 @@
+{
+  "moduleSha256": "339316f0665291a92132a6eec99e3808774aba599419a2026cb9a5b0442d3d14",
+  "testSha256": "d156f9b140a7290c2de22aaa952f33c75b29af3b07b99664c59f6e19556256cd",
+  "testsPassed": 5,
+  "scope": "Validated numeric fields only; no packet/JSON payload serialization; exclusive0600 output; direct session observers with bounded lifetime and listener cleanup",
+  "capturedNotificationCommand": 1351,
+  "specialInnerCommand": 6246,
+  "unverified": "Meaning of6246 payload.num; observer result does not label it as status or expiry",
+  "remoteModule": "/tmp/eufy-notify-integers.cjs",
+  "remoteOutput": "/var/lib/eufy-wall-bridge/front-ping-notify-20261022.jsonl",
+  "maximumSeconds": 180,
+  "maximumRows": 4096
+}

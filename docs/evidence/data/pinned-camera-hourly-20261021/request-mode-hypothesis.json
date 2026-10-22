@@ -1,0 +1,103 @@
+{
+  "hypothesis": "streamtype2 is recording/one-hour mode while app live view uses1",
+  "verdict": "Unsupported and historically contradicted: authenticated app attached live start used2, matching current bridge explicit2 and SDK default2. Current app inner request and one-hour behavior remain unverified.",
+  "historicalApp": {
+    "evidence": [
+      "docs/sdk-streamtype-pr-handoff.md:52-80",
+      "docs/evidence/streamtype-motion-2026-10-07.json:1651"
+    ],
+    "packetUtc": "2026-09-19T23:08:27.416679Z",
+    "outer": 1350,
+    "inner": 1003,
+    "channel": 2,
+    "payload.streamtype": 2,
+    "capture": "/Users/eliransapir/Downloads/eufy-hb3.pcap",
+    "captureSha256": "5290131e60869fa2950045854afd520cf6ac328a1941995648ee91448305c344",
+    "sanitizedMetadataSha256": "e4415b7725080b091f53cbe54086282107be2ef1796eaf088c65db3bc425eddb",
+    "verification": "Original capture SHA rechecked in this audit. Authentication/decryption is archived evidence; no new decryption or private-key read in this audit."
+  },
+  "currentCode": {
+    "bridge": "server/src/sdk-adapter.mjs:72-77 explicit streamType2",
+    "sdk": "/Users/eliransapir/code/eufy-sdk/src/transport/p2p/p2p-session.ts:1164-1189 and1685-1705 attached default2/override; own-session explicit1 rejected",
+    "sdkSerializerSha256": "07446f5d8202490f91b42d85573ad622185cf422e0bcc6148e37391396ce0dfe",
+    "bridgeAdapterSha256": "911cc0a70b8206cc455f7b0acf593cc2eaf4f79d755877c8f9adfde5e6bb1813"
+  },
+  "freshApp": {
+    "evidence": "docs/evidence/front-door-current-iphone-capture-2026-10-20.md:49-59",
+    "capture": "/Users/eliransapir/Downloads/eufy-iphone-fresh.pcap",
+    "captureSha256": "bbb2b16c18424d105a5c1aa44a700deb3b5b458c1d5f14f7de23fb379f0419e3",
+    "mediaSeconds": 160.547502,
+    "bodiesEncrypted": true,
+    "selectorAndInnerCommandUnverified": true,
+    "limit": "Outer1350/channel/type cannot identify inner1003, selector, power fields, or renewal semantics. Duration below1hour."
+  },
+  "otherEvidenceBackedAttachedStartDifferences": [
+    {
+      "field": "payload.msg_id",
+      "historicalApp": 1,
+      "currentSdk": "omitted",
+      "references": [
+        "docs/sdk-streamtype-pr-handoff.md:56-68",
+        "SDK p2p-session.ts:1685-1698"
+      ],
+      "lifetimeConnection": "No measured or documented connection."
+    },
+    {
+      "field": "payload.ClientOS",
+      "historicalApp": "IOS",
+      "currentSdk": "Android",
+      "references": [
+        "docs/sdk-streamtype-pr-handoff.md:62",
+        "SDK p2p-session.ts:1690"
+      ],
+      "lifetimeConnection": "No measured or documented connection."
+    },
+    {
+      "field": "payload.accountId",
+      "historicalApp": "omitted in recorded app JSON",
+      "currentSdk": "admin account value",
+      "references": [
+        "docs/sdk-streamtype-pr-handoff.md:56-68",
+        "SDK p2p-session.ts:1691"
+      ],
+      "lifetimeConnection": "No measured or documented connection; account values not output."
+    },
+    {
+      "field": "outer.mChannel",
+      "historicalApp": "omitted",
+      "currentSdk": "camera channel",
+      "references": [
+        "docs/sdk-streamtype-pr-handoff.md:78-80",
+        "SDK p2p-session.ts:1702"
+      ],
+      "lifetimeConnection": "No measured or documented connection."
+    },
+    {
+      "field": "outer.mValue3",
+      "historicalApp": "omitted",
+      "currentSdk": 1003,
+      "references": [
+        "docs/sdk-streamtype-pr-handoff.md:78-80",
+        "SDK p2p-session.ts:1703"
+      ],
+      "lifetimeConnection": "No measured or documented connection."
+    }
+  ],
+  "matchingAttachedFields": [
+    "outer1350",
+    "inner1003",
+    "payload.streamtype2",
+    "payload.camera_type0",
+    "payload.entrytype0",
+    "RSA-modulus field key (values naturally differ per client)"
+  ],
+  "fieldSeparation": {
+    "viewSetting": "model6243 payload.video_type12 is Split composition setting",
+    "liveSelector": "1350/1003 payload.streamtype2 selects live-pull variant; universal firmware meaning unestablished",
+    "ownStart": "1000 data contains streamtype2 and video_type12 simultaneously (SDK p2p-session.ts1239-1240)",
+    "incomingByte5": "codec hint called streamType, not outgoing JSON selector (SDK p2p-session.ts1722)"
+  },
+  "controlledEvidence": "Single-request2\u21921 switched raw geometry to PiP after4.204s for28.242s;2 retainedSplit through62.807s after motion. This measures composition, not hourly lifetime.",
+  "decision": "No selector1 change justified. Existing evidence does not identify a duration/expiry flag, a renewal instruction, or any start-field difference as the one-hour cause.",
+  "mutations": "Read-only source/capture audit; this /tmp JSON only."
+}

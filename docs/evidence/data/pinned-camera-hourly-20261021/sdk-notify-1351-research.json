@@ -1,0 +1,52 @@
+{
+  "publicFacade": {
+    "event": "p2p",
+    "payload": "P2PFrame with optional json after decryption and NUL-terminatedJSON parsing",
+    "limitation": "Base/announcing sessions only; dedicated-media sessions return before data forwarding is installed.",
+    "sources": [
+      "src/client/eufy-mega.ts:908\u2013912",
+      "src/client/types.ts:367",
+      "src/transport/p2p/command-router.ts:574\u2013587"
+    ]
+  },
+  "completeReadOnlyObservation": {
+    "api": "eufy.getP2pSessions().values(), each session.on(data,handler)",
+    "notificationFilter": "frame.commandId===1351",
+    "allowedHeaderFields": [
+      "commandId",
+      "channel",
+      "signCode",
+      "type",
+      "bytesToRead",
+      "dataType"
+    ],
+    "allowedJsonFields": {
+      "cmd": "safe integer only",
+      "payload.num": "safe integer only, innercmd6246 only"
+    },
+    "neverRetain": [
+      "frame.raw",
+      "frame.data",
+      "full frame.json",
+      "arbitrary string fields",
+      "unknown payload members"
+    ]
+  },
+  "semantics": {
+    "6246": "Not decoded into any typed SDK event. Existing fixture num0 establishes a wire shape only, not status/reason/expiry meaning.",
+    "typedReasonOrExpiryFound": false
+  },
+  "optionalResult": {
+    "event": "session.commandResult",
+    "shape": {
+      "code": "int32",
+      "channel": "integer"
+    },
+    "limitation": "No originating command/sequence in event; cannot assert correlation by timestamp alone."
+  },
+  "tests": [
+    "src/transport/p2p/__tests__/param-report.spec.ts:49",
+    "src/transport/p2p/__tests__/command-result.spec.ts"
+  ],
+  "productionMutation": false
+}
