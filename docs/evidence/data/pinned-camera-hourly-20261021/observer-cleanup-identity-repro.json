@@ -1,0 +1,53 @@
+{
+  "scope": "Offline production observer modules plus actual SDK LiveStream/source retirement; network session acquisition stubbed; no live attach.",
+  "initialOriginalSessionCounts": {
+    "data": 1,
+    "videoGap": 1,
+    "commandResult": 0
+  },
+  "retiredOriginalSessionAfterStopCounts": {
+    "data": 0,
+    "videoGap": 0,
+    "commandResult": 0
+  },
+  "originalScriptWouldReportSessionMismatch": true,
+  "identityFindings": {
+    "oldSdkDataCallbackWasOwnerHandler": true,
+    "oldSdkGapCallbackWasOwnerGapHandler": true,
+    "oldSdkCallbacksAbsentAfterActualRetirement": true,
+    "observerOwnedCallbackNames": {
+      "gapData": [
+        "onData"
+      ],
+      "gapGap": [
+        "onGap"
+      ],
+      "gapVideo": [
+        "onVideo"
+      ],
+      "notifyData": [
+        "data"
+      ],
+      "notifyResult": [
+        "result"
+      ]
+    },
+    "observerOwnedRemainingOnRetiredSession": {
+      "gapData": 0,
+      "gapGap": 0,
+      "gapVideo": 0,
+      "notifyData": 0,
+      "notifyResult": 0
+    },
+    "observerOwnedRemainingOnReplacementSession": {
+      "gapData": 0,
+      "gapGap": 0,
+      "gapVideo": 0,
+      "notifyData": 0,
+      "notifyResult": 0
+    },
+    "originalAndNewAssemblerPushIdentitiesRestored": true,
+    "replacementSdkHandlersAndThirdPartyCallbackPreserved": true
+  },
+  "conclusion": "Original-session listener-count mismatch can be entirely legitimate SDK source/session retirement. Exact function-reference checks remove all diagnostic/notify callbacks on old and new sessions and restore both assemblers."
+}

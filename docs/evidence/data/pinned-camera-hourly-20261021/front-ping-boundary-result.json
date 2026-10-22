@@ -1,0 +1,323 @@
+{
+  "camera": "Front Door CLE",
+  "oldBoundary": "2026-10-22T00:30:55Z",
+  "initialLocalPort": 58818,
+  "captureMetadata": [
+    {
+      "phase": "capture-start",
+      "scope": "kernel-interface-packet-tap",
+      "interface": "eth0",
+      "startedUnixNs": "1792628998072603293",
+      "startedMonotonicNs": "369395385840145",
+      "receiveBufferBytes": 16777216,
+      "peerIds": [
+        "peer-1",
+        "peer-2"
+      ],
+      "payloadStored": false,
+      "kernelFilter": "IPv4 UDP",
+      "receiveBufferForced": true,
+      "commandHeaders": true,
+      "commandHeaderInspectionBytes": 16,
+      "incomingLogicalHeaders": true,
+      "logicalReorderMetadataOnly": true
+    },
+    {
+      "phase": "capture-end",
+      "endedUnixNs": "1792629178073063951",
+      "endedMonotonicNs": "369575386282078",
+      "captured": 128784,
+      "ignored": 58679,
+      "untimestamped": 0,
+      "truncated": 0,
+      "packetTapSeen": 187464,
+      "packetTapDropped": 0,
+      "payloadStored": false
+    }
+  ],
+  "captureComplete": true,
+  "targetCoverage": {
+    "initialEndpointObserved": true,
+    "confirmedVIDEOAfterOldCut": true,
+    "lastConfirmedVIDEOBeforeOldCut": "2026-10-22T00:30:51.867019+00:00",
+    "firstConfirmedVIDEOAfterOldCut": "2026-10-22T00:31:20.055731+00:00",
+    "lastConfirmedVIDEO": "2026-10-22T00:32:58.070833+00:00",
+    "captureTailAfterLastConfirmedVIDEOSeconds": 0.0022306442260742188,
+    "interpretation": "Inspect endpoint replacements and SDK mapping before assigning a silence when original port disappears."
+  },
+  "captureIntegrityPass": true,
+  "confirmedTargetCombinedGapsAtLeast500ms": [
+    {
+      "from": "2026-10-22T00:30:51.867019+00:00",
+      "to": "2026-10-22T00:31:20.055731+00:00",
+      "seconds": 28.188711643218994,
+      "fromPort": 58818,
+      "toPort": 37189,
+      "previousEndpointProtocolCountsInsideGap": {
+        "out-d1-data1": 1,
+        "in-d0-data2": 81,
+        "out-d1-data2": 81,
+        "out-e0-data-": 6,
+        "in-e1-data-": 6,
+        "out-d0-data0": 19,
+        "in-d1-data0": 18,
+        "in-d0-data0": 20,
+        "out-d1-data0": 20,
+        "out-f0-data-": 1,
+        "in-f0-data-": 1
+      }
+    },
+    {
+      "from": "2026-10-22T00:31:32.260139+00:00",
+      "to": "2026-10-22T00:31:32.846393+00:00",
+      "seconds": 0.5862538814544678,
+      "fromPort": 37189,
+      "toPort": 37189,
+      "previousEndpointProtocolCountsInsideGap": {
+        "out-d1-data1": 118
+      }
+    },
+    {
+      "from": "2026-10-22T00:31:59.624774+00:00",
+      "to": "2026-10-22T00:32:00.259850+00:00",
+      "seconds": 0.6350765228271484,
+      "fromPort": 37189,
+      "toPort": 37189,
+      "previousEndpointProtocolCountsInsideGap": {
+        "out-d1-data1": 1,
+        "in-d0-data2": 1,
+        "out-d1-data2": 1
+      }
+    },
+    {
+      "from": "2026-10-22T00:32:00.481697+00:00",
+      "to": "2026-10-22T00:32:01.062883+00:00",
+      "seconds": 0.581186056137085,
+      "fromPort": 37189,
+      "toPort": 37189,
+      "previousEndpointProtocolCountsInsideGap": {
+        "out-d1-data1": 1,
+        "in-d0-data2": 1,
+        "out-d1-data2": 1
+      }
+    }
+  ],
+  "endpoints": [
+    {
+      "peer": "peer-1",
+      "localPort": 58818,
+      "peerPort": 26818,
+      "initialEndpoint": true,
+      "samePeerTargetChannelConfirmed": false,
+      "targetChannelVideoStartCount": 805,
+      "observedVideoChannels": [
+        2
+      ],
+      "targetChannelOnDifferentPeer": false,
+      "firstPacket": "2026-10-22T00:29:58.074325+00:00",
+      "lastPacket": "2026-10-22T00:31:19.097660+00:00",
+      "incomingVIDEO": 6378,
+      "firstVIDEO": "2026-10-22T00:29:58.075296+00:00",
+      "lastVIDEO": "2026-10-22T00:30:51.867019+00:00",
+      "lastVIDEOBeforeOldCut": "2026-10-22T00:30:51.867019+00:00",
+      "firstVIDEOAfterOldCut": null,
+      "maxPacketGapMs": 443.90416145324707,
+      "gapsAtLeast500ms": [],
+      "protocolCountsWithin30sOfOldCut": {
+        "in-d0-data1": 3456,
+        "out-d1-data1": 3456,
+        "in-d0-data2": 160,
+        "out-d1-data2": 160,
+        "out-e0-data-": 11,
+        "in-e1-data-": 11,
+        "out-d0-data0": 19,
+        "in-d1-data0": 18,
+        "in-d0-data0": 20,
+        "out-d1-data0": 20,
+        "out-f0-data-": 1,
+        "in-f0-data-": 1
+      },
+      "ends": [
+        {
+          "at": "2026-10-22T00:31:19.087333+00:00",
+          "direction": "out"
+        },
+        {
+          "at": "2026-10-22T00:31:19.097660+00:00",
+          "direction": "in"
+        }
+      ]
+    },
+    {
+      "peer": "peer-1",
+      "localPort": 37189,
+      "peerPort": 21132,
+      "initialEndpoint": false,
+      "samePeerTargetChannelConfirmed": true,
+      "targetChannelVideoStartCount": 1465,
+      "observedVideoChannels": [
+        2
+      ],
+      "targetChannelOnDifferentPeer": false,
+      "firstPacket": "2026-10-22T00:31:19.249745+00:00",
+      "lastPacket": "2026-10-22T00:32:58.070833+00:00",
+      "incomingVIDEO": 11702,
+      "firstVIDEO": "2026-10-22T00:31:20.055731+00:00",
+      "lastVIDEO": "2026-10-22T00:32:58.070833+00:00",
+      "lastVIDEOBeforeOldCut": null,
+      "firstVIDEOAfterOldCut": "2026-10-22T00:31:20.055731+00:00",
+      "maxPacketGapMs": 635.0765228271484,
+      "gapsAtLeast500ms": [
+        {
+          "start": "2026-10-22T00:31:32.260139+00:00",
+          "end": "2026-10-22T00:31:32.846393+00:00",
+          "seconds": 0.5862538814544678,
+          "fromSequence": 1727,
+          "toSequence": 1728,
+          "sequenceAdvance": 1
+        },
+        {
+          "start": "2026-10-22T00:31:59.624774+00:00",
+          "end": "2026-10-22T00:32:00.259850+00:00",
+          "seconds": 0.6350765228271484,
+          "fromSequence": 4783,
+          "toSequence": 4784,
+          "sequenceAdvance": 1
+        },
+        {
+          "start": "2026-10-22T00:32:00.481697+00:00",
+          "end": "2026-10-22T00:32:01.062883+00:00",
+          "seconds": 0.581186056137085,
+          "fromSequence": 4788,
+          "toSequence": 4789,
+          "sequenceAdvance": 1
+        }
+      ],
+      "protocolCountsWithin30sOfOldCut": {
+        "in-41-data-": 1,
+        "out-41-data-": 3,
+        "in-43-data-": 51,
+        "in-42-data-": 4,
+        "out-d0-data0": 2,
+        "out-e0-data-": 2,
+        "in-d1-data7": 1,
+        "in-e1-data-": 2,
+        "in-d1-data0": 2,
+        "in-d0-data2": 13,
+        "out-d1-data2": 13,
+        "in-d0-data0": 1,
+        "out-d1-data0": 1,
+        "in-d0-data1": 844,
+        "out-d1-data1": 844
+      },
+      "ends": []
+    }
+  ],
+  "udpSha256": "8751f40a221a08259b9c1afa2146d60226535bc6fcd27bc56fc7ff556b954ea3",
+  "sdk": {
+    "scope": "SDK DATA/assembly/gating/delivery; API source receipt; numeric notify values have no assigned status or expiry meaning",
+    "streams": [
+      {
+        "stream": "stream-1",
+        "session": "session-1",
+        "firstObservedUtc": "2026-10-22T00:29:57.783+00:00",
+        "lastObservedUtc": "2026-10-22T00:31:18.986+00:00",
+        "sourceIds": [],
+        "finalCounters": {
+          "acceptedData": 821,
+          "unknownChannelData": 0,
+          "assembled": 821,
+          "gatedCompleteUnits": 0,
+          "delivered": 821,
+          "keyframes": 28
+        },
+        "maximumGatedCompleteUnits": 0,
+        "waitingKeyframeSamples": 0,
+        "counterResets": [],
+        "stageDivergences": [],
+        "noDeliveryWindows": [
+          {
+            "firstFlatSampleUtc": "2026-10-22T00:30:52.948+00:00",
+            "lastDeliveredWallEstimateUtc": "2026-10-22T00:30:51.871+00:00",
+            "counters": {
+              "acceptedData": 821,
+              "unknownChannelData": 0,
+              "assembled": 821,
+              "gatedCompleteUnits": 0,
+              "delivered": 821,
+              "keyframes": 28
+            },
+            "waitingKeyframe": false,
+            "maximumNoDeliveryMs": 27115.307,
+            "lastFlatSampleUtc": "2026-10-22T00:31:18.986+00:00"
+          }
+        ],
+        "counterUnitCaution": "DATA counts logical1300 messages; assembled counts access units. Split units can change their ratio without loss."
+      },
+      {
+        "stream": "stream-4",
+        "session": "session-4",
+        "firstObservedUtc": "2026-10-22T00:31:19.986+00:00",
+        "lastObservedUtc": "2026-10-22T00:32:57.066+00:00",
+        "sourceIds": [],
+        "finalCounters": {
+          "acceptedData": 1444,
+          "unknownChannelData": 0,
+          "assembled": 1444,
+          "gatedCompleteUnits": 0,
+          "delivered": 1444,
+          "keyframes": 49
+        },
+        "maximumGatedCompleteUnits": 0,
+        "waitingKeyframeSamples": 0,
+        "counterResets": [],
+        "stageDivergences": [],
+        "noDeliveryWindows": [],
+        "counterUnitCaution": "DATA counts logical1300 messages; assembled counts access units. Split units can change their ratio without loss."
+      }
+    ],
+    "sessionTransitions": [
+      {
+        "atUtc": "2026-10-22T00:29:57.783+00:00",
+        "identities": [
+          [
+            "stream-1",
+            "session-1"
+          ]
+        ]
+      },
+      {
+        "atUtc": "2026-10-22T00:31:19.986+00:00",
+        "identities": [
+          [
+            "stream-4",
+            "session-4"
+          ]
+        ]
+      }
+    ],
+    "videoGapEvents": [],
+    "inputs": {
+      "sdk": {
+        "path": "/tmp/eufy-pin-disconnect-20261021/front-hour-after-station-ping-20261022.jsonl",
+        "sha256": "8686a1fc3e94db7f666e537c25f4d02f0679d34b9c079a5d7587257824033967"
+      },
+      "api": {
+        "path": "/tmp/eufy-pin-disconnect-20261021/front-ping-boundary-20261022/cameras.jsonl",
+        "sha256": "fdb80de1e7470d713e7a5fc74b003a6e459ce3e306635eeed143f8a6c53a3855"
+      },
+      "notify": {
+        "path": "/tmp/eufy-pin-disconnect-20261021/front-ping-notify-20261022.jsonl",
+        "sha256": "67d9c794f168bff7e114ec212cd163b069519a88ee632338b240337f5ba9341e"
+      }
+    }
+  },
+  "cleanup": {
+    "cleanup": {
+      "stoppedWallMs": 1792629179803,
+      "originalSessionListenerCountMismatches": 1,
+      "wrapperState": "observer stop restores owned assembler wrappers"
+    }
+  },
+  "decision": "Reject the tested one-shot station-channel1139 renewal intervention: original near-hour video cut persisted. No permanent policy enabled. Exact source-side mechanism remains unproven."
+}

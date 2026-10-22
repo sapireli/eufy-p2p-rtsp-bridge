@@ -1,0 +1,107 @@
+{
+  "actualFrontLastFrameUtcEstimate": "2026-10-22T00:30:51.871Z",
+  "first6246Utc": "2026-10-22T00:30:57.996Z",
+  "first6246AfterLastFrameMsApprox": 6125,
+  "groups": [
+    {
+      "sessionOrdinal": 2,
+      "localUdpPort": 58818,
+      "eventCode": 1,
+      "innerCommandId": 1188,
+      "num": null,
+      "code": null,
+      "count": 82,
+      "firstUtc": "2026-10-22T00:29:57.829+00:00",
+      "lastUtc": "2026-10-22T00:31:18.935+00:00"
+    },
+    {
+      "sessionOrdinal": 1,
+      "localUdpPort": 47927,
+      "eventCode": 1,
+      "innerCommandId": 1188,
+      "num": null,
+      "code": null,
+      "count": 180,
+      "firstUtc": "2026-10-22T00:29:57.874+00:00",
+      "lastUtc": "2026-10-22T00:32:57.754+00:00"
+    },
+    {
+      "sessionOrdinal": 1,
+      "localUdpPort": 47927,
+      "eventCode": 1,
+      "innerCommandId": 6203,
+      "num": null,
+      "code": null,
+      "count": 19,
+      "firstUtc": "2026-10-22T00:30:57.934+00:00",
+      "lastUtc": "2026-10-22T00:31:19.843+00:00"
+    },
+    {
+      "sessionOrdinal": 2,
+      "localUdpPort": 58818,
+      "eventCode": 1,
+      "innerCommandId": 6203,
+      "num": null,
+      "code": null,
+      "count": 18,
+      "firstUtc": "2026-10-22T00:30:57.938+00:00",
+      "lastUtc": "2026-10-22T00:31:18.915+00:00"
+    },
+    {
+      "sessionOrdinal": 2,
+      "localUdpPort": 58818,
+      "eventCode": 2,
+      "innerCommandId": null,
+      "num": null,
+      "code": 0,
+      "count": 18,
+      "firstUtc": "2026-10-22T00:30:57.976+00:00",
+      "lastUtc": "2026-10-22T00:31:18.933+00:00"
+    },
+    {
+      "sessionOrdinal": 1,
+      "localUdpPort": 47927,
+      "eventCode": 1,
+      "innerCommandId": 6246,
+      "num": 1,
+      "code": null,
+      "count": 19,
+      "firstUtc": "2026-10-22T00:30:57.996+00:00",
+      "lastUtc": "2026-10-22T00:31:19.873+00:00"
+    },
+    {
+      "sessionOrdinal": 2,
+      "localUdpPort": 58818,
+      "eventCode": 1,
+      "innerCommandId": 6246,
+      "num": 1,
+      "code": null,
+      "count": 18,
+      "firstUtc": "2026-10-22T00:30:58.009+00:00",
+      "lastUtc": "2026-10-22T00:31:18.935+00:00"
+    },
+    {
+      "sessionOrdinal": 1,
+      "localUdpPort": 47927,
+      "eventCode": 1,
+      "innerCommandId": 6246,
+      "num": 0,
+      "code": null,
+      "count": 1,
+      "firstUtc": "2026-10-22T00:31:19.128+00:00",
+      "lastUtc": "2026-10-22T00:31:19.128+00:00"
+    },
+    {
+      "sessionOrdinal": 4,
+      "localUdpPort": 37189,
+      "eventCode": 1,
+      "innerCommandId": 1188,
+      "num": null,
+      "code": null,
+      "count": 97,
+      "firstUtc": "2026-10-22T00:31:20.823+00:00",
+      "lastUtc": "2026-10-22T00:32:57.756+00:00"
+    }
+  ],
+  "verdict": "No6246precedes thevideo cut in observedwindow.6246num1andcode0results occur during laterrecoveryattempts; onebase-sessionnum0occurs justbefore stream/sessionreplacement. Noassigned meaning to6246,num ororiginatingcommandforcode0. NewFrontsession hasonly1188afterregistration; startupnotificationcoverage is limitedby1Hz registration."
+}
