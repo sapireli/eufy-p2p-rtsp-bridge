@@ -1,0 +1,109 @@
+diff --git a/src/transport/p2p/__tests__/established-live-silence-characterization.spec.ts b/src/transport/p2p/__tests__/established-live-silence-characterization.spec.ts
+new file mode 100644
+--- /dev/null
++++ b/src/transport/p2p/__tests__/established-live-silence-characterization.spec.ts
+@@ -0,0 +1,104 @@
++import { createDecipheriv } from "node:crypto";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { P2PSession } from "../p2p-session.js";
++import { LiveStream } from "../live-stream.js";
++import { SharedLiveSource } from "../shared-live-source.js";
++import { p2pVideoFrame } from "./live-source-fixtures.js";
++
++interface SessionBoundary {
++  connectAddress: { host: string; port: number };
++  connected: boolean;
++  send(address: unknown, type: Buffer, payload?: Buffer): void;
++  handleFrame(header: unknown, payload: Buffer, dataType: number): void;
++}
++
++/** Decode only this test's synthetic outbound SET_PAYLOAD envelope. */
++function mediaCommand(data: Buffer, key: Buffer): number {
++  expect(data.readUInt16LE(8)).toBe(1350);
++  const sealed = data.subarray(20);
++  const decoder = createDecipheriv("aes-256-gcm", key, sealed.subarray(16, 28));
++  decoder.setAAD(Buffer.from("eufy security"));
++  decoder.setAuthTag(sealed.subarray(0, 16));
++  return JSON.parse(Buffer.concat([decoder.update(sealed.subarray(32)), decoder.final()]).toString()).cmd;
++}
++
++/** Characterizes existing behavior; this is not a regression assertion for a proposed fix. */
++describe("an established attached source with control but no further video", () => {
++  afterEach(() => {
++    vi.restoreAllMocks();
++    vi.useRealTimers();
++  });
++
++  it("remains live for 60 seconds while reissuing START without STOP or a terminal event", () => {
++    vi.useFakeTimers();
++    const session = new P2PSession({ stationSn: "T8000P0000000000", p2pDid: "XXXXXXX-000000-XXXXX" });
++    const boundary = session as unknown as SessionBoundary;
++    boundary.connectAddress = { host: "127.0.0.1", port: 40000 };
++    boundary.connected = true;
++    const key = Buffer.alloc(32, 0x11);
++    session.setLevel2Key(key);
++    const commands: number[] = [];
++    vi.spyOn(boundary, "send").mockImplementation((_address, _type, payload) => {
++      if (payload) commands.push(mediaCommand(payload, key));
++    });
++    let owner!: LiveStream;
++    const source = new SharedLiveSource({
++      makeStream: (ctx) =>
++        (owner = new LiveStream(session, {
++          channel: 2,
++          homeBaseAttached: true,
++          accountId: "0".repeat(40),
++          reassertWanted: ctx.reassertWanted,
++        })),
++      powered: "wired",
++    });
++    const consumer = source.attach();
++    const video = vi.fn(),
++      stopped = vi.fn(),
++      failed = vi.fn();
++    consumer.on("video", video);
++    consumer.on("stop", stopped);
++    consumer.on("error", failed);
++    let controls = 0;
++    session.on("data", (frame) => {
++      if (frame.commandId === 1351) controls++;
++    });
++    try {
++      const first = p2pVideoFrame({
++        channel: 2,
++        keyframe: true,
++        nal: Buffer.from([0x65, 0x11]),
++        width: 640,
++        height: 480,
++      });
++      boundary.handleFrame(first, first.data!, 1);
++      expect(source.state).toBe("live");
++      expect(video).toHaveBeenCalledTimes(1);
++      expect(commands).toEqual([1003]);
++      const originalOwner = owner;
++      const control = Buffer.from(JSON.stringify({ cmd: 1188, payload: { value: 1 } }) + "\0");
++      for (let second = 0; second < 60; second++) {
++        boundary.handleFrame(
++          { commandId: 1351, channel: 255, signCode: 0, type: 0, bytesToRead: control.length },
++          control,
++          2,
++        );
++        vi.advanceTimersByTime(1_000);
++      }
++      expect(controls).toBe(60);
++      expect(session.isConnected).toBe(true);
++      expect(source.state).toBe("live");
++      expect(source.consumerCount).toBe(1);
++      expect(owner).toBe(originalOwner);
++      expect(video).toHaveBeenCalledTimes(1);
++      expect(stopped).not.toHaveBeenCalled();
++      expect(failed).not.toHaveBeenCalled();
++      expect(commands).toHaveLength(20);
++      expect(commands.every((command) => command === 1003)).toBe(true);
++      expect(commands).not.toContain(1004);
++    } finally {
++      source.dispose();
++    }
++    expect(commands.at(-1)).toBe(1004);
++  });
++});

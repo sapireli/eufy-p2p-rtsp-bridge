@@ -1,0 +1,22 @@
+{
+  "sourceCommit": "66692a04a2516634277b1a33eb30205071ee7ff3",
+  "testPath": "src/transport/p2p/__tests__/established-live-silence-characterization.spec.ts",
+  "testSHA256": "ff8672fa2ce5a393a68e29109142a0452b09e313dc9ad38b3d9ec87c3b3b8e90",
+  "characterizationOnly": true,
+  "productionSDKChanged": false,
+  "elapsedVirtualSeconds": 60,
+  "initialFrames": 1,
+  "laterVideoFrames": 0,
+  "controlNotifications": 60,
+  "startCommands": 20,
+  "stopCommandsBeforeCleanup": 0,
+  "stopEvents": 0,
+  "errorEvents": 0,
+  "focusedTestsPassed": 1,
+  "typecheckPassed": true,
+  "limitations": [
+    "Synthetic connected transport and logical control injection; no real peer.",
+    "Passing base behavior characterization, not a fix regression.",
+    "Does not explain initial hourly video stop."
+  ]
+}
