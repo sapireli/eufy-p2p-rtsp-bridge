@@ -46,3 +46,12 @@ Balcony remains unresolved. It had multiple short SDK-readable EOF/reopen episod
 The 75-minute API observation finished normally at **07:11:14 UTC**, with 4,500 one-second samples and only bridge PID 195316 observed. Following wire recovery, Front Door remained streaming in every sampled observation for **930.041 seconds** (15.50 minutes), and Garage for **872.558 seconds** (14.54 minutes). Neither accumulated another stall. Maximum sampled source-receipt ages in those periods were 279.410 ms and 147.425 ms respectively; these sample values are not sensor capture-to-screen bounds. The sampler recorded all five brief Balcony EOF/reopen episodes and its separate longer timeout episode, rather than equating a zero stall counter with uninterrupted playback. [Sustained result](data/pinned-camera-hourly-20261021/sustained-post-recovery-result.json).
 
 Both observation jobs completed without being restarted. The exact cause of the initial hourly remote media silence remains unproved.
+
+
+## Short-EOF origin probe
+
+A reviewed listener-only observer ran **07:17:58.492–07:27:58.500 UTC** on Balcony's existing selected socket, source and consumer. It collected only END header metadata and stop/close event stacks, without video payloads, extra consumers, network commands or method replacement. It had a 64-event bound and a ten-minute deadline. No END, stop or close occurred during that interval; the same source, owner, session, socket and public session remained connected/live. This is an **inconclusive reproduction window**, not proof that the EOF issue disappeared.
+
+All four owned callbacks were removed and other callback identities preserved. The observer CLI exited and the loopback inspector was confirmed closed. An earlier preflight guard had incorrectly required a level-2 key on this valid standalone live session; it failed before installing listeners or sending commands. The standalone-only guard was corrected and retested before the actual probe. [Sanitized result](data/pinned-camera-hourly-20261021/balcony-eos-origin-no-event.json).
+
+No production code or camera policy was changed following the empty probe. The next short EOF needs a captured close origin; the next protocol-level prevention intervention for hourly media silence still needs evidence beyond the observed incoming-video cutoff. No connected iPhone was listed by the current device inventory, so an owner-app lifetime comparison was not available in this run.

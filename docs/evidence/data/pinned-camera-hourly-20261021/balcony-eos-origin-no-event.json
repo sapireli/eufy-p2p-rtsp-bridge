@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "scope": "Existing selected socket END metadata and existing stop/close events only; no media payload or per-frame collection. Close event is asynchronous; up to 2 seconds of settling cannot guarantee its arrival. END acceptance uses current peer before production handler.",
+  "started": {
+    "wallMs": 1792653478492,
+    "monotonicUs": 393874598741
+  },
+  "seconds": 600,
+  "channel": 0,
+  "consumersAtInstall": 1,
+  "finished": {
+    "wallMs": 1792654078500,
+    "monotonicUs": 394474606367
+  },
+  "reason": "duration",
+  "events": [],
+  "omitted": 0,
+  "cleanup": [
+    {
+      "kind": "socket-END",
+      "ownedCallbackAbsent": true,
+      "otherCallbackIdentitiesPreserved": true
+    },
+    {
+      "kind": "session-close",
+      "ownedCallbackAbsent": true,
+      "otherCallbackIdentitiesPreserved": true
+    },
+    {
+      "kind": "owner-stop",
+      "ownedCallbackAbsent": true,
+      "otherCallbackIdentitiesPreserved": true
+    },
+    {
+      "kind": "consumer-stop",
+      "ownedCallbackAbsent": true,
+      "otherCallbackIdentitiesPreserved": true
+    }
+  ],
+  "identityAfter": {
+    "sameSource": true,
+    "sameOwner": true,
+    "sameSession": true,
+    "sameSocket": true,
+    "samePublicSession": true,
+    "connected": true,
+    "sourceLive": true
+  },
+  "helperSHA256": "5e3090d058b9c7f66294514d26a1edefb3e4705b147dc7d65e0cdf44c6e07bfa",
+  "privateResultSHA256": "2837008211b3a9b5e81d6a3ed95c8280513c47d432e9f754a1f3a5bda1824e42",
+  "decision": "No closure occurred; cannot choose peer END versus local SDK disposal branch. No prevention fix justified by this probe.",
+  "preflight": "Initial observer guard incorrectly required a level-2 key for a standalone live session. Guard failed before listener/file installation or camera commands; corrected standalone guard and tests before actual probe."
+}
