@@ -1,0 +1,173 @@
+{
+  "scope": "Read-only existing INFO counters plus preferences; no restart, wake, settings, discovery or media commands. Render counters are decoder callbacks, not physical scanout or latency proof.",
+  "devices": [
+    {
+      "device": "192.168.23.58",
+      "startUtc": "2026-10-22T07:50:53.483358+00:00",
+      "samplingSeconds": 45.00606322288513,
+      "before": {
+        "pid": "16814",
+        "hardwarePinnedCameras": [
+          "Front Door",
+          "Garage"
+        ]
+      },
+      "after": {
+        "pid": "16814",
+        "hardwarePinnedCameras": [
+          "Front Door",
+          "Garage"
+        ]
+      },
+      "pidUnchanged": true,
+      "pinsUnchanged": true,
+      "cameras": [
+        {
+          "camera": "Front Door",
+          "samples": 9,
+          "first": {
+            "wallMs": 1792655455398,
+            "pid": 16814,
+            "camera": "Front Door",
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 49666,
+            "decodedFrames": 49637,
+            "renderedFrames": 48540,
+            "queuedUnits": 0,
+            "pendingDecodeMediaMs": 0
+          },
+          "last": {
+            "wallMs": 1792655495419,
+            "pid": 16814,
+            "camera": "Front Door",
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 50273,
+            "decodedFrames": 50244,
+            "renderedFrames": 49137,
+            "queuedUnits": 0,
+            "pendingDecodeMediaMs": 0
+          },
+          "receivedDelta": 607,
+          "renderedDelta": 597,
+          "counterResets": 0
+        },
+        {
+          "camera": "Garage",
+          "samples": 9,
+          "first": {
+            "wallMs": 1792655458391,
+            "pid": 16814,
+            "camera": "Garage",
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 48853,
+            "decodedFrames": 48823,
+            "renderedFrames": 46922,
+            "queuedUnits": 0,
+            "pendingDecodeMediaMs": 67
+          },
+          "last": {
+            "wallMs": 1792655498420,
+            "pid": 16814,
+            "camera": "Garage",
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 49453,
+            "decodedFrames": 49423,
+            "renderedFrames": 47507,
+            "queuedUnits": 0,
+            "pendingDecodeMediaMs": 67
+          },
+          "receivedDelta": 600,
+          "renderedDelta": 585,
+          "counterResets": 0
+        }
+      ],
+      "events": []
+    },
+    {
+      "device": "192.168.23.100",
+      "startUtc": "2026-10-22T07:50:53.516869+00:00",
+      "samplingSeconds": 45.00422406196594,
+      "before": {
+        "pid": "25671",
+        "hardwarePinnedCameras": [
+          "Front Door",
+          "Garage"
+        ]
+      },
+      "after": {
+        "pid": "25671",
+        "hardwarePinnedCameras": [
+          "Front Door",
+          "Garage"
+        ]
+      },
+      "pidUnchanged": true,
+      "pinsUnchanged": true,
+      "cameras": [
+        {
+          "camera": "Front Door",
+          "samples": 9,
+          "first": {
+            "wallMs": 1792655455561,
+            "pid": 25671,
+            "camera": "Front Door",
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 49669,
+            "decodedFrames": 49640,
+            "renderedFrames": 48338,
+            "queuedUnits": 0,
+            "pendingDecodeMediaMs": 0
+          },
+          "last": {
+            "wallMs": 1792655495580,
+            "pid": 25671,
+            "camera": "Front Door",
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 50276,
+            "decodedFrames": 50246,
+            "renderedFrames": 48939,
+            "queuedUnits": 0,
+            "pendingDecodeMediaMs": 66
+          },
+          "receivedDelta": 607,
+          "renderedDelta": 601,
+          "counterResets": 0
+        },
+        {
+          "camera": "Garage",
+          "samples": 9,
+          "first": {
+            "wallMs": 1792655454561,
+            "pid": 25671,
+            "camera": "Garage",
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 48795,
+            "decodedFrames": 48766,
+            "renderedFrames": 46626,
+            "queuedUnits": 0,
+            "pendingDecodeMediaMs": 0
+          },
+          "last": {
+            "wallMs": 1792655494585,
+            "pid": 25671,
+            "camera": "Garage",
+            "decoder": "OMX.amlogic.avc.decoder.awesome",
+            "receivedUnits": 49396,
+            "decodedFrames": 49366,
+            "renderedFrames": 47211,
+            "queuedUnits": 0,
+            "pendingDecodeMediaMs": 67
+          },
+          "receivedDelta": 601,
+          "renderedDelta": 585,
+          "counterResets": 0
+        }
+      ],
+      "events": []
+    }
+  ],
+  "excludedDevice": {
+    "device": "192.168.23.85",
+    "reason": "Not listed online by adb devices; no connection attempted."
+  }
+}

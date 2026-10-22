@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "writtenAt": "2026-10-22T07:51:03.623159+00:00",
+  "scope": "Read-only inventory on homebridge.lan only; no network discovery or other-host checks",
+  "finding": "No second active Eufy controller identified on this host",
+  "checks": {
+    "activeApplicationServices": [
+      "eufy-wall-bridge",
+      "homebridge",
+      "mosquitto"
+    ],
+    "applicationProcessNames": [
+      {
+        "role": "bridge",
+        "pid": 195316,
+        "name": "node-MainThread"
+      },
+      {
+        "role": "authorized EOS observer",
+        "pid": 199117,
+        "name": "node-MainThread"
+      },
+      {
+        "role": "RTSP egress",
+        "pid": 195445,
+        "name": "go2rtc"
+      },
+      {
+        "role": "Homebridge",
+        "pid": 803,
+        "name": "homebridge"
+      },
+      {
+        "role": "Homebridge SSH child",
+        "pid": 825,
+        "name": "homebridge: homebridge-ssh-platform"
+      },
+      {
+        "role": "Homebridge MQTT child",
+        "pid": 826,
+        "name": "homebridge: homebridge-easy-mqtt"
+      }
+    ],
+    "configuredHomebridgePlatformIdentifiers": [
+      "config",
+      "HomebridgeSsh",
+      "HomebridgeEasyMQTT"
+    ],
+    "configuredAccessoryIdentifiers": [],
+    "installedHomebridgePlugins": [
+      {
+        "name": "homebridge-ssh-platform",
+        "version": "0.1.3"
+      },
+      {
+        "name": "homebridge-easy-mqtt",
+        "version": "2.1.3"
+      },
+      {
+        "name": "homebridge-config-ui-x",
+        "version": "5.29.0"
+      }
+    ],
+    "additionalEufyScryptedOrHomeAssistantControllerIdentified": false,
+    "genericSshMqttCommandTopicUrlPayloadFieldsWithEufySdkOrKnownCameraIdentifier": 0,
+    "scheduleFilesChecked": 6,
+    "scheduledEufyScryptedOrHomeAssistantMatches": 0,
+    "secondEufyAccountOr3600SecondStopTimerAvailableForComparison": false
+  },
+  "privacy": "Only service/process/plugin identifiers and boolean/count findings retained. No command lines, credentials, environment values, full configuration or camera identifiers retained.",
+  "limitations": [
+    "Inventory reflects the audit window; exact start time was not recorded.",
+    "Does not exclude a historical transient process, an unrelated opaque command or a controller on another host.",
+    "No identified second Eufy actor means no account/camera-overlap comparison or controller stop-duration inspection was applicable."
+  ],
+  "mutations": {
+    "productionChanges": false,
+    "inspectorAttachment": false,
+    "observerAltered": false
+  }
+}
