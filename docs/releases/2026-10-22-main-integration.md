@@ -53,3 +53,12 @@ software fallback. Balcony had 15–20 queued frames at the end of this window,
 so these measurements do not establish perfect latency or eliminate the
 previously observed upstream media pauses. Decoder counters are not physical
 screen or capture-to-screen verification.
+
+The final snapshot at 02:53:34 UTC extended observation to 240 seconds. All
+four fixed feeds continued advancing on all three TVs, with unchanged app PIDs,
+preferences and APK hashes. Total rendered-frame deltas were Front Door
++3330–3418, Garage Doorbell +3395–3441, Balcony +5741–5787 and Wyze +3502–3518.
+All final decoder queues were zero; the earlier Balcony queues cleared rather
+than growing throughout this check. Final recent logs contained no RTSP
+timeouts, player releases or control disconnects. The intervening period was
+checked by final counters and logs, not a continuous screen recording.
