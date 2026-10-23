@@ -1,7 +1,7 @@
 # Bridge startup only. Camera and operating settings live in the persistent store
 # and are edited through Android Shared bridge settings or eufy-wall settings.
 # Credentials belong in /etc/eufy-wall-bridge.env (EUFY_EMAIL/PASSWORD/COUNTRY).
-host: 0.0.0.0
+host: "::"                   # IPv4 and IPv6; explicit addresses restrict binding
 port: 3000
 # rtsp_port: 8554
 # go2rtc_api_port: 1984          # loopback-only management listener

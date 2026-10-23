@@ -1,3 +1,4 @@
+import { requestHost } from "./network.mjs";
 import { createSettingsHttp, authorizedSettings } from "./settings-http.mjs";
 // HTTP surface. Video is plain chunked HTTP (go2rtc pulls it); everything else is small JSON for curl,
 // the display clients (/api/cameras) and monitoring (/healthz). First-run auth is driven with curl.
@@ -55,9 +56,12 @@ export function createHttpHandler(ctx) {
   };
 
   async function route(req, res) {
-    const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+    let url, host;
+    try {
+      url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+      host = requestHost(req.headers.host);
+    } catch { return json(res, 400, { error: "Invalid request URL or Host header" }); }
     const [, kind, arg] = url.pathname.split("/");
-    const host = (req.headers.host ?? "127.0.0.1").replace(/:\d+$/, "");
 
     if (url.pathname.startsWith("/api/settings") && settingsHttp) return settingsHttp(req, res, url, json);
 

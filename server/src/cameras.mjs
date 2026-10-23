@@ -1,3 +1,4 @@
+import { urlHost } from "./network.mjs";
 // Camera registry: SDK device list ∩ config → the set of cameras this bridge serves, plus the /api shape.
 
 import { streamKeys, nativeRenditionFor } from "./go2rtc.mjs";
@@ -123,7 +124,7 @@ export function createCameras(ctx) {
       // The go2rtc stream is keyed by the camera's name, not its serial — see streamKeys(). Reported
       // here so a client uses the bridge's key rather than deriving its own and getting it subtly wrong.
       streamKey: streamKeyFor(cam.sn),
-      rtsp: `rtsp://${host}:${ctx.cfg.rtspPort ?? 8554}/${streamKeyFor(cam.sn)}`,
+      rtsp: `rtsp://${urlHost(host)}:${ctx.cfg.rtspPort ?? 8554}/${streamKeyFor(cam.sn)}`,
       // go2rtc can repacketize this TCP consumer without changing encoded video.
       // Larger RTP payloads avoid per-packet CPU saturation on small Linux clients.
       // Keep the regular URL unchanged: this is not suitable for UDP/MTU-sized RTP.

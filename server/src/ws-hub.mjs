@@ -1,3 +1,4 @@
+import { urlHost, requestHost } from "./network.mjs";
 // The wall's event channel: `/ws`.
 //
 // A tile cannot poll for motion. By the time a poll noticed, the thing that moved would be gone — so the
@@ -44,7 +45,7 @@ export function createWsHub(ctx) {
       // The go2rtc stream key (the camera's name, slugged). The wall builds its RTSP URL from this
       // rather than from the serial, so renaming a camera moves its stream without a client change.
       streamKey: ctx.streamKeyFor?.(c.sn) ?? c.sn,
-      rtsp: `rtsp://${host}:${ctx.cfg?.rtspPort ?? 8554}/${ctx.streamKeyFor?.(c.sn) ?? c.sn}`,
+      rtsp: `rtsp://${urlHost(host)}:${ctx.cfg?.rtspPort ?? 8554}/${ctx.streamKeyFor?.(c.sn) ?? c.sn}`,
       rtspTcpPacketSize: 8192,
       freshness: ctx.freshness?.capability(c, host),
       nativeRendition: nativeRenditionFor(ctx, c, host),
@@ -53,7 +54,8 @@ export function createWsHub(ctx) {
       // none would be pointing a pipeline at a 404 and restarting it forever.
       still,
     }));
-    return { type: "hello", at: Date.now(), cameras, holds: ctx.holds?.status?.() ?? {} };
+    return { type: "hello", at: Date.now(), cameras, holds: ctx.holds?.status?.() ?? {},
+      auth: { state: ctx.authStatus?.().state ?? "ok" }, ready: ctx.state.flags?.ready ?? true };
   }
 
   function send(ws, msg) {
@@ -77,7 +79,7 @@ export function createWsHub(ctx) {
     const hello = await snapshot();
     for (const ws of clients) {
       send(ws, { ...hello, cameras: hello.cameras.map((c) => ({ ...c,
-        rtsp: `rtsp://${ws.wallHost ?? ctx.cfg?.selfHost ?? "127.0.0.1"}:${ctx.cfg?.rtspPort ?? 8554}/${c.streamKey}`,
+        rtsp: `rtsp://${urlHost(ws.wallHost ?? ctx.cfg?.selfHost ?? "127.0.0.1")}:${ctx.cfg?.rtspPort ?? 8554}/${c.streamKey}`,
         freshness: ctx.freshness?.capability(ctx.getCamera?.(c.sn) ?? c, ws.wallHost ?? ctx.cfg?.selfHost ?? "127.0.0.1"),
         nativeRendition: nativeRenditionFor(ctx, ctx.getCamera?.(c.sn) ?? c, ws.wallHost ?? ctx.cfg?.selfHost ?? "127.0.0.1"),
       })) });
@@ -88,8 +90,9 @@ export function createWsHub(ctx) {
   function attach(server) {
     wss = new WebSocketServer({ server, path: "/ws" });
     wss.on("connection", (ws, req) => {
+      try { ws.wallHost = requestHost(req.headers.host); }
+      catch { ws.close(1008, "Invalid Host header"); return; }
       clients.add(ws);
-      ws.wallHost = (req.headers.host ?? "127.0.0.1").replace(/:\d+$/, "");
       ws.isAlive = true;
       ws.on("pong", () => {
         ws.isAlive = true;

@@ -8,6 +8,16 @@ import { buildConfig, isValidCidr } from '../src/config.mjs';
 const fromYaml = (text, env = {}) => buildConfig({env, raw:parse(text)});
 const credentials = 'eufy: { email: a@b.c, password: yamlpw, country: US }\n';
 
+test('internal pulls follow an explicit bind address unless self_host is overridden', () => {
+  for (const host of ['::1', '[::1]', '2001:db8::1', '192.0.2.1', 'bridge.test']) {
+    const {cfg}=fromYaml(`${credentials}host: "${host}"\n`);
+    assert.equal(cfg.selfHost, host.replace(/^\[|\]$/g, ''));
+  }
+  for (const host of ['::', '0.0.0.0']) assert.equal(fromYaml(`${credentials}host: "${host}"\n`).cfg.selfHost, '127.0.0.1');
+  assert.equal(fromYaml(`${credentials}host: "::1"\nself_host: localhost\n`).cfg.selfHost, 'localhost');
+  assert.equal(fromYaml(`${credentials}host: "::1"\n`, {BRIDGE_SELF_HOST:'override.test'}).cfg.selfHost, 'override.test');
+});
+
 test('normalizes stored settings, applies defaults and startup credential overrides', () => {
   const {cfg}=fromYaml(`${credentials}
 lan: { cidr: 10.0.0.0/8, force: true, station_addresses: { T8010X: 10.0.0.5 } }
@@ -18,7 +28,7 @@ cameras:
   T8113X: { enabled: false }
 `,{EUFY_PASSWORD:'envpw'});
   assert.equal(cfg.email,'a@b.c');assert.equal(cfg.password,'envpw');assert.equal(cfg.country,'US');
-  assert.equal(cfg.port,3000);assert.equal(cfg.host,'0.0.0.0');assert.equal(cfg.selfHost,'127.0.0.1');
+  assert.equal(cfg.port,3000);assert.equal(cfg.host,'::');assert.equal(cfg.selfHost,'127.0.0.1');
   assert.equal(cfg.lan.cidr,'10.0.0.0/8');assert.equal(cfg.lan.force,true);
   assert.deepEqual(cfg.lan.stationAddresses,{T8010X:'10.0.0.5'});
   assert.equal(cfg.defaults.quality,'Full HD (1080P)');assert.equal(cfg.defaults.dualView,null);

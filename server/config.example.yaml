@@ -8,7 +8,7 @@ eufy:
   password: change-me            # the phone app on the same account evicts the bridge)
   country: US
 
-host: 0.0.0.0                    # HTTP bind (go2rtc + display clients + curl)
+host: "::"                       # IPv4 and IPv6 HTTP bind
 port: 3000
 # self_host: 127.0.0.1           # address go2rtc uses to pull /stream from this process
 # data_dir: ./data               # session token + generated go2rtc.yaml

@@ -104,6 +104,7 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
 /** Internal mapper for validated JSON settings; never reads YAML or other configuration files. */
 export function buildConfig({ env = process.env, raw = {} } = {}) {
   const dataDir = resolve(env.BRIDGE_DATA_DIR || raw.data_dir || "./data");
+  const host = (env.BRIDGE_HOST || raw.host || "::").replace(/^\[|\]$/g, "");
   const lanRaw = raw.lan ?? {};
   if (raw.go2rtc?.sources_file !== undefined) throw new Error("go2rtc.sources_file requires the offline migration tool; operating settings use embedded streams");
   for (const [key, source] of Object.entries(raw.go2rtc?.streams ?? {})) {
@@ -114,11 +115,11 @@ export function buildConfig({ env = process.env, raw = {} } = {}) {
     email: env.EUFY_EMAIL || raw.eufy?.email,
     password: env.EUFY_PASSWORD || raw.eufy?.password,
     country: env.EUFY_COUNTRY || raw.eufy?.country || "US",
-    host: env.BRIDGE_HOST || raw.host || "0.0.0.0",
+    host,
     port: Number(env.BRIDGE_PORT || raw.port || 3000),
     rtspPort: Number(env.BRIDGE_RTSP_PORT || raw.rtsp_port || 8554),
     go2rtcApiPort: Number(env.BRIDGE_GO2RTC_API_PORT || raw.go2rtc_api_port || 1984),
-    selfHost: env.BRIDGE_SELF_HOST || raw.self_host || "127.0.0.1", // what go2rtc dials to reach us
+    selfHost: env.BRIDGE_SELF_HOST || raw.self_host || (["::", "0.0.0.0"].includes(host) ? "127.0.0.1" : host),
     dataDir,
     session: resolve(dataDir, ".eufy-session.json"),
     go2rtcConfig: resolve(dataDir, "go2rtc.yaml"),

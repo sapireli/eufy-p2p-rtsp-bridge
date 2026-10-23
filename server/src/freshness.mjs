@@ -1,3 +1,4 @@
+import { urlHost } from "./network.mjs";
 import { randomBytes } from "node:crypto";
 
 /** Monotonic bridge clock; SDK wall-clock arrivals are projected into this domain before fanout. */
@@ -51,7 +52,7 @@ export function createFreshness(ctx, { epoch = randomBytes(8), clock = () => pro
     clock: () => ({ serverEpoch: serverEpoch.toString("hex"), monotonicUs: Number(clock()), scope: "bridge-ingress", captureClockValidated: false }),
     capability: (cam, host) => enabledFor(cam) ? {
       version: 2, mode, scope: "bridge-ingress", maxAgeMs, captureClockValidated: false,
-      clockUrl: `http://${host}:${ctx.cfg.port}/api/clock`,
+      clockUrl: `http://${urlHost(host)}:${ctx.cfg.port}/api/clock`,
     } : undefined,
     record: (frame, receipt) => {
       if (receipt !== undefined) {

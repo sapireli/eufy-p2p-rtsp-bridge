@@ -22,7 +22,7 @@ test('fresh install bootstrap creates empty operating store with hardware-first 
   const {cfg,settingsStore}=loadConfig({configPath:path,env:f.env});
   assert.deepEqual(settingsStore.load(),{revision:1,settings:{}});
   assert.equal(cfg.email,'synthetic@example.com');assert.equal(cfg.go2rtcVaapiDecode,true);
-  assert.equal(cfg.host,'0.0.0.0');assert.equal(cfg.port,3000);
+  assert.equal(cfg.host,'::');assert.equal(cfg.port,3000);
 });
 
 test('legacy YAML operating settings fail with migration instructions before store creation',t=>{

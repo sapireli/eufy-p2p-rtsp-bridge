@@ -27,6 +27,7 @@ import { createFreshEgress } from "./src/fresh-egress.mjs";
 import { initializeEgressTiming } from "./src/egress-timing-diagnostic.mjs";
 import { initializeSdkGapDiagnostic } from "./src/sdk-gap-diagnostic.mjs";
 import { createHttpHandler } from "./src/http.mjs";
+import { listenHttp, urlHost } from "./src/network.mjs";
 import { installRecoveryRepin } from "./src/recovery.mjs";
 import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
 import { createWatchdog } from "./src/vendor/ha-bridge/watchdog.mjs";
@@ -45,7 +46,10 @@ ctx.viewModes = { get: (sn) => cfg.cameras[sn]?.dualView };
 console.log(`[bridge] settings pairing token: ${cfg.dataDir}/settings-admin-token (read locally; keep private)`);
 
 // Vendored auth/watchdog broadcast auth changes to "clients"; we have none in phase 1 → log.
-ctx.broadcast = (evt) => console.log(`[bridge] event ${JSON.stringify(evt)}`);
+ctx.broadcast = (evt) => {
+  console.log(`[bridge] event ${JSON.stringify(evt)}`);
+  if (evt.event === "auth") ctx.ws?.broadcast({ type: "auth", auth: { state: evt.state }, ready: state.flags.ready });
+};
 
 ctx.lanUpgrade = createLanUpgrade(ctx);
 Object.assign(ctx, createCameras(ctx), createPins(ctx), createLanGuard(ctx), createStreamManager(ctx), createGo2rtc(ctx), createAuth(ctx), createWatchdog(ctx));
@@ -145,7 +149,8 @@ const server = http.createServer(createHttpHandler(ctx));
 ctx.ws.attach(server);
 
 async function main() {
-  server.listen(cfg.port, cfg.host, () => console.log(`[bridge] listening on ${cfg.host}:${cfg.port}`));
+  await listenHttp(server, cfg);
+  console.log(`[bridge] listening on ${urlHost(cfg.host)}:${cfg.port}${cfg.host === "::" ? " (IPv4 and IPv6)" : ""}`);
   try {
     await ctx.applyLogin(await eufy.login());
   } catch (e) {

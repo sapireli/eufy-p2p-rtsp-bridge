@@ -1,3 +1,4 @@
+import { urlHost } from "./network.mjs";
 // go2rtc lifecycle: write its yaml from the enabled camera list (vendored generator) and run the binary
 // as a child, restarting it with a short delay if it dies. Not fatal when the binary is missing (dev).
 import { spawn } from "node:child_process";
@@ -90,7 +91,7 @@ export function nativeRenditionFor(ctx, cam, host) {
   const freshness = ctx.freshness?.capability({ ...cam, transcode: "never" }, host);
   if (!freshness) return undefined;
   const key = nativeStreamKeys(ctx.listCameras().filter((c) => c.enabled)).get(cam.sn);
-  return { rtsp: `rtsp://${host}:${ctx.cfg.rtspPort ?? 8554}/${key}`, codec: "h265", width: slot.width, height: slot.height, ...slot.nativeCodecInfo, freshness };
+  return { rtsp: `rtsp://${urlHost(host)}:${ctx.cfg.rtspPort ?? 8554}/${key}`, codec: "h265", width: slot.width, height: slot.height, ...slot.nativeCodecInfo, freshness };
 }
 
 /** Rewrite the generated config's serial-keyed streams to {@link streamKeys}, in place and one for one. */
@@ -141,7 +142,7 @@ export function createGo2rtc(ctx) {
     try {
     const cameras = ctx.listCameras().filter((c) => c.enabled);
     const devices = cameras.filter((c) => !c.external).map((c) => ({ sn: c.sn, stream: `/stream/${c.sn}` }));
-    const sns = await writeGo2rtcConfig({ ...cfg, go2rtcConfig: stagingPath }, devices);
+    const sns = await writeGo2rtcConfig({ ...cfg, selfHost: urlHost(cfg.selfHost), go2rtcConfig: stagingPath }, devices);
     // The vendored generator always emits "#video=copy"; rewrite each source to this camera's egress mode.
     const plan = egressPlan(cameras), nativeSnapshot = nativePlan(cameras);
     let text = hardenGo2rtcYaml(await readFile(stagingPath, "utf8"), { rtspPort: cfg.rtspPort, apiPort: cfg.go2rtcApiPort });
@@ -180,9 +181,9 @@ export function createGo2rtc(ctx) {
       text = doc.toString();
     }
     for (const [sn, suffix] of Object.entries(plan)) {
-      const rawUrl = `http://${cfg.selfHost}:${cfg.port}/stream/${sn}`;
+      const rawUrl = `http://${urlHost(cfg.selfHost)}:${cfg.port}/stream/${sn}`;
       if (ctx.freshness?.enabledFor(ctx.getCamera(sn))) {
-        text = text.replace(`ffmpeg:${rawUrl}#video=copy`, `http://${cfg.selfHost}:${cfg.port}/timed-stream/${sn}`);
+        text = text.replace(`ffmpeg:${rawUrl}#video=copy`, `http://${urlHost(cfg.selfHost)}:${cfg.port}/timed-stream/${sn}`);
         continue;
       }
       const url = `${rawUrl}?format=mpegts&pes=fragmented`;
@@ -200,7 +201,7 @@ export function createGo2rtc(ctx) {
       }
       const keys = nativeStreamKeys(cameras);
       for (const sn of nativeSnapshot.split("|").filter(Boolean)) {
-        doc.setIn(["streams", keys.get(sn)], `http://${cfg.selfHost}:${cfg.port}/timed-stream/${sn}?rendition=native`);
+        doc.setIn(["streams", keys.get(sn)], `http://${urlHost(cfg.selfHost)}:${cfg.port}/timed-stream/${sn}?rendition=native`);
       }
       text = doc.toString();
     }
