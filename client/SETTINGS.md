@@ -2,7 +2,7 @@
 
 The Linux client provides a settings CLI. These controls change the bridge for every display. Layout, selected tiles, motion outlines and decoder priorities remain local to each display. The Linux display configuration in `/etc/eufy-wall.yaml` remains supported; deprecation applies to bridge operating settings.
 
-The bridge imports existing operational YAML settings once into its persistent settings store. Later client changes take precedence over legacy YAML. Use `show` to inspect saved values, revision and apply status before changing them.
+The persistent bridge settings store is authoritative. Runtime YAML accepts bootstrap settings only. The installer imports and retires old operating fields with an explicit offline tool; normal startup never falls back to them. Use `show` to inspect saved values, revision and apply status before changing them.
 
 ## Connect
 
@@ -64,7 +64,7 @@ Export creates a new file with mode `0600` and refuses to overwrite an existing 
 
 ## Existing view-switch flags
 
-The older flags remain available. On bridges with persistent settings they require the same administrator token and save the shared camera view through the bridge's settings store:
+The older flags remain available. On the current bridge they require the same administrator token and save the shared camera view through the bridge's settings store:
 
 ```sh
 eufy-wall -settings-token-file ~/.config/eufy-wall/bridge-token \

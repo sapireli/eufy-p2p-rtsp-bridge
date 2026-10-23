@@ -1,4 +1,4 @@
-> Bridge operating settings now migrate once into the persistent settings store. Use client controls for subsequent edits; see [settings migration](bridge-settings-migration.md). The YAML examples below describe legacy migration inputs and bootstrap deployment.
+> Bridge operating settings live in the persistent JSON store and are managed through clients. Runtime YAML accepts bootstrap settings only; the installer migrates legacy fields offline. See [settings migration](bridge-settings-migration.md).
 
 # Runbook — eufy-wall-bridge (server)
 
@@ -7,7 +7,7 @@
     sudo deploy/install-server.sh
     sudo nano /etc/eufy-wall-bridge.env      # EUFY_EMAIL / EUFY_PASSWORD / EUFY_COUNTRY (dedicated account!)
     sudo systemctl start eufy-wall-bridge && journalctl -fu eufy-wall-bridge
-The installer creates a startup-only YAML file and preserves existing configuration and data on upgrades. After login, pair Android’s **Shared bridge settings** screen or the Linux settings CLI using the token in `/var/lib/eufy-wall-bridge/settings-admin-token`. Configure LAN policy, camera overrides and transcoding through that client; see [settings migration](bridge-settings-migration.md).
+The installer creates a startup-only YAML file. On upgrades it stops the old service before replacing files, creates private rollback backups, imports legacy settings offline when needed, and retires old operating fields before restart. An existing settings store remains authoritative. After login, pair Android’s **Shared bridge settings** screen or the Linux settings CLI using the token in `/var/lib/eufy-wall-bridge/settings-admin-token`. Configure LAN policy, camera overrides and transcoding through that client; see [settings migration](bridge-settings-migration.md).
 
 The install script apt-installs Node 24 (NodeSource), rsync, Python 3, patch and **ffmpeg**.
 Normal installation uses verified go2rtc 1.9.14 with the TCP framing repair described below. Copy-mode streams use
@@ -134,9 +134,10 @@ the display to check a constant delay. See [the measurements and limits](evidenc
 - Dual-lens (E340 doorbell/floodlight, S340): the bridge sends `dual_view` only when configured for that
   camera or under `defaults`. It does not change a device setting on an unset value.
   The TV setup screen and Linux `-view-camera` command can change one camera at a time through
-  `POST /api/cameras/<serial>/view?mode=split|pip-tl|pip-tr|pip-bl|pip-br|single`. The bridge stores these
-  overrides in `/var/lib/eufy-wall-bridge/dual-view-modes.json`, reapplies them after a restart, and
-  reports the chosen `dualView` in `/api/cameras`. Delete that JSON entry to return to YAML/app settings.
+  the authenticated settings API or `POST /api/cameras/<serial>/view?mode=split|pip-tl|pip-tr|pip-bl|pip-br|single`.
+  The bridge saves the override in `settings.json` and reports the requested `dualView` in `/api/cameras`.
+  Clear the camera's `dual_view` override with a client to restore inheritance. The old `dual-view-modes.json`
+  is imported only by the offline migration tool and is no longer read at runtime.
   The camera composes the image before transmission, so switching modes adds no transcoding load.
   RTSP consumers reconnect when its resolution or aspect changes; the camera's P2P feed stays open.
   On the tested T8214 Front Door,
@@ -150,7 +151,7 @@ the display to check a constant delay. See [the measurements and limits](evidenc
   the explicit choice, so Android TV and Linux clients receive the corrected stream without an app update.
 - A battery device reports charging without proving that its external input can support continuous video.
   The SDK keeps its battery budget by default. For a camera whose installation supports a persistent
-  stream, set `cameras.<sn>.power_override: always-on` in the bridge YAML. This records a bridge-side
+  stream, set `cameras.<sn>.power_override` to `always-on` through a client. This records a bridge-side
   installation choice. The bridge passes `powered: "wired"` on each media pull and makes `always` the
   default mode. It sends no command to the camera. The station's idle P2P policy still follows the SDK's
   device classification. `mode: always` on a battery-budgeted
@@ -158,16 +159,16 @@ the display to check a constant delay. See [the measurements and limits](evidenc
   `powerOverride`, `powered`, and `mode` so the decision is visible.
 
 ## Force-LAN
-Set the bridge YAML to your local subnet, then restart the service:
+Set the shared LAN policy through a client, then explicitly restart the bridge. The Linux settings command accepts this patch:
 
-```yaml
-lan:
-  cidr: 192.168.1.0/24
-  force: true
+```sh
+eufy-wall settings --token-file ~/.config/eufy-wall/bridge-token \
+  patch '{"lan":{"cidr":"192.168.1.0/24","force":true}}'
+eufy-wall settings --token-file ~/.config/eufy-wall/bridge-token restart
 ```
 
 This is a bridge-wide policy covering station control and per-camera media sessions.
-It persists in `/etc/eufy-wall-bridge.yaml`; installer updates preserve that file.
+It persists in the authoritative `settings.json` store; installer updates preserve that store.
 If a local connection fails, the bridge retries without accepting a WAN/relay peer.
 
 `lan.force: true` asks the SDK to reject peers outside `lan.cidr` before connecting a control or media
@@ -180,9 +181,10 @@ P2P data traffic from cloud lookup replies when checking a packet capture.
 If a station cannot establish a local connection, add its LAN IP under `lan.station_addresses`.
 
 ## Security (LAN-trust model)
-Nothing on the bridge is authenticated: `:3000` (HTTP /stream, /api, /auth) and `:8554` (RTSP) trust
-every host on the LAN, so run it on a network you control (a VLAN with the TVs is ideal) and never
-port-forward it. The go2rtc API is pinned to `127.0.0.1:1984` and its WebRTC listener is removed by
+Settings reads, edits, backups and restart require the paired administrator token. Media, discovery and
+login endpoints on `:3000` and RTSP on `:8554` retain the LAN-trust model. Run the bridge on a network you
+control and never port-forward it. The settings token does not encrypt HTTP; use authenticated TLS if
+exposing management beyond the trusted network. The go2rtc API is pinned to `127.0.0.1:1984` and its WebRTC listener is removed by
 the bridge when it writes go2rtc.yaml (the upstream generator would open both on all interfaces).
 Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session token in
 `/var/lib/eufy-wall-bridge/`.

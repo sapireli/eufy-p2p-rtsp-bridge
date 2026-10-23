@@ -30,19 +30,17 @@ the [server runbook](docs/runbook-server.md) and
 [writer decision and live evidence](docs/evidence/go2rtc-writer-decision-2026-10-12.md).
 
 
-To include a configured Wyze or RTSP camera, set `go2rtc.sources_file` to a private YAML file containing its go2rtc `streams` entries. Imported streams appear alongside Eufy cameras in the wall and use direct passthrough; global Eufy transcoding settings do not apply. Name and codec overrides use the imported stream key:
+To include a configured Wyze or RTSP camera, set `go2rtc.streams` through a client's shared settings controls. Imported streams appear alongside Eufy cameras and use direct passthrough; global Eufy transcoding does not apply. For example, a settings patch can register a source and its name/codec override:
 
-```yaml
-go2rtc:
-  sources_file: /etc/eufy-wall-external.yaml
-cameras:
-  wyze_cam:
-    name: Wyze Cam
-    codec: h264
+```json
+{
+  "go2rtc": {"streams": {"wyze_cam": "wyze://<camera-specific-source>"}},
+  "cameras": {"wyze_cam": {"name": "Wyze Cam", "codec": "h264"}}
+}
 ```
 
-Keep the source file and generated go2rtc configuration private: source URLs may contain camera encryption keys. Only stream entries are imported; account passwords and API keys are unnecessary for an already-configured native Wyze source. Imported cameras use RTSP directly and do not advertise Eufy controls or SDK receipt-based freshness. The source file is read at bridge startup, and imported streams survive generated-config refreshes.
+Keep backups and generated go2rtc configuration private: source URLs may contain camera encryption keys. Imported cameras use RTSP directly and do not advertise Eufy controls or SDK receipt-based freshness. Registering a source requires an explicit bridge restart. Existing `go2rtc.sources_file` entries are embedded in the settings store by the offline migration tool; normal startup no longer reads that file.
 
 ## Shared bridge settings
 
-Manage shared camera policies from Android’s **Shared bridge settings** screen or `eufy-wall settings` on Linux. Existing bridge YAML operating fields import once into the persistent store and are then deprecated. See [migration, pairing and backup/restore](docs/bridge-settings-migration.md). Display layouts and decoder preferences remain local.
+Manage shared camera policies from Android’s **Shared bridge settings** screen or `eufy-wall settings` on Linux. The persistent JSON store is authoritative. Runtime YAML is limited to bootstrap settings; the installer migrates and retires legacy operating fields offline. See [migration, pairing and backup/restore](docs/bridge-settings-migration.md). Display layouts and decoder preferences remain local.

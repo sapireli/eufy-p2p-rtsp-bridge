@@ -2,17 +2,17 @@
 
 The bridge owns shared camera sessions and media recovery. Android and Linux clients manage its operating settings through the same HTTP API. Layouts, selected tiles, decoder priorities and motion-border preferences remain local to each display.
 
-## Transition policy
+## Configuration transition completed October 22, 2026
 
-This transition release imports existing bridge operating settings once into `BRIDGE_DATA_DIR/settings.json`. After that import, the JSON store is authoritative. Editing the old YAML operating settings or their old environment overrides has no effect. Startup logs warn while those legacy fields remain present.
+The persistent `BRIDGE_DATA_DIR/settings.json` store is authoritative. Both clients manage normal bridge operation through the settings API. Normal startup accepts bootstrap settings only and rejects legacy operating fields in YAML and retired transcoding environment overrides. It does not import or fall back to those values. A genuinely fresh runtime can create an empty store. Once `settings-initialized` records initialization, a missing store is an error: restore a backup instead of silently recreating it.
 
-The import preserves camera overrides, defaults, LAN policy, transcoding, freshness, recovery timers and external sources. It embeds the referenced `go2rtc.sources_file` streams and imports existing `dual-view-modes.json` choices ahead of YAML, matching the former precedence. Later edits to either legacy file are ignored. Corrupt or unsupported settings files stop startup; the bridge never silently falls back to stale YAML.
+Legacy compatibility is confined to the explicit offline migration tool. The installer stops the old service before replacing its files, preserves private rollback copies, runs the tool after dependency installation, removes the four retired operating environment assignments only after migration succeeds, and restarts only a previously active service. A failed upgrade leaves the service stopped and reports the backup location.
 
-Legacy operating-field import remains available for this transition release and the next release. Remove it in the following release after both clients have shipped, existing installations have migrated, and backup/restore has passed deployment verification. Publish that removal in the release notes. This document records the removal gate; it does not claim that legacy import has already been removed.
+The offline import preserves camera overrides, defaults, LAN policy, transcoding, freshness, recovery timers and external sources. For an installation without a settings store, it embeds referenced `go2rtc.sources_file` streams and imports existing `dual-view-modes.json` choices ahead of YAML. If a valid store already exists, that store wins unchanged; obsolete YAML, external-source files and environment values cannot overwrite later client edits. Corrupt or unsupported stores stop the migration.
 
-New installations use `server/bootstrap.example.yaml`, which contains startup options only. The old `server/config.example.yaml` remains a legacy migration example and is not the installer default. Existing files are preserved on upgrades.
+New installations use `server/bootstrap.example.yaml`. The installer creates the initial empty settings store and initialization marker through the same offline tool. `server/config.example.yaml` is retained only as an example of legacy migration input, not a supported runtime configuration.
 
-Startup settings remain outside the client API: account credentials/session identity, data directory, listener addresses/ports, internal self-host address and executable paths. Keep those in the service environment or a small bootstrap file. The Linux display's `/etc/eufy-wall.yaml` is a separate local configuration and is not deprecated by this migration.
+Startup settings remain outside the client API: account credentials/session identity, data directory, listener addresses/ports, internal self-host address and executable paths. Keep those in the service environment or a small bootstrap file. The Linux display's `/etc/eufy-wall.yaml` remains a separate supported local configuration.
 
 ## Client controls
 
@@ -40,32 +40,39 @@ All routes below require `Authorization: Bearer <token>` and return `Cache-Contr
 - `POST /api/settings/import`: `{revision, backup:<export object>}`. Replaces operating settings after full validation.
 - `POST /api/settings/restart`: `{revision}`. Explicit supervised restart; returns202.
 
-Clients must fetch the current revision before changing settings. Stale writes return409 and must be reviewed after refresh. Invalid settings return400 without changing the durable document. Request bodies are limited to1MiB. The legacy per-camera `/api/cameras/<serial>/view` route uses the same authorized settings path once migration is enabled.
+Clients must fetch the current revision before changing settings. Stale writes return409 and must be reviewed after refresh. Invalid settings return400 without changing the durable document. Request bodies are limited to1MiB. The legacy per-camera `/api/cameras/<serial>/view` route uses the same authorized settings path on the current bridge.
 
 Settings use the former YAML field names: `cameras`, `defaults`, `lan`, `go2rtc`, `freshness`, `stall`, and `poll_ms`. Startup fields and unknown fields are rejected. Writes use a new private file, fsync and atomic rename. Export excludes the Eufy login and session, but includes external RTSP/Wyze source credentials needed for a complete restore. Treat backups as secrets. A replacement host still needs its own login/bootstrap and locally provisioned administrator token.
 
-## Before removing legacy files
+## Upgrade or migrate an existing installation
 
-1. Confirm both clients can read and update the bridge settings.
-2. Export a private backup and test restoration.
-3. Confirm `settings.json` contains the intended settings after a bridge restart.
-4. With the bridge stopped, retire imported YAML fields using the command below. Preserve required bootstrap settings and credentials.
-5. Retain a private pre-migration backup until sustained playback is verified.
+The normal installer performs this migration, including inactive installations that already have configuration files:
 
-Do not delete `settings.json` to reset a camera. Doing so re-enables first-run legacy import during the transition and can restore obsolete policies.
+```sh
+sudo deploy/install-server.sh
+```
 
-### Retire an imported YAML file
+It stores private pre-upgrade config, environment, settings and source backups under `/var/backups/eufy-wall-bridge/`. Keep those copies until the upgrade and playback are verified. Credentials and bootstrap values remain in place.
 
-After the checks above, run the offline cleanup tool:
+For a manually managed installation, stop the bridge and run the explicit offline tool:
 
 ```sh
 sudo systemctl stop eufy-wall-bridge
-sudo node /opt/eufy-wall-bridge/server/retire-legacy-config.mjs \
+sudo node /opt/eufy-wall-bridge/server/migrate-legacy-config.mjs \
   --config /etc/eufy-wall-bridge.yaml \
-  --data-dir /var/lib/eufy-wall-bridge
+  --data-dir /var/lib/eufy-wall-bridge \
+  --env-file /etc/eufy-wall-bridge.env
+```
+
+The tool imports only when no store exists, validates the result, and retires operating fields from YAML while preserving bootstrap values and making a private copy of the exact original file. Repeating it preserves the current store. The environment file is read as literal assignments, never executed. The tool does not edit that environment file.
+
+After successful migration, remove only these retired assignments from the service environment: `BRIDGE_GO2RTC_TRANSCODE`, `BRIDGE_GO2RTC_MAX_HEIGHT`, `BRIDGE_GO2RTC_VAAPI_DEVICE`, and `BRIDGE_GO2RTC_VAAPI_DECODE`. Preserve bootstrap settings such as `BRIDGE_GO2RTC_API_PORT` and login credentials. The installer handles this cleanup after making its private backup. Set ownership of the data directory to the service user, then start the bridge:
+
+```sh
+sudo chown -R eufy-wall:eufy-wall /var/lib/eufy-wall-bridge
 sudo systemctl start eufy-wall-bridge
 ```
 
-If cleanup fails, inspect the reported error before starting the bridge again. The tool requires an existing valid settings store and never creates or reimports one. It preserves startup values, ownership and permissions, creates a unique private backup of the exact original YAML, and removes only imported operating fields. Repeating it is a no-op. Unknown keys, malformed files, symlink paths or concurrent file changes are rejected. Use canonical regular-file paths if the deployment uses symlinks.
+If migration fails, correct the reported problem before starting the bridge. Unknown fields, malformed files, unsupported operating overrides and unsafe file paths are rejected rather than discarded.
 
-The cleanup does not delete the persistent store, administrator token, session or legacy external-source file. Remove old `BRIDGE_GO2RTC_*` operating overrides from the service environment after confirming they have been imported; keep credentials and startup options. Retiring a particular installation's old file is separate from removing the legacy importer in the scheduled release.
+Verify both clients can read settings, export a private backup, test restoration, and confirm the intended settings survive a bridge restart. Store backups may contain external-camera credentials. Preserve the initialization marker alongside private installation backups. Do not delete `settings.json` to reset a camera; change its override through a client. The administrator token, Eufy session and old external-source file are not removed by migration. The external-source file is no longer read during normal startup.
