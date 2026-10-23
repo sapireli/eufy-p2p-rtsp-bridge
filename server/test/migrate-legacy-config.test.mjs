@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync,writeFileSync,readFileSync,rmSync,readdirSync,realpathSync } from "node:fs";
+import { mkdtempSync,writeFileSync,readFileSync,rmSync,readdirSync,realpathSync,mkdirSync,existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join,resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -59,4 +59,25 @@ test("CLI imports quoted env values without modifying env file or emitting crede
   const result=spawnSync(process.execPath,[fileURLToPath(new URL("../migrate-legacy-config.mjs", import.meta.url)),"--config",path,"--data-dir",dir,"--env-file",envPath],{encoding:"utf8"});
   assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).created,true);assert.doesNotMatch(result.stdout+result.stderr,/synthetic|operator@example/);
   assert.equal(readFileSync(envPath,"utf8"),env);assert.equal(new SettingsStore({dataDir:dir}).load().settings.go2rtc.transcode,"auto");
+});
+
+test('upgrade preserves untracked relative source files until the offline importer reads them', t => {
+  const available=spawnSync('rsync',['--version']);
+  if(available.error?.code==='ENOENT'){t.skip('rsync unavailable');return;}
+  assert.equal(available.status,0);
+  const {dir,path}=fixture(t,'port: 3000\ngo2rtc: {sources_file: private-source.yaml}\n');
+  const incoming=join(dir,'incoming'),working=join(dir,'old-service'),control=join(dir,'delete-control');
+  for(const p of [incoming,working,control])mkdirSync(p);
+  writeFileSync(join(incoming,'new-code.mjs'),'// replacement source\n');
+  const source='streams: {camera: "rtsp://192.0.2.20/live"}\n';
+  for(const p of [working,control])writeFileSync(join(p,'private-source.yaml'),source);
+  const previous=spawnSync('rsync',['-a','--delete',`${incoming}/`,`${control}/`]);
+  assert.equal(previous.status,0);assert.equal(existsSync(join(control,'private-source.yaml')),false,'old update removed the source before migration');
+  const preserved=spawnSync('rsync',['-a','--exclude','node_modules','--exclude','data','--exclude','spike-out',`${incoming}/`,`${working}/`]);
+  assert.equal(preserved.status,0);assert.equal(readFileSync(join(working,'private-source.yaml'),'utf8'),source);
+  const cli=fileURLToPath(new URL('../migrate-legacy-config.mjs',import.meta.url));
+  const result=spawnSync(process.execPath,[cli,'--config',path,'--data-dir',dir],{cwd:working,encoding:'utf8',env:{...process.env,BRIDGE_GO2RTC_TRANSCODE:'never'}});
+  assert.equal(result.status,0,result.stderr);
+  assert.equal(new SettingsStore({dataDir:dir}).load().settings.go2rtc.streams.camera,'rtsp://192.0.2.20/live');
+  assert.deepEqual(parse(readFileSync(path,'utf8')),{port:3000});
 });

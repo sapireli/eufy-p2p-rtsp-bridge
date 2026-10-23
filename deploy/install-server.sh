@@ -47,7 +47,9 @@ bash "$REPO/deploy/install-go2rtc.sh" "$PREFIX/bin/go2rtc" "$ARCH"
 # 3. app files + deps
 id -u eufy-wall >/dev/null 2>&1 || useradd --system --home /var/lib/eufy-wall-bridge --shell /usr/sbin/nologin eufy-wall
 mkdir -p "$PREFIX/server" /var/lib/eufy-wall-bridge
-rsync -a --delete --exclude node_modules --exclude data --exclude spike-out "$REPO/server/" "$PREFIX/server/"
+# Preserve private legacy inputs until migration has read them (sources_file may
+# name an untracked file relative to the old service working directory).
+rsync -a --exclude node_modules --exclude data --exclude spike-out "$REPO/server/" "$PREFIX/server/"
 (cd "$PREFIX/server" && npm ci --omit=dev --no-audit --no-fund)
 
 # 4. config skeletons (never overwrite)
@@ -56,10 +58,10 @@ rsync -a --delete --exclude node_modules --exclude data --exclude spike-out "$RE
 
 # Explicit offline migration is the only supported legacy import path. The tool
 # preserves an existing store, imports on first use, and retires YAML operating fields.
-node "$PREFIX/server/migrate-legacy-config.mjs" \
+(cd "$PREFIX/server" && node ./migrate-legacy-config.mjs \
   --config /etc/eufy-wall-bridge.yaml \
   --data-dir /var/lib/eufy-wall-bridge \
-  --env-file /etc/eufy-wall-bridge.env
+  --env-file /etc/eufy-wall-bridge.env)
 # Remove retired operating environment assignments only after successful migration.
 # Account credentials, startup options, comments and permissions remain intact.
 python3 - /etc/eufy-wall-bridge.env <<'PYENV'

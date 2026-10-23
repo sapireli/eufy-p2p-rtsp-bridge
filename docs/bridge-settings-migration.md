@@ -54,7 +54,7 @@ sudo deploy/install-server.sh
 
 It stores private pre-upgrade config, environment, settings and source backups under `/var/backups/eufy-wall-bridge/`. Keep those copies until the upgrade and playback are verified. Credentials and bootstrap values remain in place.
 
-For a manually managed installation, stop the bridge and run the explicit offline tool:
+For a manually managed installation, stop the bridge and run the explicit offline tool from its former working directory (normally `/opt/eufy-wall-bridge/server`). Relative external-source paths resolve from that directory. The installer preserves private source files until migration reads them.
 
 ```sh
 sudo systemctl stop eufy-wall-bridge
@@ -76,3 +76,18 @@ sudo systemctl start eufy-wall-bridge
 If migration fails, correct the reported problem before starting the bridge. Unknown fields, malformed files, unsupported operating overrides and unsafe file paths are rejected rather than discarded.
 
 Verify both clients can read settings, export a private backup, test restoration, and confirm the intended settings survive a bridge restart. Store backups may contain external-camera credentials. Preserve the initialization marker alongside private installation backups. Do not delete `settings.json` to reset a camera; change its override through a client. The administrator token, Eufy session and old external-source file are not removed by migration. The external-source file is no longer read during normal startup.
+
+## Recover when the bridge cannot start
+
+A missing or corrupt initialized store must be recovered offline. Stop the bridge, then use the same JSON backup exported by either client:
+
+```sh
+sudo systemctl stop eufy-wall-bridge
+sudo node /opt/eufy-wall-bridge/server/restore-settings.mjs \
+  --data-dir /var/lib/eufy-wall-bridge \
+  --backup /root/eufy-wall-settings-backup.json
+```
+
+If a damaged or existing `settings.json` is present, add `--replace` to authorize replacement. The tool first saves an exact private copy. It validates the export before changing files, writes atomically with mode0600, and preserves the service's ownership. It can recover a missing store even when the initialization marker is present. It does not replace login credentials, the Eufy session, bootstrap settings or the administrator token.
+
+After successful restoration, start the bridge and refresh settings in connected clients. The restore command does not start a service or open a camera session.

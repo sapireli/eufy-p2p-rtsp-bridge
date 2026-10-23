@@ -14,4 +14,6 @@ Run `sudo deploy/install-server.sh`. The installer stops the old service before 
 
 Legacy import remains available only through `node server/migrate-legacy-config.mjs --config PATH --data-dir PATH --env-file PATH`. It is not part of normal startup. Existing external sources and dual-view choices are included when an old installation is first imported. After initialization, deleting the store fails startup rather than restoring obsolete configuration.
 
+If the bridge cannot start because its initialized store is missing or damaged, `server/restore-settings.mjs` restores the clients’ exported backup offline; replacing an existing store requires `--replace` and creates a private rollback copy.
+
 Both clients support authenticated shared settings, version-checked updates and backup/restore. Display layouts, selected cameras, decoder pins and motion outlines remain local. See [migration instructions](../bridge-settings-migration.md).
