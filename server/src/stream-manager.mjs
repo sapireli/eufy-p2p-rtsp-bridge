@@ -320,7 +320,7 @@ export function createStreamManager(ctx) {
     };
   }
 
-  /** Every 2 s: stall → restart; gap → drop consumers so go2rtc reconnects cleanly; long failure → exit. */
+  /** Retry failed cameras independently; escalate only a prolonged failure of every demanded SDK source. */
   function streamTick(now = Date.now()) {
     for (const slot of state.slots.values()) {
       if (ctx.getCamera?.(slot.sn)?.external) continue;
@@ -364,11 +364,15 @@ export function createStreamManager(ctx) {
       }
       // A blocked camera (WAN-only station, force-LAN) fails by design; it must not restart the process.
       if (ctx.isBlocked?.(slot.sn)) { slot.firstFailureAt = 0; continue; }
-      if (cfg.stall.exitAfterMs > 0 && slot.firstFailureAt && now - slot.firstFailureAt >= cfg.stall.exitAfterMs) {
-        console.error(`[bridge] ${slot.sn}: failing continuously for ${Math.round((now - slot.firstFailureAt) / 1000)} s — exiting for a clean restart`);
-        exit(1);
-        return;
-      }
+    }
+    const cameras = ctx.listCameras?.() ?? [...state.slots.keys()].map(sn => ({ ...ctx.getCamera?.(sn), sn }));
+    const demanded = cameras.filter(cam => !cam.external && wanted(cam.sn) && !ctx.isBlocked?.(cam.sn));
+    if (cfg.stall.exitAfterMs > 0 && demanded.length && demanded.every(cam => {
+      const slot = state.slots.get(cam.sn);
+      return slot?.firstFailureAt > 0 && now - slot.firstFailureAt >= cfg.stall.exitAfterMs;
+    })) {
+      console.error(`[bridge] all ${demanded.length} demanded SDK camera sources failing continuously for at least ${Math.round(cfg.stall.exitAfterMs / 1000)} s — exiting for a clean restart`);
+      exit(1);
     }
   }
 

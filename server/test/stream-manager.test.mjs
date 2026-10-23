@@ -240,6 +240,113 @@ test("stall → feed destroyed and reopened with backoff; gap → consumers ende
   }
 });
 
+for (const order of [["FAILED", "HEALTHY"], ["HEALTHY", "FAILED"]]) {
+  test(`an unavailable camera cannot restart a healthy sibling (${order.join(" first, ")})`, async () => {
+    const healthy = new PassThrough({ objectMode: true }), exits = [], opens = {};
+    const ctx = ctxWith({ feeds: [], exit: code => exits.push(code) });
+    ctx.cfg.stall.backoffMs = [1];
+    ctx.sdk.openFeed = async (_client, sn) => {
+      opens[sn] = (opens[sn] ?? 0) + 1;
+      return sn === "HEALTHY" ? healthy : new PassThrough({ objectMode: true });
+    };
+    ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => 1_000_000n });
+    const sm = createStreamManager(ctx);
+    try {
+      for (const sn of order) await sm.ensureWarm(sn);
+      healthy.write({ frame: { data: KEY, codec: "h264", sourceTimestamp: 1000 },
+        receipt: { sourceId: "healthy-source", sequence: 1n, monotonicUs: 1_000_000n } });
+      const old = Date.now() - 301_000, failed = ctx.state.slots.get("FAILED");
+      Object.assign(failed, { firstFailureAt: old, lastBytesAt: old, startedAt: old });
+      sm.streamTick();
+      assert.deepEqual(exits, [], "one failed camera must not terminate healthy source output");
+      assert.equal(healthy.destroyed, false);
+      await waitUntil(() => opens.FAILED >= 2);
+      assert.ok(opens.FAILED >= 2, "the failed camera still retries independently");
+      assert.equal(opens.HEALTHY, 1, "the healthy source remains open");
+    } finally { await sm.stopAll(); }
+  });
+}
+
+for (const sibling of ["cold startup", "recent failure"]) {
+  test(`an expired camera failure cannot consume a sibling's ${sibling} budget`, async () => {
+    const exits = [], ctx = ctxWith({ feeds: [() => new PassThrough()], exit: code => exits.push(code) });
+    const sm = createStreamManager(ctx);
+    try {
+      await sm.ensureWarm("FAILED"); await sm.ensureWarm("SIBLING");
+      const now = Date.now(), failed = ctx.state.slots.get("FAILED"), other = ctx.state.slots.get("SIBLING");
+      Object.assign(failed, { firstFailureAt: now - 301_000, lastBytesAt: now - 301_000, startedAt: now - 301_000 });
+      if (sibling === "recent failure") other.firstFailureAt = now - 1000;
+      sm.streamTick(now);
+      assert.deepEqual(exits, []);
+      other.firstFailureAt = now - 301_000;
+      sm.streamTick(now);
+      assert.deepEqual(exits, [1], "all demanded sources exceeding their own budgets still escalates");
+    } finally { await sm.stopAll(); }
+  });
+}
+
+test("blocked, imported and idle sources cannot conceal global SDK-source failure", async () => {
+  const exits = [], ctx = ctxWith({ feeds: [() => new PassThrough()], exit: code => exits.push(code) });
+  ctx.getCamera = sn => ({ enabled: true, external: sn === "IMPORTED", mode: sn === "IDLE" ? "on_demand" : "always" });
+  ctx.isBlocked = sn => sn === "BLOCKED";
+  ctx.holds = { isHeld: () => false };
+  const sm = createStreamManager(ctx);
+  try {
+    for (const sn of ["FAILED", "BLOCKED", "IMPORTED", "IDLE"]) sm.attachConsumer(sn, fakeRes());
+    await waitUntil(() => ctx.state.slots.get("FAILED")?.feed);
+    const now = Date.now(), failed = ctx.state.slots.get("FAILED");
+    Object.assign(failed, { firstFailureAt: now - 301_000, lastBytesAt: now - 301_000, startedAt: now - 301_000 });
+    sm.streamTick(now);
+    assert.deepEqual(exits, [1]);
+  } finally { await sm.stopAll(); }
+});
+
+test("no demanded eligible SDK sources cannot trigger global failure escalation", async () => {
+  const exits = [], ctx = ctxWith({ feeds: [], exit: code => exits.push(code) });
+  const sm = createStreamManager(ctx);
+  try { sm.streamTick(Date.now() + 301_000); assert.deepEqual(exits, []); }
+  finally { await sm.stopAll(); }
+});
+
+test("a demanded camera in the production inventory blocks escalation before its slot exists", async () => {
+  const exits = [], ctx = ctxWith({ feeds: [() => new PassThrough()], exit: code => exits.push(code) });
+  ctx.listCameras = () => ["FAILED", "COLD"].map(sn => ({ sn, enabled: true, mode: "always" }));
+  const sm = createStreamManager(ctx);
+  try {
+    await sm.ensureWarm("FAILED");
+    const now = Date.now(), old = now - 301_000;
+    Object.assign(ctx.state.slots.get("FAILED"), { firstFailureAt: old, lastBytesAt: old, startedAt: old });
+    assert.equal(ctx.state.slots.has("COLD"), false);
+    sm.streamTick(now);
+    assert.deepEqual(exits, [], "a demanded camera not yet opened has not exhausted its failure budget");
+  } finally { await sm.stopAll(); }
+});
+
+test("a cached old source receipt cannot conceal all-source failure", async () => {
+  const feeds = new Map(), exits = [], ctx = ctxWith({ feeds: [], exit: code => exits.push(code) });
+  ctx.cfg.stall.backoffMs = [1];
+  ctx.sdk.openFeed = async (_client, sn) => {
+    const feed = new PassThrough({ objectMode: true }); feeds.set(sn, feed); return feed;
+  };
+  let clock = 1_000_000n;
+  ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => clock });
+  const sm = createStreamManager(ctx), frame = { data: KEY, codec: "h264", sourceTimestamp: 1000 };
+  const receipt = { sourceId: "old-source", sequence: 1n, monotonicUs: clock };
+  try {
+    await sm.ensureWarm("A"); await sm.ensureWarm("B");
+    feeds.get("B").write({ frame, receipt });
+    const b = ctx.state.slots.get("B");
+    feeds.get("B").end(); await waitUntil(() => b.feed === feeds.get("B") && b.receivedMedia === false);
+    const now = Date.now(), old = now - 301_000;
+    for (const slot of ctx.state.slots.values()) Object.assign(slot, { firstFailureAt: old, lastBytesAt: old, startedAt: old });
+    clock += 301_000_000n;
+    feeds.get("B").write({ frame, receipt });
+    assert.equal(b.firstFailureAt, old, "a replay is not advancing source media");
+    sm.streamTick(now);
+    assert.deepEqual(exits, [1]);
+  } finally { await sm.stopAll(); }
+});
+
 test("playback stalls after five seconds while reopened feeds retain their first-media window", async () => {
   const f1 = new PassThrough(), f2 = new PassThrough();
   const ctx = ctxWith({ feeds: [() => f1, () => f2] });
