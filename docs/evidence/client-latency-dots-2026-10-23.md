@@ -64,3 +64,28 @@ changed. Plugin loading, live sink telemetry and physical dot visibility on
 these Pis remain unverified. The binary and plugin are staged privately at
 `/tmp/eufy-wall-latency-dot-armv6` and
 `/tmp/libgsteufypacing-latency-dot-armv6.so` for installation when reachable.
+
+## GaragePi deployment follow-up
+
+On the subsequent retry, `garagepi.lan` resolved to `.56` and presented the
+already-trusted DietPi replacement's SSH key. Its hostname was `GaragePi`, its
+architecture ARMv6, and its display configuration matched the prior hash.
+The Go binary and native plugin above were installed with rollback copies under
+`/root/eufy-wall-dot-20261023/rollback/`. Installed hashes matched both artifacts.
+The replacement's GStreamer 1.26.2 loaded the plugin as the `wall` service user
+and exposed its `output-status` property. The client restarted as PID 984 with
+zero service restarts. Configuration and admin-token checksums remained
+unchanged.
+
+Live playback verification remains blocked by LAN DNS: both camera connections
+and the control WebSocket fail because `homebridge.lan` has no DNS address.
+From the Pi, the bridge's numeric address `.158` returns healthy authentication,
+running go2rtc and active camera streams. No client URL or resolver override was
+introduced to conceal this separate DNS failure. Physical dot visibility and
+live frame progress are therefore still unverified on the Pi.
+
+The bridge's installed SDK lock resolves to
+`48e4f2f1d0dd5d255d928766cdae585bec6076d0`, exactly matching the current remote
+`eufy-wall` branch at this check. Its installed `dist/index.js` SHA-256
+`dd649e91323a3b2b5159d68b99c369cfa1cbffc64cfa302392830e482ff4da47`
+matches the clean pinned build. No SDK update or bridge restart was needed.
