@@ -27,6 +27,8 @@ The tested AFTALMO Fire TVs allow two simultaneous hardware AVC decoders. Additi
 
 Live output uses timestamp-based surface pacing with at most 67 ms of future scheduling headroom. Newest late pictures display immediately; duplicate/out-of-order decoded pictures can be discarded without dropping compressed references. Hardware decoding and software fallback are retained. See [the pacing implementation and measurements](../docs/evidence/client-frame-pacing-2026-10-11.md); the scheduling allowance is not a camera-to-screen latency guarantee.
 
+A small bottom-right [latency dot](../docs/client-latency-indicator.md) shows green up to 500 ms of measured bridge-ingress frame age, orange up to 1,500 ms or when timing is unavailable, and red above 1,500 ms or when live output stops. It does not change buffering or measure sensor capture latency.
+
 Source dimensions are preserved by default. If a camera exceeds a display's
 working decoder limit, enable bridge transcoding and set `go2rtc.max_height`
 to the highest shared ceiling verified with all displays and concurrent tiles.
