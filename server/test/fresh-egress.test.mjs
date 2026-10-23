@@ -287,6 +287,7 @@ test("native consumer bypasses global always policy without changing the compati
 
 
 test("native HEVC copy delivers real source pictures and exact stamps under global always without encoder", t => {
+  if(spawnSync("ffmpeg",["-version"]).status!==0)return t.skip("ffmpeg unavailable");
   const dir=mkdtempSync(join(tmpdir(),"ewb-native-hevc-"));
   let h;
   try {
