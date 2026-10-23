@@ -4,6 +4,9 @@ set -eu
 src=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 dest=${1:?destination plugin directory}
 mkdir -p "$dest"
+"${CC:-cc}" -std=c99 -O2 -Wall -Wextra -Werror -o "$dest/caption-test" "$src/caption_test.c"
+"$dest/caption-test"
+rm "$dest/caption-test"
 cc=${CC:-cc}
 "$cc" -std=c99 -O2 -Wall -Wextra -Werror -o "$dest/pacing-test" "$src/pacing_test.c"
 "$dest/pacing-test"

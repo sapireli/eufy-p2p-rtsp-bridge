@@ -9,11 +9,13 @@
 #include <sys/stat.h>
 #include <string.h>
 #include "pacing.h"
+#include "caption.h"
 
 typedef struct {
   GstBin parent;
   GstElement *source;
-  gchar *config_file;
+  gchar *config_file,*caption_file;
+ guint caption_width,caption_height;
   GThread *worker;
   GMutex lock;
   GCond changed;
@@ -160,9 +162,24 @@ static gboolean tile_same_stat(const struct stat *a,const struct stat *b) {
   return a->st_mtim.tv_nsec==b->st_mtim.tv_nsec && a->st_ctim.tv_nsec==b->st_ctim.tv_nsec;
 #endif
 }
+/* Independent tiny footer overlay;2fps cannot raise an existing camera cadence. */
+static gpointer tile_caption_worker(gpointer data){
+ GstEufyTile *s=data;guint w=s->caption_width,h=s->caption_height;
+ GstCaps *caps=gst_caps_new_simple("video/x-raw","format",G_TYPE_STRING,"RGBA","width",G_TYPE_INT,(gint)w,"height",G_TYPE_INT,(gint)h,"framerate",GST_TYPE_FRACTION,2,1,NULL);
+ gst_app_src_set_caps(GST_APP_SRC(s->source),caps);gst_caps_unref(caps);
+ while(!tile_stopping(s)){
+  gchar *text=NULL;g_file_get_contents(s->caption_file,&text,NULL,NULL);if(!text)text=g_strdup("");g_strstrip(text);if(strlen(text)>100)text[100]=0;
+  GstBuffer *buffer=gst_buffer_new_allocate(NULL,w*h*4,NULL);GstMapInfo map;
+  if(gst_buffer_map(buffer,&map,GST_MAP_WRITE)){memset(map.data,0,map.size);caption_pixels(map.data,w,h,text);gst_buffer_unmap(buffer,&map);}
+  g_free(text);GST_BUFFER_PTS(buffer)=tile_running_time(s);GST_BUFFER_DURATION(buffer)=GST_SECOND/2;
+  gst_app_src_push_buffer(GST_APP_SRC(s->source),buffer);tile_wait(s,500000);
+ }
+ return NULL;
+}
 static gpointer tile_worker(gpointer data) {
   GstEufyTile *s=data;gchar *previous=NULL,*launch[3]={NULL,NULL,NULL};
   GstElement *decoder=NULL,*output=NULL;GstBus *bus=NULL;GstCaps *last_caps=NULL;
+  gboolean ready_reported=FALSE;
   guint mode=0,retry_delay=0,retry_min=1000,retry_max=30000,retry_stable=60000;
   gint64 config_at=0,retry_at=0,started_at=0,stats_at=g_get_monotonic_time();
   GstClockTime first_pts=GST_CLOCK_TIME_NONE,first_running=0;
@@ -205,7 +222,7 @@ static gpointer tile_worker(gpointer data) {
       decoder=output=NULL;bus=NULL;tile_hardware_active(s,FALSE);tile_black(s,last_caps);
     }
     if(!decoder && launch[mode] && *launch[mode] && now>=retry_at) {
-      started_at=now;
+      started_at=now;ready_reported=FALSE;
       GError *error=NULL;decoder=gst_parse_launch(launch[mode],&error);
       if(error || !decoder || !GST_IS_BIN(decoder)) {
         g_printerr("eufytile %s: invalid decoder pipeline: %s\n",GST_OBJECT_NAME(s),error?error->message:"not a bin");
@@ -263,7 +280,7 @@ static gpointer tile_worker(gpointer data) {
             gst_app_src_set_caps(GST_APP_SRC(s->source),caps);
             gst_caps_replace(&last_caps,caps);
             GstFlowReturn flow=gst_app_src_push_buffer(GST_APP_SRC(s->source),buffer);
-            if(flow==GST_FLOW_OK)s->delivered++;
+            if(flow==GST_FLOW_OK){s->delivered++;if(!ready_reported){g_printerr("eufytile %s: output-ready\n",GST_OBJECT_NAME(s));ready_reported=TRUE;}}
           }
           gst_sample_unref(sample);
         }
@@ -281,7 +298,7 @@ static gpointer tile_worker(gpointer data) {
 static GstStateChangeReturn tile_change_state(GstElement *element,GstStateChange transition) {
   GstEufyTile *s=(GstEufyTile *)element;
   if(transition==GST_STATE_CHANGE_READY_TO_PAUSED) {
-    if(!s->config_file || !*s->config_file){GST_ELEMENT_ERROR(s,RESOURCE,SETTINGS,("config-file is required"),(NULL));return GST_STATE_CHANGE_FAILURE;}
+    if((!s->config_file || !*s->config_file) && (!s->caption_file || !*s->caption_file)){GST_ELEMENT_ERROR(s,RESOURCE,SETTINGS,("config-file is required"),(NULL));return GST_STATE_CHANGE_FAILURE;}
     g_mutex_lock(&s->lock);s->stopping=FALSE;g_mutex_unlock(&s->lock);
   }
   if(transition==GST_STATE_CHANGE_PAUSED_TO_READY) {
@@ -289,19 +306,26 @@ static GstStateChangeReturn tile_change_state(GstElement *element,GstStateChange
     if(s->worker){g_thread_join(s->worker);s->worker=NULL;}
   }
   GstStateChangeReturn result=GST_ELEMENT_CLASS(gst_eufy_tile_parent_class)->change_state(element,transition);
-  if(result!=GST_STATE_CHANGE_FAILURE && transition==GST_STATE_CHANGE_READY_TO_PAUSED)s->worker=g_thread_new("eufy-tile",tile_worker,s);
+  if(result!=GST_STATE_CHANGE_FAILURE && transition==GST_STATE_CHANGE_READY_TO_PAUSED)s->worker=g_thread_new("eufy-tile",s->caption_file?tile_caption_worker:tile_worker,s);
   return result;
 }
 static void tile_set_property(GObject *object,guint id,const GValue *value,GParamSpec *spec) {
   GstEufyTile *s=(GstEufyTile *)object;
-  if(id==1){g_free(s->config_file);s->config_file=g_value_dup_string(value);}else G_OBJECT_WARN_INVALID_PROPERTY_ID(object,id,spec);
+  if(id==1){g_free(s->config_file);s->config_file=g_value_dup_string(value);}
+ else if(id==2){g_free(s->caption_file);s->caption_file=g_value_dup_string(value);}
+ else if(id==3)s->caption_width=g_value_get_uint(value);
+ else if(id==4)s->caption_height=g_value_get_uint(value);
+ else G_OBJECT_WARN_INVALID_PROPERTY_ID(object,id,spec);
 }
 static void tile_finalize(GObject *object) {
-  GstEufyTile *s=(GstEufyTile *)object;g_free(s->config_file);g_free(s->hardware_decoder);g_mutex_clear(&s->lock);g_cond_clear(&s->changed);
+  GstEufyTile *s=(GstEufyTile *)object;g_free(s->config_file);g_free(s->caption_file);g_free(s->hardware_decoder);g_mutex_clear(&s->lock);g_cond_clear(&s->changed);
   G_OBJECT_CLASS(gst_eufy_tile_parent_class)->finalize(object);
 }
 static void gst_eufy_tile_class_init(GstEufyTileClass *klass) {
   GObjectClass *object=G_OBJECT_CLASS(klass);object->set_property=tile_set_property;object->finalize=tile_finalize;
+  g_object_class_install_property(object,2,g_param_spec_string("caption-file","caption-file","Private actionable error caption file",NULL,G_PARAM_WRITABLE));
+  g_object_class_install_property(object,3,g_param_spec_uint("caption-width","caption-width","Caption pixel width",40,8192,640,G_PARAM_WRITABLE));
+  g_object_class_install_property(object,4,g_param_spec_uint("caption-height","caption-height","Caption pixel height",22,2160,22,G_PARAM_WRITABLE));
   g_object_class_install_property(object,1,g_param_spec_string("config-file","config-file","Atomically replaced per-tile INI configuration",NULL,G_PARAM_WRITABLE|GST_PARAM_MUTABLE_READY));
   GstElementClass *element=GST_ELEMENT_CLASS(klass);element->change_state=tile_change_state;
   GstCaps *caps=gst_caps_from_string("video/x-raw,format=RGBA");
@@ -309,6 +333,7 @@ static void gst_eufy_tile_class_init(GstEufyTileClass *klass) {
   gst_element_class_set_static_metadata(element,"Independent camera tile","Source/Video","Isolates camera decode, retries and fallback from compositor","eufy-wall");
 }
 static void gst_eufy_tile_init(GstEufyTile *s) {
+ s->caption_width=640;s->caption_height=22;
   g_mutex_init(&s->lock);g_cond_init(&s->changed);
   s->source=gst_element_factory_make("appsrc",NULL);
   g_object_set(s->source,"is-live",TRUE,"format",GST_FORMAT_TIME,"block",FALSE,"max-buffers",(guint64)1,"max-bytes",(guint64)0,"max-time",(guint64)0,"leaky-type",2,NULL);

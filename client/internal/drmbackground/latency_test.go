@@ -39,3 +39,24 @@ func TestLatencyDotDrawsInsideReservedGutterAndCoexistsWithMotion(t *testing.T) 
 		}
 	}
 }
+
+func TestActionableFooterErrorClearsWithoutChangingDotOrVideoPixels(t *testing.T) {
+	b, _ := motionBackground(rgb565)
+	rect := MotionRect{X: 0, Y: 0, W: 200, H: 80}
+	if err := b.SetLatencyDot(rect, 0x22c55e); err != nil {
+		t.Fatal(err)
+	}
+	before := append([]byte(nil), b.mapping...)
+	if err := b.PaintStatus(rect, "DNS FAILED - CHECK BRIDGE ADDRESS"); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(before, b.mapping) {
+		t.Fatal("error invisible")
+	}
+	if err := b.PaintStatus(rect, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, b.mapping) {
+		t.Fatal("caption recovery damaged dot/other pixels")
+	}
+}
