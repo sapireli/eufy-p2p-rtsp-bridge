@@ -288,8 +288,12 @@ channel-1 requests are 17.026 seconds apart without an authenticated STOP1
 between them; that alone does not prove replacement rather than an additional
 or recovery request. Simple channel-0/channel-2 forms have nested numeric
 timestamps and key strings of length 128; the complex channel-1 form has an
-outer numeric timestamp and key length 256. The sanitized result contains no
-public-key hash, so equal lengths cannot establish key reuse.
+outer numeric timestamp and key length 256. Subsequent encoding validation
+established that both simple keys are 128 hexadecimal characters encoding valid
+P-256 public points: 64-byte `x || y`, accepted after adding the uncompressed
+`04` prefix. They are not evidence of RSA-512. The two simple points differ;
+the two complex requests reuse one identical 256-character string. The complex
+key's cryptographic type was not established by this point-validation test.
 
 All five authenticated attached STOP1004s, channels 2/1/3/0/4, use
 `payload: {channel: <addressed channel>}`, header type 0 and encrypted bodies of
@@ -311,6 +315,10 @@ Private sanitized handoff: `/tmp/eufy-authenticated-app-start-stop-20261023.json
 and its companion Markdown. The original capture SHA-256 is
 `5290131e60869fa2950045854afd520cf6ac328a1941995648ee91448305c344`.
 No keys, account values, RSA moduli or capture payloads are included here.
+Public-key encoding proof and sanitized hashes are retained privately in
+`/tmp/eufy-native-start-p256-proof-20261023.md` and
+`/tmp/eufy-archive-public-key-encoding.json`. A cached-key string-hash comparison
+without archived case normalization does not establish ephemeral app keys.
 
 ## START-slot B trial invalidated by the configured process watchdog
 
@@ -631,8 +639,10 @@ Four naturally issued STARTs used the simple app-shaped outer fields
 `msg_id,ClientOS,streamtype,camera_type,key,timestamp,entrytype`. Request ID 1,
 numeric timestamp and header type 10 remained stable for that source. Stream
 type stayed 2. The SDK's existing RSA key value was preserved: its string
-length was 256, whereas the authenticated simple app examples have length 128.
-No source, session, key or socket was replaced.
+length was 256, whereas the authenticated simple app examples use valid P-256
+public points encoded in 128 hex characters. This was therefore not the app's
+cryptographic request profile; the difference is key type, not a smaller RSA
+modulus. No source, session, key or socket was replaced.
 
 There were zero base VIDEO datagrams and zero command-1300 headers on any
 channel, with accepted/emitted counts also zero. Consequently there was no
@@ -643,7 +653,7 @@ approximately 5.5 seconds. A later generic code-0/channel-0 result was not
 request-associated and does not prove acceptance of the profiled request.
 
 This result found no prompt recovery under the tested profile. It is not a
-broad disproof of the complete native profile: the RSA representation differed
+broad disproof of the complete native profile: RSA was retained instead of P-256
 and the post-request observation was short. It establishes no durable fix or
 cause of the original spontaneous cutoff. All 16 hooks were restored, the
 inspector closed, and Node PID 26051/restart count 0 and go2rtc child 26066
@@ -702,3 +712,75 @@ uncommitted and is not a demonstrated fix.
 
 Private capture: `capture-native-stop0.json` beside the other artifacts,
 SHA-256 `7a54853eca09ffa5c154dee1bfd879a46b9d692739c79b423c81b6b44a2dbde9`.
+
+## First matched P-256 START experiment: assembled frames only
+
+The earlier RSA-preserving profile trial was followed by a matched-key
+experiment. Its original same-source nudge observation produced 410
+session-decoded frames over 30 seconds. At 18:46:22.060 UTC, the temporary
+native-shaped START
+used a fresh 128-hex-character P-256 public point with its paired 32-byte private
+scalar supplied to a new `VideoFrameDecoder`. The body was 348 bytes and header
+type 10; two natural requests were modified.
+
+One reassembled command-1300 frame arrived 13 ms after the first modified
+request and decoded through `session.decodeVideoFrame()`. That frame is compatible
+with in-flight baseline traffic; its type 10 alone does not prove adoption of
+the new request. No further reassembled 1300 arrived until the source was
+replaced about 8.5 seconds later. Twenty-eight additional base 1300 frames were
+observed after replacement. The ECC decoder was never called, so zero ECC
+successes do not establish that ECC decryption failed. The session method also
+returns plaintext for sign code 0: a successful return alone does not prove
+RSA decryption. Sign metadata and actual RSA-unwrapping evidence are needed
+before labeling its successes RSA-decoded.
+
+The artifact's counter named `raw` measures reassembled P2P data-1300 frames,
+not incoming UDP datagrams. UDP sequence/header traffic was not captured. This
+run therefore cannot establish that the peer stopped transmitting, identify a
+sequence-reset defect, or prove parser rejection. The separate short
+packet-boundary observation below must be interpreted independently.
+
+The retired stream's original decoder was restored; original requests resumed
+naturally. All five hooks were restored, the inspector closed and Node PID
+26051 remained unchanged. No SDK correction was retained or established as a
+fix. Private capture: `capture-native-ecc-start.json` beside the other artifacts,
+SHA-256 `e3fab2bfdfa3e9c6dda0a47532616cde122662cad0f8d48d0bc2e9fe1ec92376`.
+
+## Three-second P-256 packet-boundary comparison
+
+A separate comparison on the same private Door source/session observed three
+seconds of baseline, one ECC-profile nudge and three seconds of candidate
+traffic, followed by an original cleanup nudge. The full observer window was
+18:49:05.551–18:49:16.997 UTC. Media header type changed from baseline 0 to 10
+after the ECC-profile request, supporting adoption of the paired request slot.
+
+The candidate window received 591 VIDEO datagrams: 572 new sequence values,
+six equal duplicates and thirteen behind the current watermark. The sequence
+advanced from baseline 30960 through first candidate 30961 to 31532, without a
+reset. Observed maximum held/reorder depth was zero, with pending and reorder
+state empty at the boundary. Forty-four reassembled command-1300 frames
+returned successfully from the session decoder and 42 video frames were
+emitted. This window reproduced neither raw-media absence nor a sequence-reset
+or assembly failure.
+
+The session-decoded frames had sign code 0 for 42 and sign code 1 for two.
+The first large keyframe was 246,965 bytes and arrived about 1.255 seconds
+after the request; another was 247,056 bytes. Successful session decoding is
+not automatically RSA: sign-0 frames take the plaintext path, and actual
+private-key unwrap calls and inner video lengths were not retained for the
+two sign-1 frames. The ECC fallback decoder had zero calls. Thus this trial
+does not verify ECC media decryption or explain the previous longer silence.
+
+Cleanup restored the original request profile and old decoder on the same
+source and produced three more
+session-decoded frames over 103 ms. All seven hooks were removed, inspector
+closed, and Node PID 26051/go2rtc child 26066 stayed unchanged. The short
+request-slot response is not sustained playback proof; no candidate was
+retained or established as an initial-cutoff fix.
+
+The request-key format and response slot changed without exercising ECC media
+decryption. Neither trial established a cause or durable fix, and no SDK change
+was retained. This cryptographic experiment ended pending new causal evidence.
+
+Private capture: `capture-ecc-boundary.json` beside the other artifacts,
+SHA-256 `a7f720f374aa8de2d36dd0a02fa0d01ecb80926962744fc7112526f2115f4f7e`.
