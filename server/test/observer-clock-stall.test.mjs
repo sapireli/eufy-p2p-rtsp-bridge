@@ -38,7 +38,7 @@ def serve():
                 body=b"v=0\r\nm=video 0 RTP/AVP 96\r\na=rtpmap:96 H264/90000\r\na=control:trackID=0\r\n" if req.startswith(b"DESCRIBE") else b""
                 conn.sendall(b"RTSP/1.0 200 OK\r\nCSeq: "+seq+b"\r\nSession: fixture\r\nContent-Length: "+str(len(body)).encode()+b"\r\n\r\n"+body)
             http.armed=True
-            i=0
+            i=0;next_frame=time.perf_counter()
             while not stop.is_set():
                 i+=1;arrival=time.perf_counter_ns()//1000+offset
                 metadata=m.UUID+bytes([1,1])+struct.pack("!H",500)+bytes.fromhex(epoch)+struct.pack("!IQQ",i*20,arrival,i)
@@ -46,7 +46,8 @@ def serve():
                 payload=b"\x78"+struct.pack("!H",len(sei))+sei+b"\x00\x02\x65\x88"
                 packet=bytes([0x80,0xe0])+struct.pack("!HII",i,i*1800,1)+payload
                 conn.sendall(b"$\x00"+struct.pack("!H",len(packet))+packet)
-                time.sleep(.02)
+                # Avoid accumulating OS sleep overshoot; keep the intended 50 fps fixture.
+                next_frame+=.02;time.sleep(max(0,next_frame-time.perf_counter()))
     except (BrokenPipeError,ConnectionResetError):pass
 thread=threading.Thread(target=serve,daemon=True);thread.start()
 try:
