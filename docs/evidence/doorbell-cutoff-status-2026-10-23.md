@@ -22,6 +22,8 @@ During the 160.540 s native window there were no UDP PING/PONG or 1139 commands 
 
 ACK batching reduced packets79.33% without eliminating outages and was removed. Periodic1139 received no recovery credit:120 frames already flowed before injection; removing it for120s caused no recurrence. A fresh no1139 source then ran180s without a6s cutoff. Necessity is unproven; candidate code remains undeployed.
 
+**Sibling END suppression also failed.** An offline audit found other-tuple END packets2.148s and1.149s before the two captured VIDEO gaps, but two other post-start ENDs were followed by healthy target video. A subsequent45s original baseline sent three sibling ENDs. Without restarting playback, the intervention suppressed three ENDs from the unused channel1 private sessions. The same already-healthy Doorbell source then reached5.008s without raw VIDEO at68.439s of exposure, still LIVE with one consumer. Its raw count advanced5765→16279 and valid-frame count504→1499 before the gap. All three hooks were restored; this intervention is rejected as a fix. This excludes those sibling ENDs as a necessary trigger for the observed recurrence, not every possible session-control interaction.
+
 ## Remaining limits and restored state
 
 Bridge NIC receive/error/drop and softnet counters were zero. All900 ACK-sized UDP probes reached the Mac; this tests that LAN peer, **not HomeBase receipt**. Existing native captures include the longer windows above; a new controlled phone recording is currently blocked by iPhone Developer Mode being disabled (`devicectl`10005). No RVI capture remains active. Official T8214 documentation describes wired battery charging and120s event clips, not a live-view duration limit. Firmware or a normal timeout is not established as the cause.
@@ -51,3 +53,5 @@ Files reside in `/tmp/eufy-doorbell-runtime-20261023/` unless stated otherwise.
 | `/tmp/eufy-iphone-fresh-recovered.pcapng` | `6afc490fa6b68d9819e5b9f414c68da621580818df8383a2ec422cd159c5990d` |
 | `/tmp/eufy-fresh-native-start-stop.json` | `d2164da7dbcdc07d294ef62b3714da77986f86bfa364290ccda439681e3a7b86` |
 | `/tmp/eufy-longer-native-liveness-census-20261023.json` | `a6569e42348397c2010393744bd4f9e2eabdb7d91ee33a3393fe66c759449415` |
+| `/tmp/eufy-kernel-end-gap-comparison-20261023.json` | `7f0ef68ee7f2820f4cdfa5c66b3bbd786737cb1491d664883a55a6a38d55677e` |
+| `/tmp/eufy-doorbell-runtime-20261023/capture-sibling-END.json` | `1d3dc687b9d3103ddbfe67186f5a0b9ac84cfaaedfd7d796ecc454e18911cb97` |
