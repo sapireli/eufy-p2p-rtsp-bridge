@@ -104,7 +104,7 @@ async function fixture(t, scenario) {
   const trace = join(dir, "trace.jsonl");
   await writeFile(bin, `#!${process.execPath}\nimport {appendFileSync} from 'node:fs';
 const a=process.argv.slice(2); appendFileSync(process.env.TRACE, JSON.stringify({args:a,pid:process.pid})+'\\n');
-if (process.env.SCENARIO==='stall') { process.on('SIGTERM',()=>{appendFileSync(process.env.TRACE,JSON.stringify({terminated:true})+'\\n');process.exit(0)});setInterval(()=>{},1000); }
+if (process.env.SCENARIO==='stall') { process.on('SIGTERM',()=>{appendFileSync(process.env.TRACE,JSON.stringify({terminated:true})+'\\n');process.exit(0)});setInterval(()=>{},1000);console.error('ewb-fixture-ready'); }
 else if(process.env.SCENARIO==='network') {console.error('[vost#0:0/h264_vaapi] Error submitting a packet to the muxer: Broken pipe');process.exit(1)}
 else if(a.includes('-hwaccel')) {console.error('No device available for decoder: device type vaapi');process.exit(1)}
 else if(a.includes('h264_vaapi')) {console.error('Failed to initialise VAAPI connection: -1');process.exit(1)}
@@ -112,11 +112,12 @@ else {console.log('ffmpeg version fake');process.exit(0)}\n`, { mode: 0o755 });
   const proc = spawn(process.execPath, [fileURLToPath(new URL("../src/ffmpeg-hardware.mjs", import.meta.url)), ...args], {
     env: { ...process.env, BRIDGE_FFMPEG_BIN: bin, TRACE: trace, SCENARIO: scenario }, stdio: ["ignore", "pipe", "pipe"],
   });
-  let stderr = "";
-  proc.stderr.on("data", (b) => { stderr += b; });
+  let stderr = "", markReady;
+  const ready = new Promise(resolve => { markReady = resolve; });
+  proc.stderr.on("data", (b) => { stderr += b; if (stderr.includes("ewb-fixture-ready")) markReady(); });
   const done = new Promise((resolve) => proc.on("close", (code) => resolve(code)));
   t.after(() => { if (proc.exitCode === null) proc.kill("SIGTERM"); });
-  return { proc, done, trace, stderr: () => stderr, rows: async () => (await readFile(trace, "utf8")).trim().split("\n").map(JSON.parse) };
+  return { proc, done, ready, trace, stderr: () => stderr, rows: async () => (await readFile(trace, "utf8")).trim().split("\n").map(JSON.parse) };
 }
 
 test("launcher retries the identical live URL at most three times and reaches software", async (t) => {
@@ -137,10 +138,8 @@ test("producer output disconnect is returned without a software retry", async (t
 
 test("startup timeout or consumer cancellation terminates FFmpeg and prevents fallback", { timeout: 5000 }, async (t) => {
   const f = await fixture(t, "stall");
-  for (let i = 0; i < 100; i++) {
-    try { if ((await f.rows()).length) break; } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  // Signal only after the fake child registered its termination handler.
+  await f.ready;
   f.proc.kill("SIGTERM");
   assert.equal(await f.done, 143);
   const rows = await f.rows();
