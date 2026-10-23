@@ -1,0 +1,14 @@
+{
+  "time": "2026-10-23T02:16:12.531Z",
+  "exportStatus": 200,
+  "exportFormat": "eufy-wall-settings",
+  "restoreStatus": 200,
+  "apply": "applied",
+  "settingsEqual": true,
+  "revisionBefore": 3,
+  "revisionAfter": 4,
+  "staleWriteStatus": 409,
+  "pidUnchanged": true,
+  "pid": "237414",
+  "backupMode": "600"
+}

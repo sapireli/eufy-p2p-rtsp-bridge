@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "af5342b28b59415e1a6a939cad58755ad12c5bee",
+  "verifiedFiles": 13,
+  "sha256": {
+    "server.mjs": "f4f98a6289abaf1f26c841cd21e09044b3c05be4c3e7c0496b61ca002fd05188",
+    "src/config.mjs": "873b77d1cb8b60ffeca23a0e8cb4ac2d51319be146c15e8d41c24276dec4ffcd",
+    "src/settings-store.mjs": "859e4ec110855a7bf411a3c88b74edc3b475b6e35388d840220d5ed932575a52",
+    "src/settings-runtime.mjs": "066c401a079886c2e4836e641dc978ba18bdab0d51deef06eec7a676f09c9dc9",
+    "src/pins.mjs": "0d72423eda5e635bfc038df9a2885392b4c8d48c1a4033a2041b4f2b14a66c3a",
+    "src/cameras.mjs": "dbab0eeb26046fea4c92cc0a1df9c983bd06473a59c021cb70e59f0afec25b1e",
+    "src/sdk-adapter.mjs": "94b9775e8b8fa2ba7a9b88db49e5afbdfc1e438c3eac592da5680b5255dc4c6a",
+    "src/http.mjs": "4cef81ed84acef4c1820e45cab11a0b967b9d1b414974264f1daf26d9d255ba2",
+    "src/settings-http.mjs": "de91200e265f9d609baefe95af2b552779024a11d15d2562a0f509d96907f61a",
+    "migrate-legacy-config.mjs": "f208ff728528523efcadb780f15c90ffd4117aeb702b8d9b2357783a0bef2d11",
+    "retire-legacy-config.mjs": "e8f5357a1a0cc604fd4869161aba04abb421fef04768ce712140ec458c5824b7",
+    "restore-settings.mjs": "5f8624ef92e5bb8a21d92902af8b6885dd7bc881e8c73b2b78d34cc95b876abe",
+    "bootstrap.example.yaml": "af4b3437a6b19ea8b24bd9877eb35e548af29971acd010583105d7c6bcb6d3a4"
+  }
+}

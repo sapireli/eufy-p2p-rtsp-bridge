@@ -1,0 +1,12 @@
+{
+  "time": "2026-10-23T02:22:12.398Z",
+  "missingRejected": true,
+  "missingRecoveryEqual": true,
+  "overwriteRejected": true,
+  "corruptRecoveryEqual": true,
+  "corruptBackupExact": true,
+  "backupMode": "600",
+  "storeMode": "600",
+  "liveStoreRevision": 4,
+  "restoredServiceOwnershipMatches": true
+}

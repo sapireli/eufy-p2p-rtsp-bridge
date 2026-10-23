@@ -1,0 +1,16 @@
+{
+  "time": "2026-10-23T02:10:51.081Z",
+  "legacyRejectedBeforeMigration": true,
+  "created": false,
+  "revision": 3,
+  "retiredKeys": [
+    "cameras",
+    "lan",
+    "go2rtc",
+    "freshness",
+    "stall"
+  ],
+  "effectiveConfigUnchanged": true,
+  "storeBytesUnchanged": true,
+  "initializedMarkerMode": "600"
+}

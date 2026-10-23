@@ -1,3 +1,5 @@
+> The cutover is now complete; the release-wait notes below describe the earlier transition state. See [final cutover verification](settings-cutover-complete-2026-10-22.md).
+
 # Bridge settings transition: October22,2026
 
 ## Implementation and deployment

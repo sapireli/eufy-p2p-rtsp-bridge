@@ -1,0 +1,16 @@
+{
+  "time": "2026-10-23T02:15:07.452Z",
+  "effectiveConfigUnchanged": true,
+  "storeBytesUnchanged": true,
+  "pairedTokenUnchanged": true,
+  "legacyYamlRejected": true,
+  "legacyEnvRejected": true,
+  "settingsStatus": 200,
+  "revision": 3,
+  "apply": "applied",
+  "unauthorizedStatus": 401,
+  "auth": "ok",
+  "go2rtc": "running",
+  "storeMode": "600",
+  "markerMode": "600"
+}
