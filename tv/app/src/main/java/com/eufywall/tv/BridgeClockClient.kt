@@ -11,7 +11,7 @@ internal class BridgeClockClient(url: String) : AutoCloseable {
     private val samples = BridgeClockWindow()
     fun currentSample(nowNs: Long = System.nanoTime()) = samples.current(nowNs)
     private val worker = Executors.newSingleThreadScheduledExecutor()
-    private val http = OkHttpClient.Builder().connectTimeout(1, TimeUnit.SECONDS).readTimeout(1, TimeUnit.SECONDS).callTimeout(1, TimeUnit.SECONDS).build()
+    private val http = OkHttpClient.Builder().socketFactory(BridgeSocketFactory).connectTimeout(1, TimeUnit.SECONDS).readTimeout(1, TimeUnit.SECONDS).callTimeout(1, TimeUnit.SECONDS).build()
     private val request = Request.Builder().url(url).header("Cache-Control", "no-cache").build()
     init {
         worker.scheduleWithFixedDelay({

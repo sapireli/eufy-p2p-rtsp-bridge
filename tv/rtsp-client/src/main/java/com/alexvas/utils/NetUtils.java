@@ -84,22 +84,34 @@ public class NetUtils {
 
         SSLContext sslContext = SSLContext.getInstance("TLS");
         sslContext.init(null, new TrustManager[] { new FakeX509TrustManager() }, null);
-        SSLSocket sslSocket = (SSLSocket) sslContext.getSocketFactory().createSocket();
-        sslSocket.connect(new InetSocketAddress(dstName, dstPort), timeout);
-        sslSocket.setSoLinger(false, 1);
-        sslSocket.setSoTimeout(timeout);
-        return sslSocket;
+        IOException last = null;
+        for (java.net.InetAddress address : ScopedAddressResolver.resolve(dstName)) {
+            SSLSocket sslSocket = (SSLSocket) sslContext.getSocketFactory().createSocket();
+            try {
+                sslSocket.connect(new InetSocketAddress(address, dstPort), timeout);
+                sslSocket.setSoLinger(false, 1);
+                sslSocket.setSoTimeout(timeout);
+                return sslSocket;
+            } catch (IOException error) { last = error; try { sslSocket.close(); } catch (IOException ignored) {} }
+        }
+        throw last != null ? last : new java.net.UnknownHostException(dstName);
     }
 
     @NonNull
     public static Socket createSocketAndConnect(@NonNull String dstName, int dstPort, int timeout) throws IOException {
         if (DEBUG)
             Log.v(TAG, "createSocketAndConnect(dstName=" + dstName + ", dstPort=" + dstPort + ", timeout=" + timeout + ")");
-        Socket socket = new Socket();
-        socket.connect(new InetSocketAddress(dstName, dstPort), timeout);
-        socket.setSoLinger(false, 1);
-        socket.setSoTimeout(timeout);
-        return socket;
+        IOException last = null;
+        for (java.net.InetAddress address : ScopedAddressResolver.resolve(dstName)) {
+            Socket socket = new Socket();
+            try {
+                socket.connect(new InetSocketAddress(address, dstPort), timeout);
+                socket.setSoLinger(false, 1);
+                socket.setSoTimeout(timeout);
+                return socket;
+            } catch (IOException error) { last = error; try { socket.close(); } catch (IOException ignored) {} }
+        }
+        throw last != null ? last : new java.net.UnknownHostException(dstName);
     }
 
     @NonNull

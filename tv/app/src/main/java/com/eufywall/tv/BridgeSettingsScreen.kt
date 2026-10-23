@@ -30,10 +30,16 @@ internal class BridgeSettingsScreen(
     private var generation = 0
     var visible = false
         private set
-    private fun tokenFile(): java.io.File {
-        val key = java.security.MessageDigest.getInstance("SHA-256").digest(bridge().toByteArray(Charsets.UTF_8))
+    private fun tokenFile(origin: String = bridge()): java.io.File {
+        val key = java.security.MessageDigest.getInstance("SHA-256").digest(origin.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 255) }
         return java.io.File(activity.noBackupFilesDir, "bridge-admin-$key")
+    }
+    fun forgetPairingForOrigin(origin: String) { tokenFile(origin).delete() }
+    fun retainPairingForSameService(previous: String, next: String) {
+        val from = tokenFile(previous)
+        val to = tokenFile(next)
+        if (from.isFile && !to.exists()) runCatching { from.copyTo(to) }
     }
     private fun administratorToken(): String? = runCatching { tokenFile().readText().trim() }.getOrNull()
     private var snapshot = JSONObject()

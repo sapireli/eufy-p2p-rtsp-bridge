@@ -25,6 +25,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -48,11 +49,15 @@ data class Camera(val sn: String, val name: String, val rtsp: String, val mode: 
 class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
     private val work = Executors.newSingleThreadExecutor()
-    private val http = OkHttpClient.Builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(5, TimeUnit.SECONDS).build()
+    private val http = OkHttpClient.Builder().socketFactory(BridgeSocketFactory).connectTimeout(4, TimeUnit.SECONDS).readTimeout(5, TimeUnit.SECONDS).build()
     private val prefs by lazy { getSharedPreferences("wall", MODE_PRIVATE) }
     private val bridgeSettings by lazy { BridgeSettingsScreen(this, http, { bridge }, { cameras }, ::setupPage, ::button) { loadCameras(bridge, false) } }
     private val owner by lazy { prefs.getString("owner", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("owner", it).apply() } }
     private var bridge = ""
+    private var bridgeServiceEndpoints = listOf<String>()
+    private var bridgeServiceIdentity: String? = null
+    private var bridgeNetworkId: String? = null
+    private var endpointRecoveryInFlight = false
     private var cameras = listOf<Camera>()
     private val chosen = linkedSetOf<String>() // Legacy preference retained for older APKs.
     private var wallConfig = WallConfiguration()
@@ -153,8 +158,21 @@ class MainActivity : Activity() {
     private var discovery: NsdManager.DiscoveryListener? = null
     private var multicast: WifiManager.MulticastLock? = null
     private var status: TextView? = null
+    private var bridgeErrorBanner: TextView? = null
+    private val bridgeConnectionStatus = BridgeConnectionStatus()
+    private val streamProblems = mutableMapOf<String, String>()
+    private fun showBridgeProblem(error: Throwable) {
+        bridgeConnectionStatus.failed(error, bridge)
+        bridgeErrorBanner?.apply { text = bridgeConnectionStatus.problem; visibility = View.VISIBLE }
+    }
+    private fun clearBridgeProblem() {
+        bridgeConnectionStatus.recovered()
+        bridgeErrorBanner?.visibility = View.GONE
+    }
     private var ipEntry: EditText? = null
-    private val reconnect = Runnable { if (wallVisible) connectEvents() }
+    private val reconnect = Runnable { if (wallVisible) {
+        if (bridgeServiceEndpoints.size > 1) recoverBridgeEndpoint() else connectEvents()
+    } }
     private val controlRecovery = ControlChannelRecovery(
         reportLoss = { reason -> android.util.Log.i("EufyWallTV", "Control socket lost reason=$reason; preserving ${players.size} RTSP players; reconnect in 5000ms") },
         scheduleReconnect = { ui.removeCallbacks(reconnect); ui.postDelayed(reconnect, 5_000) },
@@ -183,7 +201,16 @@ class MainActivity : Activity() {
             }, probeSeconds * 1000L)
         }
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        prefs.getString("bridgeScopedAddress", null)?.let { scoped ->
+            runCatching { com.alexvas.utils.ScopedAddressResolver.register(InetAddress.getByName(scoped)) }
+        }
         bridge = prefs.getString("bridge", "") ?: ""
+        bridgeServiceIdentity = prefs.getString("bridgeServiceIdentity", null)
+        bridgeNetworkId = prefs.getString("bridgeNetworkId", null)
+        bridgeServiceEndpoints = runCatching {
+            val values = JSONArray(prefs.getString("bridgeServiceEndpoints", "[]"))
+            (0 until values.length()).map { values.getString(it) }.take(32)
+        }.getOrDefault(emptyList())
         chosen.addAll((prefs.getString("chosen", "") ?: "").split(',').filter { it.isNotBlank() }.take(36))
         wallConfig = WallConfiguration.decode(prefs.getString("configuration", null))
             ?: WallConfiguration.fromLegacyChosen(chosen.toList())
@@ -280,7 +307,7 @@ class MainActivity : Activity() {
         val connect = button("Connect") {
             val value = ipEntry?.text.toString().trim()
             if (value.isNotEmpty()) try { loadCameras(normalize(value), false) }
-            catch (_: Exception) { status?.text = "Enter a valid bridge address." }
+            catch (error: Exception) { status?.text = error.message ?: "Enter hostname:port, IPv4, or [IPv6]:port." }
         }.apply { id = View.generateViewId() }
         actions.addView(connect); actions.addView(button("Find automatically") { startDiscovery() }); root.addView(actions)
         ipEntry?.nextFocusDownId = connect.id
@@ -294,14 +321,11 @@ class MainActivity : Activity() {
         focusFirst(connect)
     }
 
-    private fun normalize(input: String): String {
-        val raw = if (input.contains("://")) input else "http://$input"
-        val uri = URI(raw)
-        val host = uri.host ?: error("enter an IP address or hostname")
-        return "http://${if (host.contains(':')) "[$host]" else host}:${if (uri.port > 0) uri.port else 3000}"
-    }
+    private fun normalize(input: String): String = normalizeBridgeAddress(input)
 
-    private fun loadCameras(url: String, autoOpen: Boolean) {
+    private fun loadCameras(url: String, autoOpen: Boolean,
+        endpoints: List<String> = if (url == bridge && bridgeServiceEndpoints.isNotEmpty()) bridgeServiceEndpoints else listOf(url),
+        discoveredService: Boolean = false, serviceIdentity: String? = null, allowReplacement: Boolean = false) {
         if (destroyed) return
         cancelCameraLoad()
         if (autoOpen && wallConfig.tiles.isNotEmpty()) savedWallBridge = url
@@ -309,42 +333,135 @@ class MainActivity : Activity() {
         cameraLoadInFlight = true
         stopDiscovery()
         status?.text = "Connecting to $url…"
+        val automaticIdentity = !allowReplacement && (autoOpen || url == bridge || discoveredService && bridgeServiceIdentity != null && bridgeServiceIdentity == serviceIdentity)
+        val expectedNetworkId = bridgeNetworkId.takeIf { automaticIdentity }
+        val expectedCameras = if (automaticIdentity) (cameras.map { it.sn } + wallConfig.tiles.filterNot { it.spec.motion }.map { it.spec.camera }).toSet() else emptySet()
         work.execute {
             try {
-                val request = Request.Builder().url("$url/api/cameras").build()
-                val body = http.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) error("HTTP ${response.code}")
-                    response.body?.string() ?: error("Empty response")
-                }
-                val parsed = JSONArray(body)
-                val list = (0 until parsed.length()).map { parsed.getJSONObject(it) }
-                    .filter { it.optBoolean("enabled") }
-                    .map {
-                        val f = it.optJSONObject("freshness")?.takeIf { f -> freshnessMode(f.optInt("version"), if(f.has("mode")) f.optString("mode") else null) != null && f.optString("scope") == "bridge-ingress" && f.optInt("maxAgeMs") in 100..60000 }
-                        Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming"), it.optBoolean("dual"), if (it.isNull("dualView")) null else it.optString("dualView").ifBlank { null }, it.optInt("width"), it.optInt("height"), it.optInt("rtspTcpPacketSize").takeIf { size -> size in 256..65535 }, it.optBoolean("still", it.optString("mode") != "always"), f?.let { f -> FreshnessCapability(f.getInt("maxAgeMs"), f.getString("clockUrl"), freshnessMode(f.getInt("version"), if(f.has("mode")) f.optString("mode") else null)!!) }, parseNativeRendition(it.optJSONObject("nativeRendition")))
+                val (_, connection) = tryBridgeEndpoints(endpoints) { candidate ->
+                    val origin = normalizeBridgeAddress(candidate)
+                    val request = Request.Builder().url("$origin/api/cameras").build()
+                    http.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) error("Bridge HTTP ${response.code}")
+                        val responseBody = response.body?.string() ?: error("Empty bridge response")
+                        val incoming = JSONArray(responseBody)
+                        val receivedId = response.header("X-Eufy-Wall-Bridge-Id")
+                        verifyBridgeIdentity(expectedNetworkId, receivedId, expectedCameras,
+                            (0 until incoming.length()).map { incoming.getJSONObject(it).getString("sn") }.toSet(), allowEmptyCurrent = origin == bridge)
+                        Triple(origin, responseBody, receivedId)
                     }
+                }
+                val (connectedUrl, body, receivedId) = connection
+                val selectedScope = com.alexvas.utils.ScopedAddressResolver.scopedHost(connectedUrl.toHttpUrl().host)
+                val parsed = JSONArray(body)
+                val readinessProblem = if (parsed.length() == 0) runCatching {
+                    http.newCall(Request.Builder().url("$connectedUrl/healthz").build()).execute().use { response ->
+                        if (!response.isSuccessful) error("Health HTTP ${response.code}")
+                        bridgeReadinessProblem(JSONObject(response.body?.string() ?: "{}"))
+                            ?: "Bridge is connected but reports no enabled cameras. Check shared camera settings."
+                    }
+                }.getOrElse { connectionProblem(it, connectedUrl) } else null
+                val list = parseCameraList(parsed)
                 ui.post {
                     if (destroyed || generation != cameraLoadGeneration) return@post
                     cameraLoadInFlight = false
                     if (!activityStarted) return@post
                     if (autoOpen && wallConfig.tiles.isNotEmpty() && list.isEmpty()) {
-                        scheduleSavedWallRetry("Bridge is starting • retrying saved wall")
+                        scheduleSavedWallRetry("${readinessProblem ?: "Bridge reports no cameras."} Retrying saved wall in 5 seconds.")
                         return@post
                     }
-                    bridge = url; cameras = list; prefs.edit().putString("bridge", url).apply()
+                    val sameService = !allowReplacement && (bridgeServiceIdentity != null && bridgeServiceIdentity == serviceIdentity || !discoveredService && bridgeServiceEndpoints.isNotEmpty() && url == bridge)
+                    if (allowReplacement) {
+                        bridgeServiceEndpoints = emptyList(); bridgeServiceIdentity = null
+                        if (bridge == connectedUrl) bridgeSettings.forgetPairingForOrigin(bridge)
+                    } else if (discoveredService) {
+                        bridgeServiceEndpoints = endpoints.distinct().take(32)
+                        bridgeServiceIdentity = serviceIdentity
+                    } else if (url != bridge && !autoOpen) {
+                        bridgeServiceEndpoints = emptyList(); bridgeServiceIdentity = null
+                    }
+                    val previousOrigin = bridge
+                    bridge = connectedUrl; cameras = list
+                    bridgeNetworkId = receivedId
+                    if (sameService) bridgeSettings.retainPairingForSameService(previousOrigin, connectedUrl)
+                    prefs.edit().putString("bridge", connectedUrl).apply {
+                        if (bridgeServiceEndpoints.isEmpty()) remove("bridgeServiceEndpoints") else putString("bridgeServiceEndpoints", JSONArray(bridgeServiceEndpoints).toString())
+                        if (bridgeServiceIdentity == null) remove("bridgeServiceIdentity") else putString("bridgeServiceIdentity", bridgeServiceIdentity)
+                        if (bridgeNetworkId == null) remove("bridgeNetworkId") else putString("bridgeNetworkId", bridgeNetworkId)
+                        if (selectedScope == null) remove("bridgeScopedAddress") else putString("bridgeScopedAddress", selectedScope)
+                    }.apply()
                     states.clear(); list.forEach { states[it.sn] = if (it.streaming) "live" else "idle" }
                     wallPolicy.applyHello(list.map { WallCameraState(it.sn, it.name, it.mode, states[it.sn] ?: "idle", it.hasStill) })
                     if (autoOpen && wallConfig.tiles.isNotEmpty() && list.isNotEmpty()) showWall()
-                    else showSetup("Bridge connected · ${list.size} cameras available")
+                    else showSetup(readinessProblem ?: "Bridge connected · ${list.size} cameras available")
                 }
             } catch (e: Exception) {
                 ui.post {
                     if (destroyed || generation != cameraLoadGeneration) return@post
                     cameraLoadInFlight = false
                     if (!activityStarted) return@post
-                    status?.text = "Bridge unavailable: ${e.message}"
-                    if (autoOpen && wallConfig.tiles.isNotEmpty()) scheduleSavedWallRetry("Bridge unavailable • retrying saved wall")
+                    val problem = connectionProblem(e, url)
+                    status?.text = problem
+                    if (!autoOpen && !allowReplacement && (e.message?.contains("Bridge identity changed") == true || e.message?.contains("different camera inventory") == true)) {
+                        AlertDialog.Builder(this@MainActivity).setTitle("Confirm replacement bridge?")
+                            .setMessage("The saved bridge identity does not match. Continue only if you intentionally replaced it. Layouts stay saved; administrator pairing must be renewed.")
+                            .setNegativeButton("Keep saved bridge", null).setPositiveButton("Use replacement") { _, _ ->
+                                loadCameras(url, false, endpoints, allowReplacement = true)
+                            }.show()
+                    }
+                    if (autoOpen && wallConfig.tiles.isNotEmpty()) scheduleSavedWallRetry("$problem Retrying saved wall in 5 seconds.")
                 }
+            }
+        }
+    }
+
+    private fun parseCameraList(parsed: JSONArray): List<Camera> {
+        return (0 until parsed.length()).map { parsed.getJSONObject(it) }
+                    .filter { it.optBoolean("enabled") }
+                    .map {
+                        val f = it.optJSONObject("freshness")?.takeIf { f -> freshnessMode(f.optInt("version"), if(f.has("mode")) f.optString("mode") else null) != null && f.optString("scope") == "bridge-ingress" && f.optInt("maxAgeMs") in 100..60000 }
+                        Camera(it.getString("sn"), it.optString("name", it.getString("sn")), it.getString("rtsp"), it.optString("mode", "always"), it.optBoolean("streaming"), it.optBoolean("dual"), if (it.isNull("dualView")) null else it.optString("dualView").ifBlank { null }, it.optInt("width"), it.optInt("height"), it.optInt("rtspTcpPacketSize").takeIf { size -> size in 256..65535 }, it.optBoolean("still", it.optString("mode") != "always"), f?.let { f -> FreshnessCapability(f.getInt("maxAgeMs"), f.getString("clockUrl"), freshnessMode(f.getInt("version"), if(f.has("mode")) f.optString("mode") else null)!!) }, parseNativeRendition(it.optJSONObject("nativeRendition")))
+                    }
+    }
+
+    private fun recoverBridgeEndpoint() {
+        if (endpointRecoveryInFlight || !wallVisible) return
+        endpointRecoveryInFlight = true
+        val generation = cameraLoadGeneration
+        val original = bridge
+        val candidates = bridgeServiceEndpoints.toList()
+        val expectedId = bridgeNetworkId
+        val expectedInventory = cameras.map { it.sn }.toSet()
+        work.execute {
+            val result = runCatching {
+                val (_, connection) = tryBridgeEndpoints(candidates) { candidate ->
+                    val origin = normalizeBridgeAddress(candidate)
+                    val parsed = http.newCall(Request.Builder().url("$origin/api/cameras").build()).execute().use { response ->
+                        if (!response.isSuccessful) error("Bridge HTTP ${response.code}")
+                        val list = parseCameraList(JSONArray(response.body?.string() ?: error("Empty bridge response")))
+                        verifyBridgeIdentity(expectedId, response.header("X-Eufy-Wall-Bridge-Id"), expectedInventory, list.map { it.sn }.toSet())
+                        list
+                    }
+                    Triple(origin, parsed, com.alexvas.utils.ScopedAddressResolver.scopedHost(origin.toHttpUrl().host))
+                }
+                connection
+            }
+            ui.post {
+                endpointRecoveryInFlight = false
+                if (!wallVisible || generation != cameraLoadGeneration || bridge != original) return@post
+                result.fold({ (origin, updated, scope) ->
+                    bridgeSettings.retainPairingForSameService(original, origin)
+                    bridge = origin; cameras = updated
+                    prefs.edit().putString("bridge", origin).apply {
+                        if (scope == null) remove("bridgeScopedAddress") else putString("bridgeScopedAddress", scope)
+                    }.apply()
+                    // Existing healthy media sockets stay in place; future opens use the recovered endpoint.
+                    connectEvents()
+                    held.forEach { hold(it, "POST") }
+                }, { error ->
+                    showBridgeProblem(error)
+                    ui.postDelayed(reconnect, 5_000)
+                })
             }
         }
     }
@@ -579,7 +696,11 @@ class MainActivity : Activity() {
             tile.setOnClickListener { showLiveActions(id) }
             wall.addView(tile)
         }
-        setContentView(wall); refreshWall(); ui.post(latencyTick); ui.postDelayed(wallTick, 1_000); ui.postDelayed(holdRefresh, 20_000); connectEvents()
+        val wallRoot = FrameLayout(this)
+        wallRoot.addView(wall, FrameLayout.LayoutParams(-1, -1))
+        bridgeErrorBanner = text("", 17f).apply { setBackgroundColor(0xdd8b1d1d.toInt()); visibility = View.GONE }
+        wallRoot.addView(bridgeErrorBanner, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+        setContentView(wallRoot); refreshWall(); ui.post(latencyTick); ui.postDelayed(wallTick, 1_000); ui.postDelayed(holdRefresh, 20_000); connectEvents()
     }
 
     private fun showLiveActions(id: String) {
@@ -599,7 +720,7 @@ class MainActivity : Activity() {
             val previous = resolvedTiles[selection.id]
             if (previous?.camera != selection.camera) {
                 motionOutline.cancel(selection.id)
-                latencyObservations.remove(selection.id); latencyLiveSince.remove(selection.id)
+                latencyObservations.remove(selection.id); latencyLiveSince.remove(selection.id); streamProblems.remove(selection.id)
                 release(selection.id, "tile-camera-changed"); snapshots.cancel(selection.id); snapshotKeys.remove(selection.id)
                 images[selection.id]?.setImageDrawable(null)
             }
@@ -651,14 +772,18 @@ class MainActivity : Activity() {
             val playback = selectPlayback(cam)
             val hardware = playback.nativeDecoderName
             android.util.Log.i("EufyWallTV", "Rendition $sn: ${if (playback.nativeDecoderName != null) "native HEVC hardware=$hardware ${playback.width}x${playback.height}" else "compatibility (native absent, unsupported, or failed)"}")
-            label.text = "${cam.name} • connecting"
+            label.text = streamProblems[sn] ?: "${cam.name} • connecting"
             val startedAt = SystemClock.elapsedRealtime()
             lateinit var player: LowLatencyRtspPlayer
             var retryScheduled = false
             fun retry(message: String) {
                 if (!wallVisible || players[sn] !== player || retryScheduled) return
                 retryScheduled = true
-                label.text = "${cam.name} • $message, reconnecting"
+                val problem = if (message.contains("resolve", true) || message.contains("refused", true) || message.contains("timed out", true))
+                    "${cam.name}: $message. Check this stream's bridge address, port and availability; retrying."
+                    else "${cam.name}: $message; retrying this stream."
+                streamProblems[sn] = problem
+                label.text = problem
                 android.util.Log.w("EufyWallTV", "RTSP ${cam.sn}: $message; ${player.diagnostics()}")
                 if (playback.nativeDecoderName != null) {
                     nativeFallback.fail(cam.sn)
@@ -677,7 +802,8 @@ class MainActivity : Activity() {
             player = LowLatencyRtspPlayer(this, playback,
                 sharedSurface = tileVideoSurfaces.getValue(sn),
                 onFirstFrame = {
-                    if (players[sn] === player) {
+                    if (players[sn] === player && !retryScheduled) {
+                        streamProblems.remove(sn)
                         snapshots.cancel(sn); snapshotKeys.remove(sn); images[sn]?.visibility = View.GONE
                         label.text = if(playback.freshness?.enforces == true) "${cam.name} • capture time unverified" else cam.name
                         android.util.Log.i("EufyWallTV", "Rendered first frame for ${cam.sn} after ${SystemClock.elapsedRealtime() - startedAt}ms; ${player.diagnostics()}")
@@ -685,7 +811,7 @@ class MainActivity : Activity() {
                 },
                 onFailure = { message, _ -> retry(message) },
                 hardwarePinned = cam.sn in wallConfig.hardwarePinnedCameraIds,
-                onFreshnessState = { message -> if (players[sn] === player) label.text = "${cam.name} • ${message ?: "capture age unverified"}" })
+                onFreshnessState = { message -> if (players[sn] === player && streamProblems[sn] == null) label.text = "${cam.name} • ${message ?: "capture age unverified"}" })
             players[sn] = player
             playbackContracts[sn] = playback.playbackContract()
             // The tile surface remains attached across transport/decoder retries.
@@ -747,7 +873,7 @@ class MainActivity : Activity() {
     private fun connectEvents() {
         if (!wallVisible) return
         socket?.cancel(); socket = null
-        val url = bridge.replaceFirst("http://", "ws://") + "/ws"
+        val url = websocketBridgeUrl(bridge)
         socket = http.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
@@ -756,6 +882,19 @@ class MainActivity : Activity() {
                         if (!wallVisible || socket !== webSocket) return@post
                         when (event.optString("type")) {
                             "hello" -> {
+                                val incomingId = event.optString("bridgeId").takeIf { it.isNotBlank() }
+                                if (bridgeNetworkId != null && incomingId != bridgeNetworkId) {
+                                    showBridgeProblem(IllegalStateException("Bridge identity changed; open connection settings and confirm the intended bridge"))
+                                    return@post
+                                }
+                                if (bridgeNetworkId == null && incomingId != null) {
+                                    bridgeNetworkId = incomingId
+                                    prefs.edit().putString("bridgeNetworkId", incomingId).apply()
+                                }
+                                clearBridgeProblem()
+                                bridgeReadinessProblem(event)?.let { message ->
+                                    bridgeErrorBanner?.apply { this.text = message; visibility = View.VISIBLE }
+                                }
                                 val arr = event.optJSONArray("cameras") ?: JSONArray()
                                 for (i in 0 until arr.length()) {
                                     val item = arr.getJSONObject(i)
@@ -780,6 +919,11 @@ class MainActivity : Activity() {
                                     WallCameraState(camera.sn, camera.name, item.optString("mode", camera.mode), states[camera.sn] ?: "idle", item.optBoolean("still"))
                                 })
                                 refreshWall()
+                            }
+                            "auth" -> {
+                                val problem = bridgeReadinessProblem(event)
+                                if (problem == null) clearBridgeProblem()
+                                else bridgeErrorBanner?.apply { this.text = problem; visibility = View.VISIBLE }
                             }
                             "motion" -> {
                                 val sn = event.optString("sn")
@@ -812,11 +956,16 @@ class MainActivity : Activity() {
                 } catch (e: Exception) { android.util.Log.e("EufyWallTV", "Invalid event", e) }
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                ui.post { controlRecovery.lost(wallVisible && socket === webSocket,
-                    "failure:${t.javaClass.simpleName}") }
+                ui.post {
+                    if (wallVisible && socket === webSocket) showBridgeProblem(t)
+                    controlRecovery.lost(wallVisible && socket === webSocket, "failure:${t.javaClass.simpleName}")
+                }
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                ui.post { controlRecovery.lost(wallVisible && socket === webSocket, "closed:$code") }
+                ui.post {
+                    if (wallVisible && socket === webSocket) showBridgeProblem(IllegalStateException("Bridge event connection closed ($code); reconnecting"))
+                    controlRecovery.lost(wallVisible && socket === webSocket, "closed:$code")
+                }
             }
         })
     }
@@ -845,17 +994,36 @@ class MainActivity : Activity() {
                 nsd?.resolveService(info, object : NsdManager.ResolveListener {
                     override fun onResolveFailed(service: NsdServiceInfo, code: Int) { ui.post { status?.text = "Discovery resolve error $code • enter IP manually" } }
                     override fun onServiceResolved(service: NsdServiceInfo) {
-                        val host: InetAddress = service.host ?: return
-                        if (host.isLoopbackAddress || host.isAnyLocalAddress) {
-                            ui.post { status?.text = "Ignoring bridge advertised on localhost. Searching for a LAN address…" }
-                            return
-                        }
+                        val active = discovery
+                        val identity = "${service.serviceName}|${service.serviceType}|${service.port}"
+                        if (bridgeServiceIdentity != null && bridgeServiceIdentity != identity) return
                         val port = service.port
                         val rtspPort = service.attributes["rtsp"]?.toString(Charsets.UTF_8)?.toIntOrNull()
-                        if (port != 3000 || rtspPort == null || rtspPort !in 1..65535) return
-                        val address = host.hostAddress ?: return
-                        val uriHost = if (address.contains(':')) "[${address.replace("%", "%25")}]" else address
-                        ui.post { stopDiscovery(); loadCameras("http://$uriHost:$port", false) }
+                        if (port !in 1..65535 || rtspPort == null || rtspPort !in 1..65535) {
+                            ui.post { status?.text = "Bridge discovery returned invalid ports. Check its advertisement or enter the address manually." }
+                            return
+                        }
+                        val reported = if (android.os.Build.VERSION.SDK_INT >= 34) service.hostAddresses else listOfNotNull(service.host)
+                        work.execute {
+                            val addresses = reported + runCatching { BridgeMdnsAddresses.discover(service.serviceName, service.serviceType) }.getOrDefault(emptyList())
+                            val endpoints = addresses.mapNotNull { runCatching { bridgeEndpoint(it, port) }.getOrNull() }.distinct()
+                            ui.post {
+                                if (discovery !== active || active == null) return@post
+                                if (endpoints.isEmpty()) {
+                                    status?.text = "No usable LAN address for this bridge. Check IPv4/IPv6 and the local interface; localhost and invalid addresses are ignored. Or enter the address manually."
+                                } else {
+                                    val matchesExisting = bridge.isBlank() || bridgeServiceIdentity == identity || endpoints.any {
+                                        runCatching { normalizeBridgeAddress(it) == bridge }.getOrDefault(false)
+                                    }
+                                    if (matchesExisting) { stopDiscovery(); loadCameras(endpoints.first(), false, endpoints, discoveredService = true, serviceIdentity = identity) }
+                                    else AlertDialog.Builder(this@MainActivity).setTitle("Connect to ${service.serviceName}?")
+                                        .setMessage("This is a different discovered bridge address: ${endpoints.first()}")
+                                        .setNegativeButton("Keep current bridge", null).setPositiveButton("Connect") { _, _ ->
+                                            stopDiscovery(); loadCameras(endpoints.first(), false, endpoints, discoveredService = true, serviceIdentity = identity)
+                                        }.show()
+                                }
+                            }
+                        }
                     }
                 })
             }
@@ -880,7 +1048,8 @@ class MainActivity : Activity() {
         players.keys.toList().forEach { release(it, "wall-stopped") }
         images.keys.toList().forEach { snapshots.cancel(it) }
         tileVideoSurfaces.values.forEach { it.remove() }; tileVideoSurfaces.clear()
-        labels.clear(); surfaces.clear(); images.clear(); resolvedTiles.clear(); snapshotKeys.clear()
+        labels.clear(); surfaces.clear(); images.clear(); resolvedTiles.clear(); snapshotKeys.clear(); streamProblems.clear()
+        bridgeErrorBanner = null; bridgeConnectionStatus.recovered()
         held.toList().forEach { hold(it, "DELETE") }; held.clear()
         holds.releaseAll()
         wallPolicy = WallPolicy()
