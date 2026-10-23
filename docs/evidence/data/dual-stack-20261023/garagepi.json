@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-23",
+  "host": "garagepi.lan current .56, known replacement with prior DietPi SSH identity",
+  "artifacts": {
+    "go": "72557556f1c6542f1ac39c4dcc39fd4450065b793caf789b01421e0e7f86564b",
+    "nativePlugin": "a304d7cfa2fe495e5a4c70592861cf2838ebce84fdfa46b7de4c058ebce3f72a",
+    "arch": "ARMv6KZ / VFPv2 hard-float"
+  },
+  "configurationUnchanged": "79fb69cb5ac86226c35c97d1f8caee49787be673f81728717aac9631d6cca3f8",
+  "dnsTrial": {
+    "temporaryBase": "rtsp://bridge-dns-test.invalid:8554",
+    "backup": "/root/eufy-wall-dualstack-20261023/before-dns-ui-test.yaml",
+    "signalSafeFinallyRestore": true,
+    "observedCaption": "DNS FAILED - CHECK BRIDGE ADDRESS",
+    "footerImage": "garagepi-dns-footer.png",
+    "whiteTextPixelsBeforeRestore": 3560,
+    "whiteTextPixelsAfterRecovery": 0,
+    "primaryFooterOnlyNoCameraPixels": true
+  },
+  "postRestoreWindowUTC": [
+    "2026-10-23T08:23:00Z",
+    "2026-10-23T08:24:03Z"
+  ],
+  "service": {
+    "pid": 8383,
+    "nRestarts": 0,
+    "active": true
+  },
+  "front": {
+    "playerPID": 8520,
+    "decoder": "v4l2h264dec",
+    "transport": "IPv6 RTSP TCP",
+    "acceptedAt042259EDT": 336,
+    "acceptedAt042400EDT": 1012,
+    "lastKmsAgeUpperNs": 214940225,
+    "longestDecodedGapNs": 865774000,
+    "missing": 0,
+    "unknownClock": 0
+  },
+  "garageDoorbell": {
+    "playerPID": 8521,
+    "decoder": "v4l2h264dec",
+    "transport": "IPv6 RTSP TCP",
+    "acceptedAt042259EDT": 278,
+    "acceptedAt042400EDT": 882,
+    "lastKmsAgeUpperNs": 204039878,
+    "longestDecodedGapNs": 896463000,
+    "missing": 0,
+    "unknownClock": 0
+  },
+  "publicIdentity": {
+    "mode": "0600",
+    "path": "/var/lib/eufy-wall/.local/state/eufy-wall/bridge-identities.json",
+    "expectedUUIDMatched": true,
+    "survivesProcessExecAndPowerCycles": true,
+    "explicitReset": "-reset-bridge-identity",
+    "verification": "persisted disk record and fresh-reader tests; no physical reboot performed"
+  },
+  "IPv6AuthenticatedSettingsCLI": {
+    "revision": 4,
+    "apply": "applied"
+  },
+  "tests": [
+    "full Go suite13packages",
+    "focused Go race suite",
+    "parent full Go race suite13packages",
+    "go vet/gofmt parentverified",
+    "caption glyph bounds C unit",
+    "target plugin gst-inspect caption-file",
+    "target640x22RGBA2fps caption pipeline to fakesink",
+    "real primary framebuffer DNS caption and clearing",
+    "postrestore63s IPv6 hardwareplayback"
+  ],
+  "limits": [
+    "KMS-return age is bridge-ingress scope; capture/physicalscanout unverified",
+    "runtime alternate-family failover behavior tested with injected network probes; no live family outage injected",
+    "current known replacement updated; retired old GaragePi .73 not claimed updated"
+  ],
+  "sourceSha256": {
+    "client/cmd/eufy-wall/main.go": "b7368acca2f685b59a545a80d9f7a2fdf76b6e1be920406d7ac0bf2e598d76d7",
+    "client/cmd/eufy-wall/discovery.go": "8953acbf926c8b23ff14256e73d492ce3e05b425fef180782e363815514f5a51",
+    "client/cmd/eufy-wall/bridge_identity.go": "3dd07facfcd42daf8e0bdbc37999a2a1beec04c349eaadc65fc4fb51c8066587",
+    "client/gst/gsteufytile.c": "9ba4b961ac2b9b31bda48e776709e2fbdd128bb2506f892b3c396490e5a13e86",
+    "client/gst/caption.h": "21da722982040cbcd2b0ccaf76fb64efdfada03d1e26efd0e742c0e67f6cb409"
+  }
+}

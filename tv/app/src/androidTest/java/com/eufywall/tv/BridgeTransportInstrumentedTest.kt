@@ -17,7 +17,7 @@ import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** Explicit operator-provided test endpoints only; never changes wall preferences or camera settings. */
+/** Operator-selected endpoints; temporary wall choices are restored, camera settings are untouched. */
 @RunWith(AndroidJUnit4::class)
 class BridgeTransportInstrumentedTest {
     @Test fun selectedIpv6EndpointCarriesHttpWebSocketAndRtsp() {

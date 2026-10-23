@@ -46,3 +46,5 @@ Keep backups and generated go2rtc configuration private: source URLs may contain
 Manage shared camera policies from Android’s **Shared bridge settings** screen or `eufy-wall settings` on Linux. The persistent JSON store is authoritative. Runtime YAML is limited to bootstrap settings; the installer migrates and retires legacy operating fields offline. See [migration, pairing and backup/restore](docs/bridge-settings-migration.md). Display layouts and decoder preferences remain local.
 
 Android and Linux camera tiles include a [green/orange/red latency dot](docs/client-latency-indicator.md). It reports measured frame age from bridge ingress; unavailable timing stays orange.
+
+The server and clients support [IPv4, IPv6 and visible connection errors](docs/dual-stack-and-client-errors.md). DNS, bridge and camera failures are reported on screen and clear after recovery.
