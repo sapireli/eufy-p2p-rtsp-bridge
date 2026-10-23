@@ -9,8 +9,8 @@ android {
         minSdk = 24
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.7.0"
+        versionCode = 20
+        versionName = "0.7.1"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

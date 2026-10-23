@@ -81,6 +81,44 @@ class MainActivity : Activity() {
     private val surfaces = mutableMapOf<String, FrameLayout>()
     private val tileVideoSurfaces = mutableMapOf<String, TileVideoSurface>()
     private val tileFrames = mutableMapOf<String, FrameLayout>()
+    private val latencyDots = mutableMapOf<String, View>()
+    private val latencyLiveSince = mutableMapOf<String, Long>()
+    private val latencyObservations = mutableMapOf<String, OutputLatencyObservation>()
+    private val latencyTick = object : Runnable {
+        override fun run() {
+            if (!wallVisible) return
+            refreshLatencyIndicators()
+            ui.postDelayed(this, 250)
+        }
+    }
+    private fun refreshLatencyIndicators() {
+        val now = System.nanoTime()
+        latencyDots.forEach { (id, dot) ->
+            val live = resolvedTiles[id]?.content == WallContent.LIVE
+            if (live) {
+                latencyLiveSince.putIfAbsent(id, now)
+                players[id]?.latencyObservation(now)?.let { observation ->
+                    // Keep a frame's original clock bound while it remains on screen;
+                    // polling a tighter clock cannot make an aging still turn green again.
+                    if (latencyObservations[id]?.frame?.outputNs?.let { it >= observation.frame.outputNs } != true) latencyObservations[id] = observation
+                }
+            } else {
+                latencyLiveSince.remove(id); latencyObservations.remove(id)
+            }
+            val state = latencyIndicatorState(live, now, latencyLiveSince[id] ?: now, latencyObservations[id])
+            val color = when (state.color) {
+                LatencyColor.GREEN -> 0xff43c76f.toInt()
+                LatencyColor.ORANGE -> 0xffffa726.toInt()
+                LatencyColor.RED -> 0xffef5350.toInt()
+            }
+            if (dot.tag != state.color) {
+                dot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color); setStroke(dp(1), 0xff000000.toInt()) }
+                dot.tag = state.color
+            }
+            dot.contentDescription = state.description()
+        }
+    }
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
     private val motionOutline = MotionOutline()
     private val outlineTick = Runnable { refreshOutlines() }
 
@@ -527,12 +565,20 @@ class MainActivity : Activity() {
             tile.addView(image, FrameLayout.LayoutParams(-1, -1)); images[id] = image
             val label = text("Waiting for motion", 16f).apply { setBackgroundColor(0xaa000000.toInt()) }
             tile.addView(label, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM)); labels[id] = label
+            val latencyDot = View(this).apply {
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                contentDescription = "Latency orange: output timing unavailable"
+            }
+            tile.addView(latencyDot, FrameLayout.LayoutParams(dp(10), dp(10), Gravity.BOTTOM or Gravity.RIGHT).apply {
+                rightMargin = dp(8); bottomMargin = dp(8)
+            })
+            latencyDots[id] = latencyDot
             tileFrames[id] = tile
             tile.setOnFocusChangeListener { _, _ -> refreshOutlines() }
             tile.setOnClickListener { showLiveActions(id) }
             wall.addView(tile)
         }
-        setContentView(wall); refreshWall(); ui.postDelayed(wallTick, 1_000); ui.postDelayed(holdRefresh, 20_000); connectEvents()
+        setContentView(wall); refreshWall(); ui.post(latencyTick); ui.postDelayed(wallTick, 1_000); ui.postDelayed(holdRefresh, 20_000); connectEvents()
     }
 
     private fun showLiveActions(id: String) {
@@ -552,6 +598,7 @@ class MainActivity : Activity() {
             val previous = resolvedTiles[selection.id]
             if (previous?.camera != selection.camera) {
                 motionOutline.cancel(selection.id)
+                latencyObservations.remove(selection.id); latencyLiveSince.remove(selection.id)
                 release(selection.id, "tile-camera-changed"); snapshots.cancel(selection.id); snapshotKeys.remove(selection.id)
                 images[selection.id]?.setImageDrawable(null)
             }
@@ -564,6 +611,7 @@ class MainActivity : Activity() {
         (needed - held).forEach { hold(it, "POST") }
         held.clear(); held.addAll(needed)
         refreshOutlines()
+        refreshLatencyIndicators()
     }
 
     private fun wantsLive(id: String) = wallVisible && resolvedTiles[id]?.content == WallContent.LIVE
@@ -826,6 +874,7 @@ class MainActivity : Activity() {
     private fun stopWall() {
         ui.removeCallbacks(reconnect); ui.removeCallbacks(holdRefresh); ui.removeCallbacks(wallTick)
         ui.removeCallbacks(outlineTick); motionOutline.clear(); tileFrames.clear()
+        ui.removeCallbacks(latencyTick); latencyDots.clear(); latencyLiveSince.clear(); latencyObservations.clear()
         socket?.cancel(); socket = null
         players.keys.toList().forEach { release(it, "wall-stopped") }
         images.keys.toList().forEach { snapshots.cancel(it) }

@@ -63,6 +63,10 @@ internal class LowLatencyRtspPlayer(
     private var streamHeight = camera.height.takeIf { it > 0 } ?: 1080
     @Volatile private var queue: VideoFrameQueue? = null
     @Volatile private var decoderName = "pending"
+    private val renderedTiming = RenderedTimingTracker()
+    internal fun latencyObservation(nowNs: Long): OutputLatencyObservation? = renderedTiming.snapshot()?.let {
+        OutputLatencyObservation(it, freshnessClock?.currentSample(nowNs), if (enforcesFreshness) "GPU-swap-admission" else "codec-render-callback")
+    }
     val renderedFrames = AtomicLong()
     val decodedFrames = AtomicLong()
     val lastDecodedFrameAt = AtomicLong(SystemClock.elapsedRealtime())
@@ -175,12 +179,15 @@ internal class LowLatencyRtspPlayer(
                 check(!released && surface.holder.surface.isValid) { "Video surface unavailable" }
                 decoderName = mediaCodec.name
                 mediaCodec.configure(mediaFormat, freshRenderer?.inputSurface ?: surface.holder.surface, null, 0)
+                val outputGeneration = if (enforcesFreshness) -1L else renderedTiming.beginGeneration()
                 var first = true
                 mediaCodec.setOnFrameRenderedListener({ _, timestamp, renderNs ->
                     if (Log.isLoggable(TIMING_TAG, Log.DEBUG)) Log.d(TIMING_TAG, "${camera.sn} rendered ptsUs=$timestamp atNs=$renderNs")
                     if (!released) {
                         if (enforcesFreshness) return@setOnFrameRenderedListener
-                        observe(synchronized(stampLock) { stamps[timestamp] }, renderNs, "codec-render-informational")
+                        val stamp = synchronized(stampLock) { stamps[timestamp] }
+                        renderedTiming.accept(outputGeneration, stamp, renderNs, System.nanoTime())
+                        observe(stamp, renderNs, "codec-render-informational")
                         val now = SystemClock.elapsedRealtime()
                         lastFrameAt.set(now)
                         val previous = previousRenderNs.getAndSet(renderNs)
@@ -271,10 +278,12 @@ internal class LowLatencyRtspPlayer(
                 if (!released && !started) {
                     if (enforcesFreshness) {
                         try {
+                            val outputGeneration = renderedTiming.beginGeneration()
                             freshRenderer = FreshVideoRenderer(holder.surface, surface.width.coerceAtLeast(1), surface.height.coerceAtLeast(1),
                                 cameraSn = camera.sn, maxAgeMs = camera.freshness!!.maxAgeMs,
                                 clockSample = { now -> freshnessClock?.currentSample(now) },
                                 onPresented = { stamp, swapNs, until ->
+                                    if (!released) renderedTiming.accept(outputGeneration, stamp, swapNs, System.nanoTime())
                                     if (shownEpoch != stamp.epoch || shownFrameId != stamp.frameId) {
                                         shownEpoch = stamp.epoch; shownFrameId = stamp.frameId; shownDeadlineNs = until
                                         synchronized(stampLock) { stamps.entries.firstOrNull { it.value.epoch == stamp.epoch && it.value.frameId == stamp.frameId }?.key }?.let { latestRenderedTimestamp.set(it) }
