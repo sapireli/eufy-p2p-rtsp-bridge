@@ -652,3 +652,31 @@ remained unchanged. No correction was retained or committed as a fix.
 Private capture:
 `/tmp/eufy-doorbell-runtime-20261023/capture-native-simple-start.json`, SHA-256
 `6b34720063d2569be3f4879f2680b472a2bbcc3f185366ec9279afe0e9e0c409`.
+
+## Unused Floodlight pull removed temporarily: no recovery
+
+A bounded contention test changed unused Floodlight from effective `always`
+to `on_demand`, with zero viewers. In the 180-second baseline, Door stalls
+increased by 2 and Front stalls by 20; no fresh Front receipt was observed.
+During the measured 180 seconds with Floodlight off, the increases were 1 and
+21, again with no fresh Front receipt.
+
+The off policy actually lasted 260.7 seconds; only 180 seconds were measured
+for comparison. Two read-only SDK snapshots 5.012 seconds apart confirmed no
+Floodlight consumers, stream, active timers, live-session key or dedicated
+`#live:1` connection. Base/private Door source sequences advanced. This verifies
+SDK-side inactivity, not the camera's internal radio or recording state.
+
+The original settings payload was restored exactly, with revision advancing
+from 4 to 6. The temporary Floodlight mode override was removed and effective
+mode returned to `always`; viewer count remained zero. The restoration watcher
+collected 124 samples, but only its first 60 seconds were compared: Door stalls
+increased by 1 and Front by 6. This is not a matched 180-second restored arm.
+
+PID 26051/restart count 0 and go2rtc child 26066 stayed unchanged; no hooks
+remained and the inspector was closed. At the final check Door was fresh at
+129 ms while Front was stale for 691.968 seconds. No root cause or fix was
+established.
+
+Private summary: `/tmp/eufy-doorbell-runtime-20261023/summary-contention-policy.json`,
+SHA-256 `33f073b22901ea73adff02da7cdb6fa0406fb58e7b10203b4ff8aa98985206b0`.
