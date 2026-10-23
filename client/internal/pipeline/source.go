@@ -64,6 +64,9 @@ func sourceArgs(c *config.Config, t layout.Placed, caps Caps, i int) []string {
 				args = append(args, "diagnostic-file="+caps.TimingDiagnostics)
 			}
 			if strict || observe {
+				if caps.OutputStatus {
+					args = append(args, "output-status=true")
+				}
 				args = append(args, fmt.Sprintf("channel=%d", t.Index+1), "clock-file="+caps.ClockFile, fmt.Sprintf("max-age-ms=%d", cap.MaxAgeMs))
 				if strict {
 					args = append(args, fmt.Sprintf("drm-fd=%d", caps.DRMFD), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]))
@@ -75,4 +78,15 @@ func sourceArgs(c *config.Config, t layout.Placed, caps Caps, i int) []string {
 		}
 	}
 	return args
+}
+
+// CanMeasureOutput follows the actual selected resource and observer prerequisites.
+// Unsupported plugins/resources must stay unknown, not look like stalled output.
+func CanMeasureOutput(c *config.Config, t layout.Placed, caps Caps) bool {
+	if caps.Sink != "planes" || !caps.OutputStatus || !caps.DecodedPacing || !caps.StampReader || caps.ClockFile == "" || t.StillURL != "" {
+		return false
+	}
+	selected, sourceCaps, _ := selectNative(c, []layout.Placed{t}, caps)
+	cap, ok := sourceCaps.Freshness[selected[0].Camera]
+	return ok && cap.Supported() && cap.BoundTo(selected[0].URL) && (cap.Enforced() || caps.ObservePacing)
 }

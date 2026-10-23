@@ -125,3 +125,23 @@ func TestCompositeKeepsSourceValidation(t *testing.T) {
 		t.Fatalf("codec guard lost: %v", err)
 	}
 }
+
+func TestUnknownDotOverlayDoesNotChangeVideoDecoderControls(t *testing.T) {
+	c, caps, tiles := isolatedFixture(t)
+	before, err := Plans(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps.DotImage = "/private/dot.png"
+	after, err := Plans(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before[0].TileConfigs, after[0].TileConfigs) {
+		t.Fatal("dot changed video decoder controls")
+	}
+	args := String(after[0].Args)
+	if !strings.Contains(args, "imagefreeze is-live=true ! video/x-raw,format=RGBA,framerate=1/1") || !strings.Contains(args, "sink_10000::zorder=1000") || strings.Contains(args, "framerate=30/1") {
+		t.Fatal(args)
+	}
+}

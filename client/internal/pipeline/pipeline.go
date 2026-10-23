@@ -36,6 +36,10 @@ type Caps struct {
 	MotionBorderPixels int // reserved primary-plane gutter; zero when motion feedback is disabled
 	MotionFlash        func(tileIndex int)
 	MotionClear        func(tileIndex int)
+	LatencyGutter      int
+	DotImage           string
+	OutputStatus       bool
+	DotSelect          func(index int, camera string, live, measured bool)
 	StampReader        bool
 	ObservePacing      bool   // installed pacing plugin accepts observe-only telemetry
 	TimingDiagnostics  string // optional bounded private per-frame phase metadata
@@ -156,7 +160,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 	case "planes":
 		for i, t := range tiles {
 			border := caps.MotionBorderPixels
-			if border < 0 || 2*border >= t.W || 2*border >= t.H {
+			if border < 0 || caps.LatencyGutter < 0 || 2*border >= t.W || border+max(border, caps.LatencyGutter) >= t.H {
 				return nil, fmt.Errorf("motion border does not fit tile %d", t.Index)
 			}
 			args = append(args, sourceArgs(c, t, caps, i)...)
@@ -165,13 +169,14 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 			if cap, strict := caps.Freshness[t.Camera]; strict && cap.Enforced() && cap.BoundTo(t.URL) && t.StillURL == "" {
 				tileClockArgs = []string{"sync=false", "processing-deadline=0"}
 			} // Strict pacer owns wait and synchronized plane updates.
-			args = append(args, caps.kmssinkArgs(append([]string{fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]), fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X+border, t.Y+border, t.W-2*border, t.H-2*border)}, tileClockArgs...)...)...)
+			args = append(args, caps.kmssinkArgs(append([]string{fmt.Sprintf("name=sink%d", t.Index), fmt.Sprintf("plane-id=%d", c.Planes[t.Index]), fmt.Sprintf("render-rectangle=<%d,%d,%d,%d>", t.X+border, t.Y+border, t.W-2*border, t.H-border-max(border, caps.LatencyGutter))}, tileClockArgs...)...)...)
 		}
 	case "compositor", "window":
 		for i, t := range tiles {
 			args = append(args, sourceArgs(c, t, caps, i)...)
 			args = append(args, "!", "videoconvert", "!", fmt.Sprintf("mix.sink_%d", i))
 		}
+		args = append(args, dotSources(tiles, caps.DotImage)...)
 		args = append(args, "compositor", "name=mix", "background=black")
 		for i, t := range tiles {
 			args = append(args,
@@ -179,6 +184,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 				fmt.Sprintf("sink_%d::width=%d", i, t.W), fmt.Sprintf("sink_%d::height=%d", i, t.H),
 				fmt.Sprintf("sink_%d::sizing-policy=keep-aspect-ratio", i))
 		}
+		args = append(args, dotPads(tiles, caps.DotImage)...)
 		args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d", caps.Screen.Width, caps.Screen.Height))
 		if caps.DecodedPacing {
 			// Rebase the final composite clock, not each input plus the final sink.

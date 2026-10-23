@@ -426,3 +426,41 @@ func TestTimingDiagnosticsObserveEachPhaseWithoutAddingQueues(t *testing.T) {
 		t.Fatal("diagnostics borrowed unrelated resource identity")
 	}
 }
+
+func TestLatencyDotPreservesDecoderAndUsesOnlyVisibleFooter(t *testing.T) {
+	c := &config.Config{Latency: 0, Planes: []int{98}, Tiles: []config.Tile{{Camera: "A"}}}
+	tile := layout.Placed{Index: 0, Camera: "A", URL: "rtsp://bridge/A", X: 0, Y: 0, W: 960, H: 1080}
+	caps := Caps{Decoder: "v4l2", Sink: "planes", LatencyGutter: 22, MotionBorderPixels: 4}
+	args, err := Build(c, []layout.Placed{tile}, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := String(args)
+	if !strings.Contains(s, "v4l2h264dec") || !strings.Contains(s, "render-rectangle=<4,4,952,1054>") {
+		t.Fatal(s)
+	}
+	caps.DecodedPacing = true
+	caps.StampReader = true
+	caps.ObservePacing = true
+	caps.ClockFile = "/tmp/clock"
+	caps.Freshness = map[string]freshness.Capability{"A": {Version: 2, Mode: "observe", Scope: "bridge-ingress", MaxAgeMs: 500, ClockURL: "http://bridge/api/clock", StreamURL: tile.URL}}
+	args, err = Build(c, []layout.Placed{tile}, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(String(args), "output-status=true") || CanMeasureOutput(c, tile, caps) {
+		t.Fatal("old plugin must not receive new property or promise telemetry")
+	}
+	caps.OutputStatus = true
+	if !CanMeasureOutput(c, tile, caps) {
+		t.Fatal("matching supported output not measured")
+	}
+	args, _ = Build(c, []layout.Placed{tile}, caps)
+	if !strings.Contains(String(args), "output-status=true") {
+		t.Fatal("new observer disabled")
+	}
+	tile.URL = "rtsp://other/manual"
+	if CanMeasureOutput(c, tile, caps) {
+		t.Fatal("manual mismatched source must stay unknown")
+	}
+}

@@ -129,10 +129,12 @@ func compositePlan(c *config.Config, live []layout.Placed, caps Caps) ([]Plan, e
 		controls = append(controls, TileConfig{Path: path, Contents: tileControl(c, t, caps)})
 		args = append(args, "eufytile", fmt.Sprintf("name=tile%d", slot.Index), "config-file="+path, "!", "videoconvert", "!", fmt.Sprintf("mix.sink_%d", slot.Index))
 	}
+	args = append(args, dotSources(slots, caps.DotImage)...)
 	args = append(args, "compositor", "name=mix", "background=black", "force-live=true", "ignore-inactive-pads=true")
 	for _, t := range slots {
 		args = append(args, fmt.Sprintf("sink_%d::xpos=%d", t.Index, t.X), fmt.Sprintf("sink_%d::ypos=%d", t.Index, t.Y), fmt.Sprintf("sink_%d::width=%d", t.Index, t.W), fmt.Sprintf("sink_%d::height=%d", t.Index, t.H), fmt.Sprintf("sink_%d::sizing-policy=keep-aspect-ratio", t.Index))
 	}
+	args = append(args, dotPads(slots, caps.DotImage)...)
 	args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d", screen.Width, screen.Height))
 	clockArgs := []string{"sync=false"}
 	if caps.DecodedPacing {
@@ -146,4 +148,28 @@ func compositePlan(c *config.Config, live []layout.Placed, caps Caps) ([]Plan, e
 		args = append(args, caps.kmssinkArgs(clockArgs...)...)
 	}
 	return []Plan{{Name: "wall", Args: args, TileConfigs: controls}}, nil
+}
+
+// Composition currently has no per-camera final-output identity. Its stationary
+// orange indicators explicitly mean unknown, regardless of incoming frame rate.
+func dotSources(tiles []layout.Placed, image string) []string {
+	if image == "" {
+		return nil
+	}
+	var args []string
+	for _, t := range tiles {
+		args = append(args, "filesrc", "location="+image, "!", "pngdec", "!", "imagefreeze", "is-live=true", "!", "video/x-raw,format=RGBA,framerate=1/1", "!", fmt.Sprintf("mix.sink_%d", 10000+t.Index))
+	}
+	return args
+}
+func dotPads(tiles []layout.Placed, image string) []string {
+	if image == "" {
+		return nil
+	}
+	var args []string
+	for _, t := range tiles {
+		id := 10000 + t.Index
+		args = append(args, fmt.Sprintf("sink_%d::xpos=%d", id, t.X+t.W-22), fmt.Sprintf("sink_%d::ypos=%d", id, t.Y+t.H-20), fmt.Sprintf("sink_%d::width=16", id), fmt.Sprintf("sink_%d::height=16", id), fmt.Sprintf("sink_%d::zorder=1000", id))
+	}
+	return args
 }

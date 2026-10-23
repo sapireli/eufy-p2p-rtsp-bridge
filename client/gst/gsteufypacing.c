@@ -13,7 +13,8 @@ typedef struct {
   GstBaseTransform parent;
   PacingClock clock;
   guint64 rendered, dropped;
-  gboolean observe_only;
+  gboolean observe_only, output_status;
+  guint64 output_status_at;
   gchar *diagnostic_file;
   TimingObserver timing;
   guint64 observed, matched, missing, unknown_clock, late_observed, reordered;
@@ -231,6 +232,16 @@ static void observation_report(GstEufyPacing *self, guint64 now, gboolean force)
       self->last_kms_age.stamp.frame,self->last_kms_age.mono_ns,self->last_kms_age.lower_ns,self->last_kms_age.upper_ns);
   self->stats_at=now;
 }
+/* Bounded metadata only: report the successful sink-return picture at most4Hz.
+ * The UI ages its original monotonic timestamp, never the log receipt time. */
+static void output_status(GstEufyPacing *self, guint64 now) {
+  if (!self->output_status || (self->output_status_at && now-self->output_status_at<250000000ULL)) return;
+  self->output_status_at=now;
+  FreshAgeSample *s=&self->last_kms_age;
+  g_printerr("eufy-output pid=%ld channel=%u valid=%d monoNs=%"G_GUINT64_FORMAT" upperNs=%"G_GUINT64_FORMAT
+      " epoch=%02x%02x%02x%02x%02x%02x%02x%02x\n",(long)getpid(),self->channel,s->valid,s->mono_ns,s->upper_ns,
+      s->stamp.epoch[0],s->stamp.epoch[1],s->stamp.epoch[2],s->stamp.epoch[3],s->stamp.epoch[4],s->stamp.epoch[5],s->stamp.epoch[6],s->stamp.epoch[7]);
+}
 static gboolean observe_frame(GstEufyPacing *self, guint64 pts, guint64 now, FreshStamp *stamp) {
   fresh_age_sample(&self->last_decoded_age,NULL,now,0,0,FALSE);
   self->observed++;
@@ -327,8 +338,13 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
                      self->deadline);
     timing_record(&self->timing,self->clock_file,"kms-return",self->channel,
         raw_pts,push_end,&diagnostic_stamp,diagnostic_found,gst_buffer_get_size(buffer),0,0);
-    if (flow == GST_FLOW_OK)
+    if (flow == GST_FLOW_OK) {
       self->rendered++;
+      guint64 lower=0,upper=0;
+      gboolean valid=observation_age(self,&stamp,push_end,&lower,&upper);
+      fresh_age_sample(&self->last_kms_age,&stamp,push_end,lower,upper,valid);
+      output_status(self,push_end);
+    }
     g_cond_broadcast(&self->changed);
     g_mutex_unlock(&self->lock);
     return flow == GST_FLOW_OK ? GST_BASE_TRANSFORM_FLOW_DROPPED : flow;
@@ -358,6 +374,7 @@ static GstFlowReturn pace(GstBaseTransform *base, GstBuffer *buffer) {
         self->submit_age_max=MAX(self->submit_age_max,upper);
         self->submit_buckets[MIN(upper/25000000,100)]++;
       }
+      output_status(self,push_end);
     }
     observation_report(self,push_end,FALSE);
     return flow==GST_FLOW_OK?GST_BASE_TRANSFORM_FLOW_DROPPED:flow;
@@ -427,7 +444,7 @@ static gboolean start(GstBaseTransform *base) {
   memset(&self->last_decoded_age,0,sizeof(self->last_decoded_age));
   memset(&self->last_kms_age,0,sizeof(self->last_kms_age));
   self->sink_push_max = self->longest_gap = self->last_observed = 0;
-  self->stats_at = self->previous_frame = self->clock_read_at = 0;
+  self->stats_at = self->previous_frame = self->clock_read_at = self->output_status_at = 0;
   self->have_observed_epoch = self->observed_clock_valid = FALSE;
   memset(self->age_buckets, 0, sizeof(self->age_buckets));
   memset(self->submit_buckets, 0, sizeof(self->submit_buckets));
@@ -469,12 +486,15 @@ enum {
   PROP_PLANE,
   PROP_MAX_AGE,
   PROP_OBSERVE_ONLY,
-  PROP_DIAGNOSTIC_FILE
+  PROP_DIAGNOSTIC_FILE,
+  PROP_OUTPUT_STATUS
 };
 static void set_prop(GObject *object, guint prop, const GValue *value,
                      GParamSpec *spec) {
   GstEufyPacing *s = (GstEufyPacing *)object;
   switch (prop) {
+  case PROP_OUTPUT_STATUS:
+    s->output_status=g_value_get_boolean(value);break;
   case PROP_CHANNEL:
     s->channel = g_value_get_uint(value);
     break;
@@ -541,6 +561,8 @@ static void gst_eufy_pacing_class_init(GstEufyPacingClass *klass) {
           "Report ingress age without deadlines, plane clearing or extra pacing",FALSE,G_PARAM_WRITABLE));
   g_object_class_install_property(object,PROP_DIAGNOSTIC_FILE,
       g_param_spec_string("diagnostic-file","diagnostic-file","Optional bounded private metadata file",NULL,G_PARAM_WRITABLE));
+  g_object_class_install_property(object,PROP_OUTPUT_STATUS,
+      g_param_spec_boolean("output-status","output-status","Bounded latest successful output metadata for UI status",FALSE,G_PARAM_WRITABLE));
   GstElementClass *element = GST_ELEMENT_CLASS(klass);
   GstBaseTransformClass *transform = GST_BASE_TRANSFORM_CLASS(klass);
   GstCaps *caps = gst_caps_from_string("video/x-raw(ANY)");

@@ -25,6 +25,7 @@ import (
 	"eufy-wall/internal/detect"
 	"eufy-wall/internal/drmbackground"
 	"eufy-wall/internal/freshness"
+	"eufy-wall/internal/latencydot"
 	"eufy-wall/internal/layout"
 	"eufy-wall/internal/pipeline"
 	"eufy-wall/internal/rendition"
@@ -123,6 +124,15 @@ func main() {
 	caps.DecodedPacing = detect.HasElement("eufypacing")
 	caps.StampReader = detect.HasElement("eufystamp")
 	caps.ObservePacing = detect.HasElementProperty("eufypacing", "observe-only")
+	caps.OutputStatus = detect.HasElementProperty("eufypacing", "output-status")
+	if caps.Sink != "planes" {
+		caps.DotImage = filepath.Join(caps.TileConfigDir, "latency-unknown.png")
+		if err := latencydot.WriteUnknownImage(caps.DotImage); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		caps.LatencyGutter = drmbackground.LatencyGutter
+	}
 	if *timingDiagnostics != "" {
 		if !filepath.IsAbs(*timingDiagnostics) || strings.ContainsAny(*timingDiagnostics, " \t\r\n\"") {
 			log.Fatal("[wall] timing diagnostics needs an absolute path without whitespace or quotes")
@@ -226,6 +236,11 @@ func main() {
 		}
 		break
 	}
+	dots := latencydot.New(freshness.MonotonicNow)
+	caps.DotSelect = dots.Select
+	for _, tile := range tiles {
+		dots.Select(tile.Index, tile.Camera, tile.StillURL == "", pipeline.CanMeasureOutput(c, tile, caps))
+	}
 	if caps.Sink == "planes" {
 		background, err := drmbackground.Open(sharedFiles[0], caps.ConnectorID)
 		if err != nil {
@@ -251,6 +266,35 @@ func main() {
 		if hasEnforcedFreshness(caps.Freshness) {
 			caps.UnavailableMarker()
 		}
+		go func() {
+			ticker := time.NewTicker(250 * time.Millisecond)
+			defer ticker.Stop()
+			previous := map[int]latencydot.Color{}
+			paint := func() {
+				clock, _ := os.ReadFile(caps.ClockFile)
+				for index, color := range dots.Colors(freshness.MonotonicNow(), clock) {
+					if previous[index] == color {
+						continue
+					}
+					for _, tile := range tiles {
+						if tile.Index == index {
+							_ = background.SetLatencyDot(drmbackground.MotionRect{X: tile.X, Y: tile.Y, W: tile.W, H: tile.H}, uint32(color))
+							previous[index] = color
+							break
+						}
+					}
+				}
+			}
+			paint()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					paint()
+				}
+			}
+		}()
 		info := background.Info()
 		caps.ConnectorID = int(info.ConnectorID)
 		if c.MotionFlash {
@@ -281,7 +325,12 @@ func main() {
 		}
 		log.Printf("[wall] black image %dx%d %dbpp on primary plane %d framebuffer %d connector %d CRTC %d", info.Width, info.Height, info.BitsPerPixel, info.PlaneID, info.FramebufferID, info.ConnectorID, info.CRTCID)
 	}
-	mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) { log.Printf("[gst %s] %s", name, line) }, sharedFiles...)
+	mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) {
+		dots.Observe(name, line)
+		if !strings.HasPrefix(line, "eufy-output ") {
+			log.Printf("[gst %s] %s", name, line)
+		}
+	}, sharedFiles...)
 	defer mgr.Stop() // Registered last: children stop before background.Close and shared file.Close.
 	log.Printf("[wall] %d pipeline(s): %s", len(plans), planNames(plans))
 
@@ -581,6 +630,7 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 		sels := store.Resolve(c.Tiles, showing, switchedAt)
 		now := time.Now()
 		for _, sel := range sels {
+
 			if showing[sel.TileIndex] != sel.Camera {
 				if caps.MotionClear != nil {
 					caps.MotionClear(sel.TileIndex)
@@ -714,11 +764,17 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 	live := make([]layout.Placed, 0, len(tiles))
 	for _, t := range tiles {
 		if showing == nil {
+			if caps.DotSelect != nil {
+				caps.DotSelect(t.Index, t.Camera, content[t.Index] != wallstate.ContentSnapshot, pipeline.CanMeasureOutput(c, t, caps))
+			}
 			live = append(live, t)
 			continue
 		}
 		cam, ok := showing[t.Index]
 		if !ok || cam == "" {
+			if caps.DotSelect != nil {
+				caps.DotSelect(t.Index, "", false, false)
+			}
 			continue
 		}
 		t.Camera = cam
@@ -743,6 +799,9 @@ func plansFor(c *config.Config, caps pipeline.Caps, tiles []layout.Placed, showi
 			if t.StillURL == "" {
 				continue
 			}
+		}
+		if caps.DotSelect != nil {
+			caps.DotSelect(t.Index, t.Camera, content[t.Index] != wallstate.ContentSnapshot, pipeline.CanMeasureOutput(c, t, caps))
 		}
 		live = append(live, t)
 	}

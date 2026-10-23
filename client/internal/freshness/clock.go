@@ -167,3 +167,6 @@ func Poll(ctx context.Context, endpoint, path string, log func(string)) {
 		}
 	}
 }
+
+// MonotonicNow uses the same clock domain as native output telemetry.
+func MonotonicNow() uint64 { return monotonicNs() }
