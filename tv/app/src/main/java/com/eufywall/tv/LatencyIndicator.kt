@@ -5,14 +5,19 @@ internal data class RenderedFrameTiming(val stamp: FrameStamp?, val outputNs: Lo
 internal data class OutputLatencyObservation(val frame: RenderedFrameTiming, val clock: BridgeClockSample?, val scope: String)
 internal data class LatencyIndicatorState(val color: LatencyColor, val ageUpperMs: Long?, val silenceMs: Long?, val scope: String) {
     fun description(): String {
-        val measurement = ageUpperMs?.let { "latest output age upper bound $it milliseconds" } ?: "timing unavailable"
+        val measurement = when {
+            ageUpperMs == null && color == LatencyColor.RED -> "no new output for more than 1500 milliseconds; timing unavailable"
+            ageUpperMs == null -> "timing unavailable"
+            color == LatencyColor.GREEN -> "latest output age upper bound at most 500 milliseconds"
+            color == LatencyColor.ORANGE -> "latest output age upper bound above 500 and at most 1500 milliseconds"
+            else -> "latest picture or output gap older than 1500 milliseconds"
+        }
         val position = when (scope) {
             "codec-render-callback" -> "measured at the video render callback"
             "GPU-swap-admission" -> "measured at graphics submission"
             else -> "output unavailable"
         }
-        return "Bridge-to-display estimate, camera capture time unavailable. ${color.name.lowercase()}: $measurement; $position" +
-            (silenceMs?.let { "; no new output for $it milliseconds" } ?: "")
+        return "Bridge-to-display estimate, camera capture time unavailable. ${color.name.lowercase()}: $measurement; $position"
     }
 }
 

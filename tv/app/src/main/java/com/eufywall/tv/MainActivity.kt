@@ -115,7 +115,8 @@ class MainActivity : Activity() {
                 dot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color); setStroke(dp(1), 0xff000000.toInt()) }
                 dot.tag = state.color
             }
-            dot.contentDescription = state.description()
+            val description = state.description()
+            if (dot.contentDescription != description) dot.contentDescription = description
         }
     }
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()

@@ -69,8 +69,19 @@ class LatencyIndicatorTest {
 
     @Test fun accessibilityNamesScopeAndBoundRatherThanCaptureTime() {
         val status = state(100_000_000)
-        assertTrue(status.description().contains("upper bound 100 milliseconds"))
+        assertTrue(status.description().contains("upper bound at most 500 milliseconds"))
         assertTrue(status.description().contains("video render callback"))
         assertTrue(status.description().contains("camera capture time unavailable"))
     }
+
+    @Test fun accessibilityDescriptionStaysStableWithinColorAndAvailabilityBands() {
+        assertEquals(state(100_000_000).description(), state(499_000_000).description())
+        assertEquals(state(600_000_000).description(), state(1_400_000_000).description())
+        assertEquals(state(1_600_000_000).description(), state(2_000_000_000).description())
+        assertNotEquals(state(100_000_000).description(), state(600_000_000).description())
+        val unstamped = OutputLatencyObservation(RenderedFrameTiming(null, base), clock, "codec-render-callback")
+        assertEquals(state(100_000_000, unstamped).description(), state(1_400_000_000, unstamped).description())
+        assertNotEquals(state(600_000_000).description(), state(600_000_000, unstamped).description())
+    }
+
 }
