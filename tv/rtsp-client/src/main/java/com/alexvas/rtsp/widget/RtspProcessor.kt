@@ -18,6 +18,7 @@ import com.alexvas.rtsp.codec.VideoDecodeThread
 import com.alexvas.rtsp.codec.VideoDecodeThread.DecoderType
 import com.alexvas.rtsp.codec.VideoDecodeThread.VideoDecoderListener
 import com.alexvas.rtsp.codec.VideoFrameQueue
+import com.alexvas.utils.RtspAddress
 import com.alexvas.utils.NetUtils
 import com.alexvas.utils.VideoCodecUtils
 import org.jcodec.codecs.h264.io.model.SeqParameterSet
@@ -354,20 +355,21 @@ class RtspProcessor(
 
         override fun run() {
             onRtspClientStarted()
-            val port = if (uri.port == -1) DEFAULT_RTSP_PORT else uri.port
             var socket: Socket? = null
             try {
-                if (DEBUG) Log.d(TAG, "Connecting to ${uri.host.toString()}:$port...")
+                val endpoint = RtspAddress.parse(uri.toString())
+                val port = endpoint.port
+                if (DEBUG) Log.d(TAG, "Connecting to ${endpoint.host}:$port...")
 
                 socket = if (uri.scheme?.lowercase() == "rtsps")
                     NetUtils.createSslSocketAndConnect(
-                        uri.host.toString(),
+                        endpoint.host,
                         port,
                         socketTimeoutMsec
                     )
                 else
                     NetUtils.createSocketAndConnect(
-                        uri.host.toString(),
+                        endpoint.host,
                         port,
                         socketTimeoutMsec
                     )
@@ -613,8 +615,10 @@ class RtspProcessor(
     }
 
     private fun getUriName(): String {
-        val port = if (uri.port == -1) DEFAULT_RTSP_PORT else uri.port
-        return "${uri.host.toString()}:$port"
+        return runCatching {
+            val endpoint = RtspAddress.parse(uri.toString())
+            "${if (endpoint.host.contains(':')) "[${endpoint.host}]" else endpoint.host}:${endpoint.port}"
+        }.getOrDefault("invalid RTSP endpoint")
     }
 
     companion object {
