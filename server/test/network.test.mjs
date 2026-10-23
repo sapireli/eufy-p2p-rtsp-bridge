@@ -31,7 +31,7 @@ test("one listener serves real HTTP and WebSockets on IPv4 and IPv6 with usable 
   const state = createState(); state.flags.ready = true; state.flags.lastActivity = Date.now();
   state.slots.set(cam.sn, { codec: "h265", width: 1920, height: 1080 });
   const ctx = { cfg: { port: 0, rtspPort: 9554, go2rtcTranscode: "never" }, state,
-    SCHEMA_VERSION: 1, authStatus: () => ({ state: "ok" }), stallThresholdMs: () => 60000,
+    SCHEMA_VERSION: 1, bridgeId: "3e51d183-1314-4f3a-8536-f69d4a58cc7e", authStatus: () => ({ state: "ok" }), stallThresholdMs: () => 60000,
     listCameras: () => [cam], getCamera: () => cam, streamStatus: () => ({ streaming: true }),
     streamKeyFor: () => "door", sdk: { snapshotStored: async () => undefined } };
   ctx.freshness = createFreshness(ctx);
@@ -45,12 +45,15 @@ test("one listener serves real HTTP and WebSockets on IPv4 and IPv6 with usable 
   for (const host of ["127.0.0.1", "::1"]) {
     const origin = `http://${urlHost(host)}:${address.port}`;
     assert.equal((await (await fetch(`${origin}/healthz`)).json()).auth.state, "ok");
-    const [camera] = await (await fetch(`${origin}/api/cameras`)).json();
+    const response = await fetch(`${origin}/api/cameras`);
+    assert.equal(response.headers.get("x-eufy-wall-bridge-id"), ctx.bridgeId);
+    const [camera] = await response.json();
     const ws = new WebSocket(`ws://${urlHost(host)}:${address.port}/ws`); sockets.push(ws);
     const [raw] = await once(ws, "message");
     const hello = JSON.parse(raw);
     assert.deepEqual(hello.auth, { state: "ok" });
     assert.equal(hello.ready, true);
+    assert.equal(hello.bridgeId, ctx.bridgeId);
     for (const record of [camera, hello.cameras[0]]) {
       assert.ok(record.rtsp.startsWith(`rtsp://${urlHost(host)}:9554/`));
       assert.ok(record.nativeRendition.rtsp.startsWith(`rtsp://${urlHost(host)}:9554/`));

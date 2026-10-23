@@ -45,6 +45,7 @@ export function createHttpHandler(ctx) {
 
   return async function handle(req, res) {
     try {
+      if (ctx.bridgeId) res.setHeader("X-Eufy-Wall-Bridge-Id", ctx.bridgeId);
       return await route(req, res);
     } catch (e) {
       // A throw before/without a response (e.g. malformed URL or Host header) must not leave the socket
@@ -70,6 +71,7 @@ export function createHttpHandler(ctx) {
       return json(res, 200, {
         ok: true,
         schemaVersion: ctx.SCHEMA_VERSION,
+        bridgeId: ctx.bridgeId,
         auth: ctx.authStatus(),
         sessionLost: flags.sessionLost,
         streaming: [...state.streaming],

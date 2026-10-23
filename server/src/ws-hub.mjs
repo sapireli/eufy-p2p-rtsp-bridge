@@ -54,7 +54,7 @@ export function createWsHub(ctx) {
       // none would be pointing a pipeline at a 404 and restarting it forever.
       still,
     }));
-    return { type: "hello", at: Date.now(), cameras, holds: ctx.holds?.status?.() ?? {},
+    return { type: "hello", at: Date.now(), bridgeId: ctx.bridgeId, cameras, holds: ctx.holds?.status?.() ?? {},
       auth: { state: ctx.authStatus?.().state ?? "ok" }, ready: ctx.state.flags?.ready ?? true };
   }
 
