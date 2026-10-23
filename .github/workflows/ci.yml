@@ -37,3 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: bash -n deploy/install-server.sh deploy/install-client.sh client/spikes/spike-b.sh
+      - name: Check native error caption rendering
+        run: |
+          cc -std=c99 -O2 -Wall -Wextra -Werror client/gst/caption_test.c -o "$RUNNER_TEMP/eufy-caption-test"
+          "$RUNNER_TEMP/eufy-caption-test"
