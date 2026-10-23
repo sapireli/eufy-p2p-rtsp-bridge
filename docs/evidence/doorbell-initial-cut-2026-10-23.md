@@ -267,6 +267,51 @@ Private aggregate trace:
 `/tmp/eufy-doorbell-runtime-20261023/watch-original-baseline.jsonl`.
 
 
+## Authenticated native app START/STOP shapes
+
+Later offline analysis authenticated all 48 unique archived sign-8 command-1350
+bodies with AES-GCM. The archived session key and cipher private key stayed
+inside the analysis process; only sanitized fields were exported. This
+supersedes the earlier inference from command size and following media: the
+channel-0 command in packet 22326 is now authenticated as START1003.
+
+| App packet | Camera channel | Request-ID location | ID | Header type |
+| --- | ---: | --- | ---: | ---: |
+| 3098 | 2 | `payload.msg_id` | 1 | 10 |
+| 8504 | 1 | outer `msg_id` | 2 | 11 |
+| 11598 | 1 | outer `msg_id` | 3 | 12 |
+| 22326 | 0 | `payload.msg_id` | 5 | 14 |
+
+All four observed STARTs pair header type with ID plus nine. This establishes
+four request identities, not a universal allocation or wrap rule. The two
+channel-1 requests are 17.026 seconds apart without an authenticated STOP1
+between them; that alone does not prove replacement rather than an additional
+or recovery request. Simple channel-0/channel-2 forms have nested numeric
+timestamps and key strings of length 128; the complex channel-1 form has an
+outer numeric timestamp and key length 256. The sanitized result contains no
+public-key hash, so equal lengths cannot establish key reuse.
+
+All five authenticated attached STOP1004s, channels 2/1/3/0/4, use
+`payload: {channel: <addressed channel>}`, header type 0 and encrypted bodies of
+124 bytes. The pinned SDK instead supplies an empty payload and uses nonzero
+STOP header types for nonzero camera channels. Native channel-2 and channel-0
+last observed VIDEO packet starts followed STOP by 8.540 and 13.194 ms; the
+other three last VIDEO starts preceded STOP. These packet observations do not
+establish physical display timing or persistent teardown.
+
+The authenticated structures prove wire differences. They do **not** prove that
+the missing fields caused the current interruption, or that correcting STOP
+will clear a retained subscription. In particular, the original empty-payload
+STOP affected the camera in A1, and subsequent corrected STOP exposures below
+did not deliver durable recovery. Earlier size-only classification was also
+misleading: 176 of 184 candidate packets were image/database commands 1308/1306,
+not STOPs.
+
+Private sanitized handoff: `/tmp/eufy-authenticated-app-start-stop-20261023.json`
+and its companion Markdown. The original capture SHA-256 is
+`5290131e60869fa2950045854afd520cf6ac328a1941995648ee91448305c344`.
+No keys, account values, RSA moduli or capture payloads are included here.
+
 ## START-slot B trial invalidated by the configured process watchdog
 
 One authorized B intervention used the existing Door LiveStream's
@@ -286,8 +331,8 @@ had failed continuously for 301 seconds. The inspector evaluation ended with
 `Execution context was destroyed`. Systemd started PID 24781 at 16:14:52 UTC
 (restart count 2); inspector port 9229 was verified closed. The old in-memory
 hooks ended with the old process, rather than returning a restoration report.
-The fresh process uses the original unmodified SDK; no candidate was deployed
-or committed, and B was not reapplied.
+The fresh process uses the original unmodified SDK; no candidate package was
+installed or committed, and the temporary wire rewrite was not reapplied.
 
 This trial never reached its 180-second comparison and is invalid for judging
 the candidate's effect on natural media cutoffs. In particular, the watchdog
@@ -413,3 +458,197 @@ The next useful evidence must distinguish the initiating individual cutoff
 from subsequent recovery traffic. Channel zero, base ownership and hardware
 selection alone have not explained all measured episodes. The off-device SDK
 slot candidate remains uncommitted and is not a production fix.
+
+
+## Controlled original STOP on a duplicate base channel-0 stream
+
+One adaptive test observed the base session receiving channel-0 media while the
+actual Door source was private. The 5.005-second baseline counted 121 base
+channel-0 headers, with no SDK base channel-0 owner. Door and Front were fresh
+on private sessions station-59 and station-64. Base's channel-1 START retries
+were already failing to retarget the old channel-0 delivery during baseline.
+
+Exactly one controlled command was sent: the unchanged SDK
+`base.stopLiveMedia(0, accountId, true)` at relative +15872.912 ms. Its normal
+media builder was observed at +15873.102 ms, and the actual send boundary at
++15875.992 ms. The outgoing header channel/type were both 0; encrypted body
+length was 141 bytes; the base socket and key object were unchanged. The wire
+hash and scalar results were persisted immediately to the service journal.
+No candidate B command, START, reset or local LiveStream stop was issued.
+
+There were zero further base channel-0 headers in the next 3 seconds. The last
+header preceded the control-window start by 25.471 ms. Private Door output also
+stopped: its emitted count stayed 255, and media age reached 3.004 seconds.
+Matching-peer PINGs continued on both base and private sessions. Background
+base channel-1 STARTs continued, first 250 ms after the command. Front advanced
+from 240 to 270 frames over this short window.
+
+However, both base and private channel-0 delivery resumed without any recorded
+base/private START0. By the +6-second continuation, the base had 75 additional
+channel-0 headers and private Door had advanced to 331 frames (age 2 ms).
+Front was fresh again (age 11 ms). Thus the short A1 pause is not proof of durable
+teardown of the duplicate base subscription, and cannot establish whether
+`payload.channel` is required for persistent teardown. No conclusion about
+nonzero-channel STOP behavior follows from this channel-0 test.
+
+All 16 observer hooks were restored, inspector closed, and PID 26051/restart
+count 0 remained unchanged. No candidate was installed or reapplied. Private
+capture: `/tmp/eufy-doorbell-runtime-20261023/capture-orphan0-stop.json`;
+SHA-256 `af5bdd5ef8bf7ded390ed38f8970a2174c31524dcdfef75aee6221964b1507d4`.
+The focused interpretation is `summary-orphan0-stop.json` in that directory.
+Its immutable control-window scalar timestamps/counters are the timing evidence;
+ordinary snapshot `headerTimes` objects were shallow references and must not be
+used for historical timestamps. First resumption time is bounded by snapshots,
+not individually recorded. The controlled command's relation to the temporary
+shared pause is suggestive, but continuing background controls and the immediate
+resumption prevent a durable STOP-semantics claim from this test alone.
+
+
+## Temporary correction of naturally issued STOPs: no demonstrated Door benefit
+
+A monitored, same-process temporary wrapper corrected only naturally issued
+attached STOP1004 commands for the target HomeBase: it added the actual channel
+to the payload and copied the outgoing frame to set STOP header type to 0.
+STARTs and own-session commands were unchanged. No commands, source resets,
+leases, quality/power changes or extra media consumers were injected.
+
+The observation ran 121.860 seconds and recorded five corrected STOPs, all
+channel 0 on base station-2, at +34.533, +54.668, +75.816, +95.875 and
++116.765 seconds. Each sent body was 152 bytes with payload.channel 0 and
+header type 0; copied-header integrity, unchanged ciphertext and identical
+key/socket objects were verified and logged immediately to the service journal.
+No nonzero-channel STOP occurred, so the nonzero STOP-header correction was
+not exercised live.
+
+Door initially had a fresh 37.330 ms receipt (stalls 135). Its last accepted
+header was +28181.090 ms, last emitted video +28182.531 ms and last raw VIDEO
++28196.173 ms. This initial natural cutoff preceded the first corrected STOP
+by 6.351 seconds. At the final sample Door was stale for 93.204 seconds with
+stalls 142. Front stayed fresh at 202.146 ms/stalls 8 and Floodlight at
+35.468 ms/stalls 159. There was no observed binding clearance or Door recovery.
+The temporary correction was restored as a negative result; it was not deployed
+or committed as a Door-cutoff fix.
+
+This capture also retained the previously missing peer-status boundary under
+original command traffic, before any STOP was corrected. A base code-0 result
+enclosed in command1350 arrived at +27097.960 ms. After the final Door video,
+command1351/cmd6246/num1 arrived at +28679.664 ms, then num0 at +28718.140 ms;
+these reports were broadcast to the other HomeBase sessions. They followed the
+loss by about half a second, not preceded it. Their device-specific lifecycle
+meaning remains unverified; the code-0 result is not request-associated by the
+SDK. Matching-peer base PONGs continued at +28216.397 and +33215.851 ms.
+No local HomeBase media START/STOP appears immediately before the cutoff;
+the standalone Balcony session did close separately at +27614.276 ms.
+
+All 16 hooks were restored; inspector port 9229 was verified closed. Node PID
+26051/restart count 0 and go2rtc child 26066 remained unchanged. The final
+result has no automatic endReason because cleanup was invoked explicitly on
+the negative result. The raw capture remains private:
+`/tmp/eufy-doorbell-runtime-20261023/capture-natural-stop-correction.json`;
+SHA-256 `1ce1081bc4186a4169ec4a5a2377cb4ef4a76420927446ea5fe8db993b164ac2`.
+Focused summary: `summary-natural-stop-correction.json` in that directory.
+
+
+## Natural channel-0 START identity trial: negative late-retry result
+
+A second same-node temporary observation changed only the paired request
+identity for naturally issued HomeBase channel-0 START1003s: payload.msg_id 1
+and header type 10, reusing the identity for retries of the same SharedLiveSource.
+All other fields, START ownership, STOPs and lifecycle remained unchanged.
+The initial source was already warming at warmAttempts 8 with no delivered
+video. This was a late-retry recovery test, not a pristine first-source request.
+
+Five actual STARTs were modified at +2.125, +3.125, +4.125, +6.126 and +6.129
+seconds, on the same source/session station-2. Each was 537 encrypted bytes
+and passed same-source/session/key/socket and copied-header/ciphertext-integrity
+checks; sanitized identity/header/hash records were persisted immediately.
+No target channel-0 1300 header or decoded video arrived, so peer adoption of
+type 10 could not be established. The fail-fast negative condition ended the
+trial after 8.086 seconds, restoring all 16 hooks. Inspector closed, Node PID
+26051/restart count 0 and go2rtc child 26066 remained unchanged.
+
+The base was not wholly quiet: it received 113 channel-1 headers, all rejected
+by Door's channel-0 filter (accepted/emitted 0). This wrong-channel traffic was
+present before modification: six channel-1 headers had arrived by +2.052 s,
+while the first modified START was +2.125 s. Generic incoming command results
+were code 0/channel 1; they are not associated with the channel-0 requests.
+Door remained stale (123.337 to 130.376 s; stalls 163 to 164), while Front
+remained fresh (25 ms at the last sample). No identity correction was retained,
+committed or deployed, and no recovery benefit was demonstrated.
+
+Private evidence: `/tmp/eufy-doorbell-runtime-20261023/capture-natural-start-identity.json`;
+focused summary: `summary-natural-start-identity.json` in the same directory.
+
+
+## Actual nonzero-channel STOP A1/B: no durable clearance or Door recovery
+
+A later current-state check met the safe raw-subscription conditions: the base
+was receiving channel 1 while its SDK owner wanted channel 0; Floodlight's
+ordinary/native go2rtc consumer counts were zero and Front was fresh/private.
+The 5.043-second baseline delivered 106 wrong channel-1 headers despite three
+natural START0 retries, with no channel-0 output.
+
+Exactly one original A1 STOP1 and one payload-channel/slot-corrected B STOP1 were sent on the
+same base session/socket/key. A1 used header type 51, channel 1 and a 141-byte
+encrypted body. It was followed by 48 additional channel-1 headers in 3 seconds,
+first after 31 ms. B used payload.channel 1, header type 0 and a 152-byte body;
+the one synchronous header copy preserved its ciphertext. Its instance send
+wrapper was restored immediately after that command. Sanitized actual-wire
+hashes and scalar window results were persisted to the service journal.
+Other SDK fields were retained; the 152-byte body was not byte-equivalent to
+the authenticated app's 124-byte STOP body.
+
+B was followed by 102 channel-1 headers in 10 seconds, first at +1.192 seconds.
+The maximum inter-header gap in that window was 2.368 seconds, followed by more
+channel-1 output. No channel-0 header or Door decoded frame arrived in the
+whole observation. Natural START0 retries continued (first 21 ms after B);
+no attached START1 was recorded during B and continuation. Front stayed private
+and advanced to 411 frames. Matching base PONGs continued. The result is no
+observed durable wrong-binding removal or requested Door0 recovery, despite a
+brief timing difference following B. It does not support deploying the STOP
+change as a fix for this failure.
+
+The observation ended after 26.131 seconds; all 16 hooks were restored and
+inspector closed, with Node PID 26051/restart count 0 unchanged. No source reset,
+extra START, nudge or media connection was injected and no SDK fix was committed
+or deployed. Private raw capture:
+`/tmp/eufy-doorbell-runtime-20261023/capture-orphan1-current.json`;
+focused summary: `summary-orphan1-current.json` in that directory. The immutable
+per-channel header timeline is the first/last-arrival evidence, rather than an
+end-of-window frame counter alone.
+
+## Fresh-source simple START profile: no prompt recovery
+
+A later 23.234-second temporary observation reached a genuinely new Door
+SharedLiveSource. The source was absent in preceding snapshots; its first
+`live-start` and `startLiveMedia` were at +17736.287/+17736.527 ms, and its first
+profiled wire START was at +17738.844 ms. Initial warmAttempts was 1 and no video
+had been delivered. This separates the trial from the earlier late-retry
+identity experiment.
+
+Four naturally issued STARTs used the simple app-shaped outer fields
+`cmd,payload,account_id` and payload fields
+`msg_id,ClientOS,streamtype,camera_type,key,timestamp,entrytype`. Request ID 1,
+numeric timestamp and header type 10 remained stable for that source. Stream
+type stayed 2. The SDK's existing RSA key value was preserved: its string
+length was 256, whereas the authenticated simple app examples have length 128.
+No source, session, key or socket was replaced.
+
+There were zero base VIDEO datagrams and zero command-1300 headers on any
+channel, with accepted/emitted counts also zero. Consequently there was no
+wrong-channel-1 traffic and no cleanup STOP1 was sent. The observer ended under
+its short negative gate. Although the total observation was 23.234 seconds,
+the first profiled request occurred late in that window: exposure after it was
+approximately 5.5 seconds. A later generic code-0/channel-0 result was not
+request-associated and does not prove acceptance of the profiled request.
+
+This result found no prompt recovery under the tested profile. It is not a
+broad disproof of the complete native profile: the RSA representation differed
+and the post-request observation was short. It establishes no durable fix or
+cause of the original spontaneous cutoff. All 16 hooks were restored, the
+inspector closed, and Node PID 26051/restart count 0 and go2rtc child 26066
+remained unchanged. No correction was retained or committed as a fix.
+
+Private capture:
+`/tmp/eufy-doorbell-runtime-20261023/capture-native-simple-start.json`, SHA-256
+`6b34720063d2569be3f4879f2680b472a2bbcc3f185366ec9279afe0e9e0c409`.
