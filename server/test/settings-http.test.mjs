@@ -9,8 +9,8 @@ import { createSettingsHttp,loadAdminToken } from "../src/settings-http.mjs";
 async function fixture(t) {
   const dir=mkdtempSync(join(tmpdir(),"wall-http-"));
   const token=loadAdminToken(dir);
-  const store=new SettingsStore({dataDir:dir,legacyRaw:{defaults:{hold_seconds:60},eufy:{password:"secret-login"}},logger:null});
-  const ctx={settingsAdminToken:token,settingsStore:store,settings:{snapshot:()=>store.load(),patch:input=>store.patch(input),import:input=>store.import(input)}};
+  const store=new SettingsStore({dataDir:dir,initialSettings:{defaults:{hold_seconds:60}},logger:null});
+  const ctx={cfg:{password:"secret-login"},settingsAdminToken:token,settingsStore:store,settings:{snapshot:()=>store.load(),patch:input=>store.patch(input),import:input=>store.import(input)}};
   const handler=createSettingsHttp(ctx);
   const server=createServer((req,res)=>void handler(req,res,new URL(req.url,"http://localhost"),(res,status,body)=>{res.writeHead(status,{"content-type":"application/json"});res.end(JSON.stringify(body));}));
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));

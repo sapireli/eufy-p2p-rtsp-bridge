@@ -11,7 +11,7 @@ import { retireLegacyConfig } from "../retire-legacy-config.mjs";
 function fixture(t,yaml='eufy: {email: test@example.com, password: synthetic}\nport: 3000\nlan: {force: true, cidr: 192.168.1.0/24}\n') {
   const dir=realpathSync(mkdtempSync(join(tmpdir(),"wall-retire-")));t.after(()=>rmSync(dir,{recursive:true,force:true}));
   const path=join(dir,"bridge.yaml");writeFileSync(path,yaml,{mode:0o644});
-  const store=new SettingsStore({dataDir:dir,legacyRaw:{cameras:{CAM:{dual_view:"split"}}},logger:null});
+  const store=new SettingsStore({dataDir:dir,initialSettings:{cameras:{CAM:{dual_view:"split"}}},logger:null});
   return {dir,path,store,retire:()=>retireLegacyConfig({configPath:path,dataDir:dir})};
 }
 test("retires only operating fields, keeps startup comments/values, private exact backup and unchanged store",t=>{
@@ -33,15 +33,15 @@ test("second run is a byte-exact no-op with no extra backup",t=>{
 });
 test("missing or corrupt store refuses retirement without creating/importing or modifying YAML",t=>{
   const {dir,path,store,retire}=fixture(t);const before=readFileSync(path);
-  rmSync(store.path);assert.throws(retire,/ENOENT/);assert.deepEqual(readdirSync(dir),["bridge.yaml"]);
+  rmSync(store.path);assert.throws(retire,/ENOENT/);assert.deepEqual(readdirSync(dir),["bridge.yaml","settings-initialized"]);
   writeFileSync(store.path,'{"version":1,"revision":1,"settings":{"unknown":true}}');
-  assert.throws(retire,/supported setting/);assert.deepEqual(readFileSync(path),before);assert.equal(readdirSync(dir).length,2);
+  assert.throws(retire,/supported setting/);assert.deepEqual(readFileSync(path),before);assert.equal(readdirSync(dir).length,3);
   writeFileSync(store.path,'{"version":2,"revision":1,"settings":{}}');assert.throws(retire,/unsupported format/);
   writeFileSync(store.path,'broken json');assert.throws(retire);assert.deepEqual(readFileSync(path),before);
 });
 test("invalid YAML, duplicate keys and unknown root/nested keys fail without backup",t=>{
   for(const yaml of ['eufy: [broken','port: 3000\nport: 4000\n','unknown: true\n','eufy: {password: x, unexpected: true}\n','lan: {unexpected: true}\n','cameras: {CAM: {enabled: "false"}}\n']) {
-    const {dir,path,retire}=fixture(t,yaml);assert.throws(retire);assert.equal(readFileSync(path,"utf8"),yaml);assert.equal(readdirSync(dir).length,2);
+    const {dir,path,retire}=fixture(t,yaml);assert.throws(retire);assert.equal(readFileSync(path,"utf8"),yaml);assert.equal(readdirSync(dir).length,3);
   }
 });
 test("config and store symlinks are rejected without touching targets",t=>{

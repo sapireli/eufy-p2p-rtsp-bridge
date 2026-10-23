@@ -4,13 +4,13 @@ import { mkdtempSync,rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SettingsStore } from "../src/settings-store.mjs";
-import { loadConfig } from "../src/config.mjs";
+import { buildConfig } from "../src/config.mjs";
 import { createSettingsRuntime } from "../src/settings-runtime.mjs";
 function fixture(t) {
   const dir=mkdtempSync(join(tmpdir(),"wall-runtime-")); t.after(()=>rmSync(dir,{recursive:true,force:true}));
   const raw={cameras:{A:{mode:"always",power_override:"always-on"},B:{mode:"always",power_override:"always-on"}}};
-  const store=new SettingsStore({dataDir:dir,legacyRaw:raw,logger:null});
-  const cfg=loadConfig({env:{},raw:{...raw,eufy:{email:"test@example.com",password:"synthetic"},data_dir:dir}}).cfg;
+  const store=new SettingsStore({dataDir:dir,initialSettings:raw,logger:null});
+  const cfg=buildConfig({env:{},raw:{...raw,eufy:{email:"test@example.com",password:"synthetic"},data_dir:dir}}).cfg;
   const calls=[];
   const render=(config)=>Object.entries(config.cameras).map(([sn,c])=>({sn,enabled:true,...c}));
   let cameras=render(cfg);

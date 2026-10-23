@@ -1,9 +1,9 @@
 // Persist desired settings first; apply camera-scoped policies without restarting siblings.
-import { loadConfig } from './config.mjs';
+import { buildConfig } from './config.mjs';
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 export function configForSettings(settings, cfg) {
-  return loadConfig({ env: {}, raw: {
+  return buildConfig({ env: {}, raw: {
     ...settings, eufy: { email: cfg.email, password: cfg.password, country: cfg.country },
     data_dir: cfg.dataDir, host: cfg.host, port: cfg.port, rtsp_port: cfg.rtspPort,
     go2rtc_api_port: cfg.go2rtcApiPort, self_host: cfg.selfHost, go2rtc_bin: cfg.go2rtcBin,

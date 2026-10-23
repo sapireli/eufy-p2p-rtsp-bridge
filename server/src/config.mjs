@@ -1,5 +1,5 @@
-// Config = YAML file + env overrides. Env wins for secrets (EUFY_EMAIL/EUFY_PASSWORD/EUFY_COUNTRY) so the
-// yaml can be committed without credentials. Everything the vendored ha-bridge modules read off `cfg`
+// Bootstrap file + JSON operating settings. Environment overrides remain for login/startup only.
+// Legacy operating YAML is accepted only by the explicit offline migration tool. Everything the vendored ha-bridge modules read off `cfg`
 // (email, password, country, session, port, selfHost, go2rtcConfig) keeps upstream's names.
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -71,33 +71,44 @@ function cameraEntry(sn, raw) {
   return out;
 }
 
-export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG || "./config.yaml", persistent = false, raw: suppliedRaw } = {}) {
-  let raw = suppliedRaw ?? (existsSync(configPath) ? (parse(readFileSync(configPath, "utf8")) ?? {}) : {});
-  const dataDir = resolve(env.BRIDGE_DATA_DIR || raw.data_dir || "./data");
-  let settingsStore;
-  if (persistent) {
-    const legacyRaw = structuredClone(raw);
-    const operatingEnv = { BRIDGE_GO2RTC_TRANSCODE: ["transcode", String], BRIDGE_GO2RTC_MAX_HEIGHT: ["max_height", Number], BRIDGE_GO2RTC_VAAPI_DEVICE: ["vaapi_device", String], BRIDGE_GO2RTC_VAAPI_DECODE: ["vaapi_decode", (value) => ["true", "1"].includes(String(value).toLowerCase())] };
-    for (const [key, [field, convert]] of Object.entries(operatingEnv)) {
-      if (env[key] != null) {
-        legacyRaw.go2rtc ??= {};
-        legacyRaw.go2rtc[field] = convert(env[key]);
-      }
-    }
-    settingsStore = new SettingsStore({ dataDir, legacyRaw });
-    const { settings } = settingsStore.load();
-    raw = { ...raw, defaults: undefined, cameras: undefined, lan: undefined, go2rtc: undefined, freshness: undefined, stall: undefined, poll_ms: undefined, ...settings };
-    // Runtime operating settings now come exclusively from the persistent store.
-    env = Object.fromEntries(Object.entries(env).filter(([key]) => !["BRIDGE_GO2RTC_TRANSCODE", "BRIDGE_GO2RTC_MAX_HEIGHT", "BRIDGE_GO2RTC_VAAPI_DEVICE", "BRIDGE_GO2RTC_VAAPI_DECODE"].includes(key)));
+export const BOOTSTRAP_KEYS = new Set(["eufy", "host", "port", "rtsp_port", "go2rtc_api_port", "self_host", "data_dir", "go2rtc_bin"]);
+export const LEGACY_OPERATING_ENV = ["BRIDGE_GO2RTC_TRANSCODE", "BRIDGE_GO2RTC_MAX_HEIGHT", "BRIDGE_GO2RTC_VAAPI_DEVICE", "BRIDGE_GO2RTC_VAAPI_DECODE"];
+
+export function validateBootstrap(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Bootstrap configuration must be a mapping");
+  for (const key of Object.keys(raw)) {
+    if (!BOOTSTRAP_KEYS.has(key)) throw new Error(`Legacy or unsupported bootstrap field ${key}: operating settings must be managed through a client. Run migrate-legacy-config.mjs before starting this version.`);
   }
-  const lanRaw = raw.lan ?? {};
-  const sourcesPath = raw.go2rtc?.sources_file;
-  const imported = sourcesPath ? (parse(readFileSync(resolve(sourcesPath), "utf8")) ?? {}) : {};
-  for (const [key, source] of Object.entries(imported.streams ?? {})) {
-    const urls = Array.isArray(source) ? source : [source];
-    if (!urls.length || urls.some((url) => typeof url !== "string" || !/^(wyze|rtsp|rtsps):\/\//.test(url))) {
-      throw new Error(`imported go2rtc stream ${key} requires a Wyze or RTSP source`);
+  if (raw.eufy !== undefined) {
+    if (!raw.eufy || typeof raw.eufy !== "object" || Array.isArray(raw.eufy)) throw new Error("Bootstrap eufy must be a mapping");
+    for (const [key,value] of Object.entries(raw.eufy)) {
+      if (!["email", "password", "country"].includes(key) || typeof value !== "string" || !value) throw new Error("Bootstrap eufy only accepts nonempty email, password and country strings");
     }
+  }
+  for (const key of ["host", "self_host", "data_dir", "go2rtc_bin"]) if (raw[key] !== undefined && (typeof raw[key] !== "string" || !raw[key])) throw new Error(`Bootstrap ${key} must be a nonempty string`);
+  for (const key of ["port", "rtsp_port", "go2rtc_api_port"]) if (raw[key] !== undefined && (!Number.isInteger(raw[key]) || raw[key] < 1 || raw[key] > 65535)) throw new Error(`Bootstrap ${key} must be an integer from 1 to 65535`);
+  return raw;
+}
+
+/** Normal startup reads bootstrap options and the JSON store only. Legacy import is an offline command. */
+export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG || "./config.yaml" } = {}) {
+  const bootstrap = validateBootstrap(existsSync(configPath) ? (parse(readFileSync(configPath, "utf8")) ?? {}) : {});
+  const legacyEnv = LEGACY_OPERATING_ENV.filter(key => env[key] !== undefined);
+  if (legacyEnv.length) throw new Error(`Legacy operating environment ${legacyEnv.join(", ")} is no longer supported. Run migrate-legacy-config.mjs, then remove these overrides from the service environment.`);
+  const dataDir = resolve(env.BRIDGE_DATA_DIR || bootstrap.data_dir || "./data");
+  const settingsStore = new SettingsStore({ dataDir });
+  const {settings} = settingsStore.load();
+  return { ...buildConfig({ env, raw: {...bootstrap, ...settings, data_dir: dataDir} }), settingsStore };
+}
+
+/** Internal mapper for validated JSON settings; never reads YAML or other configuration files. */
+export function buildConfig({ env = process.env, raw = {} } = {}) {
+  const dataDir = resolve(env.BRIDGE_DATA_DIR || raw.data_dir || "./data");
+  const lanRaw = raw.lan ?? {};
+  if (raw.go2rtc?.sources_file !== undefined) throw new Error("go2rtc.sources_file requires the offline migration tool; operating settings use embedded streams");
+  for (const [key, source] of Object.entries(raw.go2rtc?.streams ?? {})) {
+    const urls = Array.isArray(source) ? source : [source];
+    if (!urls.length || urls.some(url => typeof url !== "string" || !/^(wyze|rtsp|rtsps):\/\//.test(url) || /[\r\n]/.test(url))) throw new Error(`imported go2rtc stream ${key} requires a Wyze or RTSP source`);
   }
   const cfg = {
     email: env.EUFY_EMAIL || raw.eufy?.email,
@@ -111,7 +122,7 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     dataDir,
     session: resolve(dataDir, ".eufy-session.json"),
     go2rtcConfig: resolve(dataDir, "go2rtc.yaml"),
-    go2rtcImported: { streams: raw.go2rtc?.streams ?? imported.streams ?? {} },
+    go2rtcImported: { streams: raw.go2rtc?.streams ?? {} },
     go2rtcBin: env.GO2RTC_BIN || raw.go2rtc_bin || "go2rtc",
     // How go2rtc should egress each camera. "never" (default) passes the device bitstream through with
     // -c:v copy: the wall decodes H.265 in hardware, so there is nothing to gain from re-encoding on the
@@ -119,13 +130,13 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
     // HEVC cameras (VideoToolbox measured 0.9x), and go2rtc kills a producer that falls behind, taking
     // the stream down mid-view. "auto" transcodes H.265 to H.264 for players without an HEVC decoder;
     // "always" transcodes everything. Both are opt-in; Linux transcodes try hardware first, then software fallback.
-    go2rtcTranscode: String(env.BRIDGE_GO2RTC_TRANSCODE || raw.go2rtc?.transcode || "never"),
-    go2rtcMaxHeight: Number(env.BRIDGE_GO2RTC_MAX_HEIGHT || raw.go2rtc?.max_height || 0),
+    go2rtcTranscode: String(raw.go2rtc?.transcode || "never"),
+    go2rtcMaxHeight: Number(raw.go2rtc?.max_height || 0),
     // Optional Linux render-node override; unset discovers /dev/dri/renderD* devices.
     // Actual codec/driver failures fall back per producer, preserving hardware encoding where possible.
-    go2rtcVaapiDevice: String(env.BRIDGE_GO2RTC_VAAPI_DEVICE || raw.go2rtc?.vaapi_device || ""),
+    go2rtcVaapiDevice: String(raw.go2rtc?.vaapi_device || ""),
     // Hardware decoding is attempted first. false is an explicit troubleshooting override.
-    go2rtcVaapiDecode: ["true", "1"].includes(String(env.BRIDGE_GO2RTC_VAAPI_DECODE ?? raw.go2rtc?.vaapi_decode ?? true).toLowerCase()),
+    go2rtcVaapiDecode: ["true", "1"].includes(String(raw.go2rtc?.vaapi_decode ?? true).toLowerCase()),
     freshness: {
       enabled: raw.freshness?.enabled !== false,
       mode: raw.freshness?.mode ?? "observe",
@@ -187,5 +198,5 @@ export function loadConfig({ env = process.env, configPath = env.BRIDGE_CONFIG |
   if (cfg.defaults.dualView != null && !DUAL_VIEWS.has(cfg.defaults.dualView))
     throw new Error(`defaults.dual_view must be one of ${[...DUAL_VIEWS].join(", ")}`);
   const DEBUG = /^(1|true|yes)$/i.test(env.BRIDGE_DEBUG ?? "");
-  return { cfg, DEBUG, settingsStore };
+  return { cfg, DEBUG };
 }

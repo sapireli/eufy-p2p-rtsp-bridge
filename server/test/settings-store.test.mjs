@@ -4,34 +4,24 @@ import { mkdtempSync, writeFileSync, readFileSync, statSync, readdirSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SettingsStore, SettingsConflictError, SettingsValidationError, validateSettings } from "../src/settings-store.mjs";
-function setup(t, raw = {}) { const dir=mkdtempSync(join(tmpdir(),"wall-settings-")); t.after(()=>rmSync(dir,{recursive:true,force:true})); return {dir,store:new SettingsStore({dataDir:dir,legacyRaw:raw,logger:null})}; }
+function setup(t, raw = {}) { const dir=mkdtempSync(join(tmpdir(),"wall-settings-")); t.after(()=>rmSync(dir,{recursive:true,force:true})); return {dir,store:new SettingsStore({dataDir:dir,initialSettings:raw,logger:null})}; }
 
-test("imports legacy operating policy once and excludes startup/account credentials",t=>{
-  const {dir,store}=setup(t,{eufy:{email:"secret@example.com",password:"secret"},host:"0.0.0.0",port:3000,data_dir:"/secret",defaults:{hold_seconds:70},cameras:{CAM:{dual_view:"split"}}});
+test("initial JSON settings are validated once and existing store remains authoritative",t=>{
+  const {dir,store}=setup(t,{defaults:{hold_seconds:70},cameras:{CAM:{dual_view:"split"}}});
   assert.deepEqual(store.load(),{revision:1,settings:{defaults:{hold_seconds:70},cameras:{CAM:{dual_view:"split"}}}});
-  const again=new SettingsStore({dataDir:dir,legacyRaw:{defaults:{hold_seconds:99}},logger:null});
+  const again=new SettingsStore({dataDir:dir,initialSettings:{defaults:{hold_seconds:99}}});
   assert.equal(again.load().settings.defaults.hold_seconds,70);
-  assert.doesNotMatch(readFileSync(store.path,"utf8"),/secret|data_dir|port/);
   assert.equal(statSync(store.path).mode & 0o777,0o600);
 });
 
-test("imports persisted dual views ahead of YAML only on first migration",t=>{
-  const {dir}=setup(t);
-  rmSync(join(dir,"settings.json"));
+test("normal constructor never reads legacy files or accepts credentials",t=>{
+  const {dir,store}=setup(t);rmSync(store.path);rmSync(join(dir,"settings-initialized"));
   writeFileSync(join(dir,"dual-view-modes.json"),JSON.stringify({CAM:"pip-br"}));
-  const store=new SettingsStore({dataDir:dir,legacyRaw:{cameras:{CAM:{name:"Door",dual_view:"split"}}},logger:null});
-  assert.deepEqual(store.load().settings.cameras.CAM,{name:"Door",dual_view:"pip-br"});
-  store.patch({revision:1,settings:{cameras:{CAM:{dual_view:"single"}}}});
-  assert.equal(new SettingsStore({dataDir:dir,logger:null}).load().settings.cameras.CAM.dual_view,"single");
-});
-
-test("embeds legacy external streams without persisting file paths",t=>{
-  const {dir}=setup(t); rmSync(join(dir,"settings.json"));
-  const sources=join(dir,"sources.yaml"); writeFileSync(sources,'streams:\n  external: rtsp://user:pass@camera.local/live\n');
-  const store=new SettingsStore({dataDir:dir,legacyRaw:{go2rtc:{sources_file:sources,transcode:"auto"}},logger:null});
-  rmSync(sources);
-  assert.equal(store.load().settings.go2rtc.streams.external,"rtsp://user:pass@camera.local/live");
-  assert.equal(store.load().settings.go2rtc.sources_file,undefined);
+  assert.throws(()=>new SettingsStore({dataDir:dir,legacyRaw:{cameras:{CAM:{dual_view:"split"}}}}),/migration is removed/);
+  const fresh=new SettingsStore({dataDir:dir});
+  assert.deepEqual(fresh.load().settings,{});
+  rmSync(store.path);rmSync(join(dir,"settings-initialized"));
+  assert.throws(()=>new SettingsStore({dataDir:dir,initialSettings:{eufy:{password:"secret"}}}),SettingsValidationError);
 });
 
 test("nested patch preserves siblings and null camera overrides restore inheritance",t=>{
@@ -51,11 +41,11 @@ test("stale concurrent writer cannot replace settings and failures preserve byte
   assert.throws(()=>second.patch({revision:1,settings:{poll_ms:2000}}),SettingsConflictError);
   assert.throws(()=>store.patch({revision:2,settings:{poll_ms:"2000"}}),SettingsValidationError);
   assert.equal(readFileSync(store.path,"utf8"),before);
-  assert.deepEqual(readdirSync(dir),["settings.json"]);
+  assert.deepEqual(readdirSync(dir),["settings-initialized","settings.json"]);
 });
 
 test("backup restores complete settings including external sources but never login data",t=>{
-  const {store}=setup(t,{eufy:{password:"not-in-backup"},defaults:{dual_view:"split"},go2rtc:{streams:{x:["rtsp://user:pass@host/live"]}}});
+  const {store}=setup(t,{defaults:{dual_view:"split"},go2rtc:{streams:{x:["rtsp://user:pass@host/live"]}}});
   const backup=store.export();
   assert.doesNotMatch(JSON.stringify(backup),/not-in-backup/);
   store.patch({revision:1,settings:{defaults:{dual_view:"single"}}});
@@ -80,7 +70,7 @@ test("strict validation rejects coercion, unknown settings, invalid enums, paths
 test("stored corruption and future versions fail closed rather than reimporting YAML",t=>{
   const {dir,store}=setup(t);
   writeFileSync(store.path,JSON.stringify({version:2,revision:1,settings:{}}));
-  assert.throws(()=>new SettingsStore({dataDir:dir,legacyRaw:{poll_ms:500},logger:null}),SettingsValidationError);
+  assert.throws(()=>new SettingsStore({dataDir:dir,initialSettings:{poll_ms:500},logger:null}),SettingsValidationError);
   assert.equal(JSON.parse(readFileSync(store.path)).version,2);
 });
 
@@ -99,4 +89,13 @@ test("preview validates updates and restore without mutating durable state",t=>{
   assert.equal(store.load().settings.defaults.hold_seconds,60);
   assert.throws(()=>store.previewPatch({revision:0,settings:{}}),SettingsConflictError);
   assert.throws(()=>store.previewImport({revision:0,backup}),SettingsConflictError);
+});
+
+
+test("initialized store deletion fails closed instead of recreating defaults",t=>{
+  const {dir,store}=setup(t,{defaults:{hold_seconds:120}});
+  assert.equal(statSync(join(dir,"settings-initialized")).mode&0o777,0o600);
+  rmSync(store.path);
+  assert.throws(()=>new SettingsStore({dataDir:dir}),/restore settings.json from backup/);
+  assert.equal(readdirSync(dir).includes("settings.json"),false);
 });

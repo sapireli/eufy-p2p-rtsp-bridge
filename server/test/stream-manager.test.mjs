@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream";
 import { createStreamManager } from "../src/stream-manager.mjs";
 import { createState } from "../src/state.mjs";
 import { createFreshness } from "../src/freshness.mjs";
-import { loadConfig } from "../src/config.mjs";
+import { buildConfig } from "../src/config.mjs";
 
 // Keep test output pristine: capture the manager's console.log/warn/error for the whole file.
 const originals = {};
@@ -342,7 +342,7 @@ test("blocked slot failing for longer than exitAfterMs does not exit the process
 });
 
 test("default recovery retires the first failed established camera source before reopening, preserving its sibling", async () => {
-  const { cfg } = loadConfig({ env: { EUFY_EMAIL: "synthetic@example.com", EUFY_PASSWORD: "synthetic" }, configPath: "/nonexistent-eufy-recovery-test.yaml" });
+  const { cfg } = buildConfig({ env: { EUFY_EMAIL: "synthetic@example.com", EUFY_PASSWORD: "synthetic" }, configPath: "/nonexistent-eufy-recovery-test.yaml" });
   cfg.stall.backoffMs = [5]; // Shorten only retry scheduling; keep the production retirement default.
   const state = createState(), calls = [], feeds = { A: [], B: [] };
   const sm = createStreamManager({
@@ -767,7 +767,7 @@ test("upstream arrival envelopes keep SDK queue age and advance even within one 
 test("a successfully retired camera can deliver its replacement's first frame after seven seconds", async () => {
   const feeds = [];
   const ctx = ctxWith({ feeds: [() => { const feed = new PassThrough({ objectMode: true }); feeds.push(feed); return feed; }] });
-  ctx.cfg.stall = { ...loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, configPath: "/nonexistent-eufy-recovery-test.yaml" }).cfg.stall, backoffMs: [1] };
+  ctx.cfg.stall = { ...buildConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p" }, configPath: "/nonexistent-eufy-recovery-test.yaml" }).cfg.stall, backoffMs: [1] };
   let resets = 0, clock = 1_000_000n;
   ctx.sdk.dropStreamClient = async () => { resets++; return true; };
   ctx.freshness = createFreshness({ cfg: { freshness: {} } }, { clock: () => clock });

@@ -1,161 +1,84 @@
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { loadConfig, isValidCidr } from "../src/config.mjs";
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { parse } from 'yaml';
+import { buildConfig, isValidCidr } from '../src/config.mjs';
 
-function tmpYaml(text) {
-  const dir = mkdtempSync(join(tmpdir(), "ewb-"));
-  const p = join(dir, "config.yaml");
-  writeFileSync(p, text);
-  return p;
-}
+// These fixtures exercise normalized in-memory settings, not the retired YAML
+// operating-config reader. Only loadConfig owns startup files and persistence.
+const fromYaml = (text, env = {}) => buildConfig({env, raw:parse(text)});
+const credentials = 'eufy: { email: a@b.c, password: yamlpw, country: US }\n';
 
-test("loads yaml, applies defaults, env overrides secrets", () => {
-  const p = tmpYaml(`
-eufy: { email: a@b.c, password: yamlpw, country: US }
+test('normalizes stored settings, applies defaults and startup credential overrides', () => {
+  const {cfg}=fromYaml(`${credentials}
 lan: { cidr: 10.0.0.0/8, force: true, station_addresses: { T8010X: 10.0.0.5 } }
 defaults: { quality: "Full HD (1080P)" }
 cameras:
   T8410X: { name: Garage }
   T8214X: { dual_view: split, power_override: always-on }
   T8113X: { enabled: false }
-`);
-  const { cfg } = loadConfig({ env: { EUFY_PASSWORD: "envpw" }, configPath: p });
-  assert.equal(cfg.email, "a@b.c");
-  assert.equal(cfg.password, "envpw");
-  assert.equal(cfg.country, "US");
-  assert.equal(cfg.port, 3000);
-  assert.equal(cfg.host, "0.0.0.0");
-  assert.equal(cfg.selfHost, "127.0.0.1");
-  assert.equal(cfg.lan.cidr, "10.0.0.0/8");
-  assert.equal(cfg.lan.force, true);
-  assert.deepEqual(cfg.lan.stationAddresses, { T8010X: "10.0.0.5" });
-  assert.equal(cfg.defaults.quality, "Full HD (1080P)");
-  // Unset by default: dual view belongs to the eufy app (owner account only), and writing it from the
-  // bridge is a SET_PAYLOAD to a possibly-live camera for a setting nobody asked us to change.
-  assert.equal(cfg.defaults.dualView, null);
-  assert.deepEqual(cfg.cameras.T8410X, { name: "Garage" });
-  assert.deepEqual(cfg.cameras.T8214X, { dualView: "split", powerOverride: "always-on" });
-  assert.deepEqual(cfg.cameras.T8113X, { enabled: false });
-  assert.deepEqual(cfg.stall, { stallMs: 5000, startupStallMs: 30000, gapMs: 45000, exitAfterMs: 300000, recreateClientAfter: 1, backoffMs: [1000, 2000, 4000, 8000] });
-  assert.equal(cfg.go2rtcBin, "go2rtc");
+`,{EUFY_PASSWORD:'envpw'});
+  assert.equal(cfg.email,'a@b.c');assert.equal(cfg.password,'envpw');assert.equal(cfg.country,'US');
+  assert.equal(cfg.port,3000);assert.equal(cfg.host,'0.0.0.0');assert.equal(cfg.selfHost,'127.0.0.1');
+  assert.equal(cfg.lan.cidr,'10.0.0.0/8');assert.equal(cfg.lan.force,true);
+  assert.deepEqual(cfg.lan.stationAddresses,{T8010X:'10.0.0.5'});
+  assert.equal(cfg.defaults.quality,'Full HD (1080P)');assert.equal(cfg.defaults.dualView,null);
+  assert.deepEqual(cfg.cameras.T8410X,{name:'Garage'});
+  assert.deepEqual(cfg.cameras.T8214X,{dualView:'split',powerOverride:'always-on'});
+  assert.deepEqual(cfg.cameras.T8113X,{enabled:false});
+  assert.deepEqual(cfg.stall,{stallMs:5000,startupStallMs:30000,gapMs:45000,exitAfterMs:300000,recreateClientAfter:1,backoffMs:[1000,2000,4000,8000]});
+  assert.equal(cfg.go2rtcBin,'go2rtc');
 });
 
-test("explicit camera-source retirement thresholds remain authoritative", () => {
-  for (const threshold of [0, 1, 3, 8]) {
-    const p = tmpYaml(`eufy: { email: a@b.c, password: x }\nstall: { recreate_client_after: ${threshold} }\n`);
-    assert.equal(loadConfig({ env: {}, configPath: p }).cfg.stall.recreateClientAfter, threshold);
+test('explicit camera-source retirement thresholds remain authoritative',()=>{
+  for(const threshold of [0,1,3,8])assert.equal(fromYaml(`${credentials}stall: { recreate_client_after: ${threshold} }`).cfg.stall.recreateClientAfter,threshold);
+});
+
+test('normalization requires credentials and valid CIDR',()=>{
+  assert.throws(()=>fromYaml('eufy: { email: a@b.c }\nlan: { cidr: nope }'),/password/);
+  assert.throws(()=>fromYaml(`${credentials}lan: { cidr: nope }`),/lan.cidr/);
+});
+
+test('CIDR validation rejects octets outside 0–255 and prefixes outside 0–32',()=>{
+  for(const bad of ['192.168.1.0/33','192.168.1.0/99','256.0.0.0/8','10.0.0.999/8','1.2.3/8','10.0.0.0']){
+    assert.equal(isValidCidr(bad),false,bad);
+    assert.throws(()=>fromYaml(`${credentials}lan: { cidr: "${bad}" }`),/lan\.cidr/,bad);
+  }
+  for(const good of ['0.0.0.0/0','255.255.255.255/32','10.0.0.0/8','192.168.1.0/24']){
+    assert.equal(isValidCidr(good),true,good);
+    assert.equal(fromYaml(`${credentials}lan: { cidr: "${good}" }`).cfg.lan.cidr,good);
   }
 });
 
-test("rejects missing credentials and bad cidr", () => {
-  const p = tmpYaml(`eufy: { email: a@b.c }\nlan: { cidr: nope }`);
-  assert.throws(() => loadConfig({ env: {}, configPath: p }), /password/);
-  const p2 = tmpYaml(`eufy: { email: a@b.c, password: x }\nlan: { cidr: nope }`);
-  assert.throws(() => loadConfig({ env: {}, configPath: p2 }), /lan.cidr/);
+test('dual view remains unset unless explicitly requested and typos fail',()=>{
+  assert.equal(fromYaml(credentials).cfg.defaults.dualView,null);
+  assert.equal(fromYaml(`${credentials}defaults: { dual_view: pip-tl }`).cfg.defaults.dualView,'pip-tl');
+  assert.throws(()=>fromYaml(`${credentials}defaults: { dual_view: sideways }`),/dual_view must be one of/);
 });
 
-test("lan.cidr: octets must be 0–255 and prefix 0–32, not just regex-shaped", () => {
-  for (const bad of ["192.168.1.0/33", "192.168.1.0/99", "256.0.0.0/8", "10.0.0.999/8", "1.2.3/8", "10.0.0.0"]) {
-    assert.equal(isValidCidr(bad), false, bad);
-    const p = tmpYaml(`eufy: { email: a@b.c, password: x }\nlan: { cidr: "${bad}" }`);
-    assert.throws(() => loadConfig({ env: {}, configPath: p }), /lan\.cidr/, bad);
-  }
-  for (const good of ["0.0.0.0/0", "255.255.255.255/32", "10.0.0.0/8", "192.168.1.0/24"]) {
-    assert.equal(isValidCidr(good), true, good);
-    const p = tmpYaml(`eufy: { email: a@b.c, password: x }\nlan: { cidr: "${good}" }`);
-    assert.equal(loadConfig({ env: {}, configPath: p }).cfg.lan.cidr, good);
-  }
+test('power override accepts automatic, hardwired and battery policy',()=>{
+  for(const value of ['auto','always-on','battery'])assert.equal(fromYaml(`${credentials}cameras: { T8214X: { power_override: ${value} } }`).cfg.cameras.T8214X.powerOverride,value);
+  assert.throws(()=>fromYaml(`${credentials}cameras: { T8214X: { power_override: wired } }`),/power_override must be one of/);
 });
 
-test("missing config file → env-only config", () => {
-  const { cfg } = loadConfig({ env: { EUFY_EMAIL: "e", EUFY_PASSWORD: "p", EUFY_COUNTRY: "DE" }, configPath: "/nonexistent.yaml" });
-  assert.equal(cfg.country, "DE");
-  assert.deepEqual(cfg.cameras, {});
-  assert.equal(cfg.lan.force, false);
+test('per-camera transcode mode overrides global mode',()=>{
+  for(const value of ['never','auto','always'])assert.equal(fromYaml(`${credentials}go2rtc: { transcode: always }\ncameras: { T8423X: { transcode: ${value} } }`).cfg.cameras.T8423X.transcode,value);
+  assert.throws(()=>fromYaml(`${credentials}cameras: { T8423X: { transcode: sometimes } }`),/transcode must be one of/);
 });
 
-test("dual view is only written when the operator asks for it", () => {
-  const off = loadConfig({ env: {}, configPath: tmpYaml(`eufy: { email: a@b.c, password: p, country: US }\n`) }).cfg;
-  assert.equal(off.defaults.dualView, null, "nothing set → the bridge writes nothing to the camera");
-
-  const on = loadConfig({
-    env: {},
-    configPath: tmpYaml(`eufy: { email: a@b.c, password: p, country: US }\ndefaults: { dual_view: pip-tl }\n`),
-  }).cfg;
-  assert.equal(on.defaults.dualView, "pip-tl", "asked for explicitly → honoured");
-
-  assert.throws(
-    () => loadConfig({ env: {}, configPath: tmpYaml(`eufy: { email: a@b.c, password: p, country: US }\ndefaults: { dual_view: sideways }\n`) }),
-    /dual_view must be one of/,
-    "a typo is still rejected rather than silently ignored",
-  );
+test('VAAPI decoding defaults hardware first with explicit stored false override',()=>{
+  assert.equal(fromYaml(credentials).cfg.go2rtcVaapiDecode,true);
+  assert.equal(fromYaml(`${credentials}go2rtc: { vaapi_device: /dev/dri/renderD128, vaapi_decode: true }`).cfg.go2rtcVaapiDecode,true);
+  assert.equal(fromYaml(`${credentials}go2rtc: { vaapi_decode: false }`).cfg.go2rtcVaapiDecode,false);
 });
 
-test("power override is a validated bridge installation choice", () => {
-  const config = (value) => tmpYaml(`eufy: { email: a@b.c, password: p }\ncameras: { T8214X: { power_override: ${value} } }\n`);
-  for (const value of ["auto", "always-on", "battery"])
-    assert.equal(loadConfig({ env: {}, configPath: config(value) }).cfg.cameras.T8214X.powerOverride, value);
-  assert.throws(() => loadConfig({ env: {}, configPath: config("wired") }), /power_override must be one of/);
+test('normalized external sources come from stored streams and preserve private URL bytes',()=>{
+  const {cfg}=fromYaml(`${credentials}go2rtc: { streams: { wyze_cam: "wyze://192.0.2.5?enr=synthetic" } }`);
+  assert.equal(cfg.go2rtcImported.streams.wyze_cam,'wyze://192.0.2.5?enr=synthetic');
+  assert.equal(cfg.go2rtcImported.api,undefined);assert.equal(cfg.go2rtcApiPort,1984);
 });
 
-test("per-camera transcode mode overrides the global mode", () => {
-  const config = (value) => tmpYaml(`eufy: { email: a@b.c, password: p }\ngo2rtc: { transcode: always }\ncameras: { T8423X: { transcode: ${value} } }\n`);
-  for (const value of ["never", "auto", "always"])
-    assert.equal(loadConfig({ env: {}, configPath: config(value) }).cfg.cameras.T8423X.transcode, value);
-  assert.throws(() => loadConfig({ env: {}, configPath: config("sometimes") }), /transcode must be one of/);
-});
-
-
-test("VA-API decoding defaults to hardware first and explicit false disables it", () => {
-  const configPath = tmpYaml("eufy: { email: a@b.c, password: p }\ngo2rtc: { vaapi_device: /dev/dri/renderD128, vaapi_decode: true }\n");
-  assert.equal(loadConfig({ env: {}, configPath }).cfg.go2rtcVaapiDecode, true);
-  for (const value of ["false", "0"])
-    assert.equal(loadConfig({ env: { BRIDGE_GO2RTC_VAAPI_DECODE: value }, configPath }).cfg.go2rtcVaapiDecode, false);
-  const unset = tmpYaml("eufy: { email: a@b.c, password: p }\n");
-  assert.equal(loadConfig({ env: {}, configPath: unset }).cfg.go2rtcVaapiDecode, true);
-  assert.equal(loadConfig({ env: { BRIDGE_GO2RTC_VAAPI_DECODE: "true" }, configPath: unset }).cfg.go2rtcVaapiDecode, true);
-});
-
-
-test("imports private Wyze sources without accepting listener overrides", () => {
-  const sources = tmpYaml('api: {listen: ":1984"}\nstreams: {wyze_cam: "wyze://192.0.2.5?enr=synthetic"}\nwyze: {synthetic: {api_key: synthetic}}\n');
-  const p = tmpYaml(`eufy: {email: a@b.c, password: synthetic}\ngo2rtc: {sources_file: ${JSON.stringify(sources)}}\n`);
-  const { cfg } = loadConfig({ env: {}, configPath: p });
-  assert.equal(cfg.go2rtcImported.streams.wyze_cam, "wyze://192.0.2.5?enr=synthetic");
-  assert.equal(cfg.go2rtcImported.api, undefined);
-  assert.equal(cfg.go2rtcApiPort, 1984);
-});
-
-
-test("per-camera VAAPI decode accepts only explicit booleans without changing global defaults", () => {
-  const { cfg } = loadConfig({ env: { EUFY_EMAIL: "test@example.invalid", EUFY_PASSWORD: "test-password" }, configPath: tmpYaml(`cameras:
-  ONE: { vaapi_decode: false }
-  TWO: { vaapi_decode: true }
-  THREE: {}
-`) });
-  assert.equal(cfg.go2rtcVaapiDecode, true);
-  assert.equal(cfg.cameras.ONE.vaapiDecode, false);
-  assert.equal(cfg.cameras.TWO.vaapiDecode, true);
-  assert.equal(cfg.cameras.THREE.vaapiDecode, undefined);
-  for (const invalid of ['"false"', '1', '[]']) {
-    assert.throws(() => loadConfig({ env: { EUFY_EMAIL: "test@example.invalid", EUFY_PASSWORD: "test-password" }, configPath: tmpYaml(`cameras: { ONE: { vaapi_decode: ${invalid} } }`) }), /vaapi_decode must be a boolean/);
-  }
-});
-
-test('persistent settings import once, override legacy YAML and operating env thereafter', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'bridge-settings-config-'));
-  const path = join(dir, 'legacy.yaml');
-  writeFileSync(path, `eufy:\n  email: test@example.com\n  password: private\ndata_dir: ${dir}\ngo2rtc:\n  transcode: never\ncameras:\n  CAM:\n    power_override: battery\n`);
-  const first = loadConfig({ configPath: path, persistent: true, env: { BRIDGE_GO2RTC_TRANSCODE: 'auto' } });
-  assert.equal(first.cfg.go2rtcTranscode, 'auto');
-  first.settingsStore.patch({ revision: 1, settings: { go2rtc: { transcode: 'always' }, cameras: { CAM: { power_override: 'always-on' } } } });
-  const next = loadConfig({ configPath: path, persistent: true, env: { BRIDGE_GO2RTC_TRANSCODE: 'never' } });
-  assert.equal(next.cfg.go2rtcTranscode, 'always');
-  assert.equal(next.cfg.cameras.CAM.powerOverride, 'always-on');
-  assert.equal(next.cfg.email, 'test@example.com');
-  assert.equal(JSON.stringify(next.settingsStore.export()).includes('private'), false);
-  rmSync(dir, { recursive: true, force: true });
+test('per-camera VAAPI decode accepts booleans without changing global default',()=>{
+  const {cfg}=fromYaml(`${credentials}cameras:\n  ONE: { vaapi_decode: false }\n  TWO: { vaapi_decode: true }\n  THREE: {}\n`);
+  assert.equal(cfg.go2rtcVaapiDecode,true);assert.equal(cfg.cameras.ONE.vaapiDecode,false);assert.equal(cfg.cameras.TWO.vaapiDecode,true);assert.equal(cfg.cameras.THREE.vaapiDecode,undefined);
+  for(const invalid of ['"false"','1','[]'])assert.throws(()=>fromYaml(`${credentials}cameras: { ONE: { vaapi_decode: ${invalid} } }`),/vaapi_decode must be a boolean/);
 });

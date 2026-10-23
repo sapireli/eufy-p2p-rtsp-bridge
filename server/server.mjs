@@ -31,7 +31,7 @@ import { installRecoveryRepin } from "./src/recovery.mjs";
 import { createAuth } from "./src/vendor/ha-bridge/auth.mjs";
 import { createWatchdog } from "./src/vendor/ha-bridge/watchdog.mjs";
 
-const { cfg, DEBUG, settingsStore } = loadConfig({ persistent: true });
+const { cfg, DEBUG, settingsStore } = loadConfig();
 fs.mkdirSync(cfg.dataDir, { recursive: true });
 
 const state = createState();

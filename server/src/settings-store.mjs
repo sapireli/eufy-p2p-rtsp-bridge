@@ -3,7 +3,6 @@ import { readFileSync, existsSync, mkdirSync, openSync, writeFileSync, fsyncSync
 import { resolve, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
-import { parse } from "yaml";
 
 export class SettingsValidationError extends Error { constructor(message) { super(message); this.name = "SettingsValidationError"; this.statusCode = 400; } }
 export class SettingsConflictError extends Error { constructor(revision) { super("Settings changed; reload before saving"); this.name = "SettingsConflictError"; this.statusCode = 409; this.revision = revision; } }
@@ -37,17 +36,6 @@ const validate = shape({
   poll_ms:milliseconds(0),
 });
 export function validateSettings(settings) { validate(settings,"settings"); if (settings.lan?.force && !settings.lan?.cidr) fail("settings.lan.force","requires lan.cidr"); return clone(settings); }
-const KEYS = ["defaults","cameras","lan","go2rtc","freshness","stall","poll_ms"];
-function legacySettings(raw) {
-  if (!object(raw)) fail("legacy config","must be an object");
-  const settings = Object.fromEntries(KEYS.filter(k => raw[k] !== undefined).map(k => [k,clone(raw[k])]));
-  if (settings.go2rtc?.sources_file !== undefined) {
-    const imported = parse(readFileSync(resolve(settings.go2rtc.sources_file),"utf8")) ?? {};
-    settings.go2rtc.streams = { ...(settings.go2rtc.streams ?? {}), ...(imported.streams ?? {}) };
-    delete settings.go2rtc.sources_file;
-  }
-  return validateSettings(settings);
-}
 function merge(base, patch, path = "") {
   if (!object(patch)) return clone(patch);
   const out = object(base) ? clone(base) : {};
@@ -68,22 +56,16 @@ function atomicWrite(path, doc) {
 }
 
 export class SettingsStore {
-  constructor({ dataDir, legacyRaw = {}, logger = console } = {}) {
+  constructor(options = {}) {
+    if (Object.hasOwn(options,"legacyRaw")) throw new Error("Implicit legacy migration is removed; run migrate-legacy-config.mjs explicitly");
+    const { dataDir, initialSettings = {} }=options;
     if (typeof dataDir !== "string" || !dataDir) throw new TypeError("dataDir is required");
-    this.path=resolve(dataDir,"settings.json"); this.logger=logger;
-    if (!existsSync(this.path)) {
-      const settings=legacySettings(legacyRaw);
-      const modesPath=resolve(dataDir,"dual-view-modes.json");
-      if (existsSync(modesPath)) {
-        const modes=JSON.parse(readFileSync(modesPath,"utf8"));
-        map(dual)(modes,"legacy dual view modes");
-        settings.cameras ??={};
-        for (const [sn,mode] of Object.entries(modes)) settings.cameras[sn]={...(settings.cameras[sn] ?? {}),dual_view:mode};
-      }
-      atomicWrite(this.path,{ version:1, revision:1, settings:validateSettings(settings) });
-    }
+    this.path=resolve(dataDir,"settings.json");
+    const initialized=resolve(dataDir,"settings-initialized");
+    if (existsSync(initialized) && !existsSync(this.path)) throw new Error("Initialized settings store is missing; restore settings.json from backup");
+    if (!existsSync(this.path)) atomicWrite(this.path,{version:1,revision:1,settings:validateSettings(initialSettings)});
     this.load();
-    if (KEYS.some(k => Object.hasOwn(legacyRaw,k))) logger?.warn?.("[bridge] Legacy YAML operating settings are deprecated and ignored after initial migration; manage settings through a client.");
+    if (!existsSync(initialized)) atomicWrite(initialized,{version:1});
   }
   load() {
     const doc=JSON.parse(readFileSync(this.path,"utf8"));
