@@ -68,7 +68,12 @@ type HelloCamera struct {
 
 // Message is one /ws frame. Only the fields the wall acts on are decoded.
 type Message struct {
-	Type    string        `json:"type"`
+	Type     string `json:"type"`
+	BridgeID string `json:"bridgeId"`
+	Auth     *struct {
+		State string `json:"state"`
+	} `json:"auth"`
+	Ready   *bool         `json:"ready"`
 	SN      string        `json:"sn"`
 	State   string        `json:"state"`
 	Event   string        `json:"event"`

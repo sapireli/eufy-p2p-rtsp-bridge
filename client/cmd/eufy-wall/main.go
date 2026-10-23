@@ -8,14 +8,11 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,6 +20,7 @@ import (
 
 	"eufy-wall/internal/config"
 	"eufy-wall/internal/detect"
+	"eufy-wall/internal/displaystatus"
 	"eufy-wall/internal/drmbackground"
 	"eufy-wall/internal/freshness"
 	"eufy-wall/internal/latencydot"
@@ -35,12 +33,25 @@ import (
 )
 
 func main() {
+	switchEndpoint := false
+	defer func() {
+		if switchEndpoint {
+			exe, err := os.Executable()
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err = syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+				log.Fatal(err)
+			}
+		}
+	}()
 	if len(os.Args) > 1 && os.Args[1] == "settings" {
 		if err := runSettings(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
+	resetIdentity := flag.Bool("reset-bridge-identity", false, "forget saved public bridge identity pins, then exit; restart the client to reselect")
 	cfgPath := flag.String("config", "/etc/eufy-wall.yaml", "config file")
 	dryRun := flag.Bool("dry-run", false, "print the resolved layout and pipeline, then exit")
 	timingDiagnostics := flag.String("timing-diagnostics", "", "optional bounded private frame-phase metadata file (updated native plugin required)")
@@ -50,18 +61,64 @@ func main() {
 	viewMode := flag.String("view-mode", "", "dual-lens mode: split, pip-tl, pip-tr, pip-bl, pip-br, or single")
 	flag.Parse()
 	log.SetFlags(log.Ltime)
+	if *resetIdentity {
+		path := identityCachePath()
+		if err := clearBridgeIdentities(path); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("Cleared saved bridge identities in %s; restart this display client to reselect.\n", path)
+		return
+	}
 
 	c, err := config.Load(*cfgPath)
 	if err != nil {
 		log.Fatalf("[wall] %v", err)
 	}
+	autoBridge := c.RTSPBase == "auto"
+	if autoBridge {
+		var known []string
+		for _, tile := range c.Tiles {
+			if tile.Camera != "" {
+				known = append(known, tile.Camera)
+			}
+			known = append(known, tile.Watch...)
+		}
+		_ = os.Setenv("EUFY_WALL_EXPECTED_CAMERAS", strings.Join(known, ","))
+	}
+	bridgeIdentity := os.Getenv("EUFY_WALL_DISCOVERY_ID")
+	var startup *startupNotice
+	defer func() {
+		if startup != nil {
+			startup.Close()
+		}
+	}()
 	if c.RTSPBase == "auto" {
 		for {
-			base, err := discoverBridge()
+			base, err := initialDiscoveredBridge(bridgeIdentity, os.Getenv("EUFY_WALL_RESOLVED_BRIDGE"), os.Getenv("EUFY_WALL_RESOLVED_API"), probeBridge, discoverBridgePinned)
+			_ = os.Unsetenv("EUFY_WALL_RESOLVED_BRIDGE")
+			_ = os.Unsetenv("EUFY_WALL_RESOLVED_API")
 			if err == nil {
+				if startup != nil {
+					startup.Close()
+					startup = nil
+				}
 				c.RTSPBase = base
+				if id, ok := resolvedPublicIDs.Load(wsclient.APIBase(base)); ok {
+					_ = os.Setenv("EUFY_WALL_BRIDGE_ID", id.(string))
+				}
+				if id, ok := resolvedIdentities.Load(base); ok {
+					bridgeIdentity = id.(string)
+				}
 				log.Printf("[wall] discovered bridge at %s", base)
 				break
+			}
+			if !*dryRun && !*printLayout && *viewCamera == "" {
+				if startup == nil {
+					startup, _ = newStartupNotice(c)
+				}
+				if startup != nil {
+					startup.Show(displaystatus.Classify("discovery: " + err.Error()))
+				}
 			}
 			log.Printf("[wall] _eufy-wall._tcp discovery failed: %v; retrying in 5s", err)
 			time.Sleep(5 * time.Second)
@@ -81,7 +138,9 @@ func main() {
 		log.Printf("[wall] %s view changed to %s", *viewCamera, *viewMode)
 		return
 	}
+	notices := displaystatus.New()
 	if err := detectAspects(c); err != nil {
+		notices.Bridge(err.Error())
 		log.Printf("[wall] camera geometry unavailable: %v; using configured tile aspects", err)
 	}
 	if c.Screen.Width == 0 || c.Screen.Height == 0 {
@@ -126,6 +185,7 @@ func main() {
 	caps.ObservePacing = detect.HasElementProperty("eufypacing", "observe-only")
 	caps.OutputStatus = detect.HasElementProperty("eufypacing", "output-status")
 	if caps.Sink != "planes" {
+		caps.CaptionDir = caps.TileConfigDir
 		caps.DotImage = filepath.Join(caps.TileConfigDir, "latency-unknown.png")
 		if err := latencydot.WriteUnknownImage(caps.DotImage); err != nil {
 			log.Fatal(err)
@@ -237,9 +297,12 @@ func main() {
 		break
 	}
 	dots := latencydot.New(freshness.MonotonicNow)
-	caps.DotSelect = dots.Select
+	caps.DotSelect = func(index int, camera string, live, measured bool) {
+		dots.Select(index, camera, live, measured)
+		notices.Select(index, camera)
+	}
 	for _, tile := range tiles {
-		dots.Select(tile.Index, tile.Camera, tile.StillURL == "", pipeline.CanMeasureOutput(c, tile, caps))
+		caps.DotSelect(tile.Index, tile.Camera, tile.StillURL == "", pipeline.CanMeasureOutput(c, tile, caps))
 	}
 	if caps.Sink == "planes" {
 		background, err := drmbackground.Open(sharedFiles[0], caps.ConnectorID)
@@ -270,7 +333,20 @@ func main() {
 			ticker := time.NewTicker(250 * time.Millisecond)
 			defer ticker.Stop()
 			previous := map[int]latencydot.Color{}
+			lastCaptions := map[int]string{}
 			paint := func() {
+				for index, text := range notices.Captions() {
+					if old, seen := lastCaptions[index]; seen && old == text {
+						continue
+					}
+					for _, tile := range tiles {
+						if tile.Index == index {
+							_ = background.PaintStatus(drmbackground.MotionRect{X: tile.X, Y: tile.Y, W: tile.W, H: tile.H}, text)
+							lastCaptions[index] = text
+							break
+						}
+					}
+				}
 				clock, _ := os.ReadFile(caps.ClockFile)
 				for index, color := range dots.Colors(freshness.MonotonicNow(), clock) {
 					if previous[index] == color {
@@ -327,6 +403,7 @@ func main() {
 	}
 	mgr := supervisor.NewManager("gst-launch-1.0", c.Restart, func(name, line string) {
 		dots.Observe(name, line)
+		notices.Observe(name, line)
 		if !strings.HasPrefix(line, "eufy-output ") {
 			log.Printf("[gst %s] %s", name, line)
 		}
@@ -334,7 +411,32 @@ func main() {
 	defer mgr.Stop() // Registered last: children stop before background.Close and shared file.Close.
 	log.Printf("[wall] %d pipeline(s): %s", len(plans), planNames(plans))
 
-	runDynamic(ctx, c, caps, tiles, mgr, plans)
+	caps.ConnectionStatus = func(line string) {
+		if line == "events: connected" {
+			notices.Bridge("")
+		} else {
+			notices.Bridge(line)
+		}
+	}
+	if caps.CaptionDir != "" {
+		go runCaptionFiles(ctx, notices, caps.CaptionDir)
+	}
+	if autoBridge {
+		caps.ResolveBridge = func() (string, error) {
+			if !migrationAllowed(os.Getenv("EUFY_WALL_LAST_MIGRATION"), time.Now()) {
+				return "", nil
+			}
+			return replacementBridge(c.RTSPBase, bridgeIdentity, probeBridge, discoverBridgePinned)
+		}
+	}
+	if next := runDynamic(ctx, c, caps, tiles, mgr, plans); next != "" {
+		log.Printf("[wall] verified same-service bridge address changed; rebinding playback and clock")
+		_ = os.Setenv("EUFY_WALL_DISCOVERY_ID", bridgeIdentity)
+		_ = os.Setenv("EUFY_WALL_RESOLVED_BRIDGE", next)
+		_ = os.Setenv("EUFY_WALL_RESOLVED_API", wsclient.APIBase(next))
+		_ = os.Setenv("EUFY_WALL_LAST_MIGRATION", fmt.Sprint(time.Now().Unix()))
+		switchEndpoint = true
+	}
 	log.Printf("[wall] stopped")
 }
 
@@ -518,51 +620,22 @@ func changeViewAt(base, camera, mode string, tokens ...string) error {
 
 // discoverBridge accepts only a resolved _eufy-wall._tcp Avahi record. Its HTTP
 // port is advertised as the service port and its RTSP port is in TXT.
-func discoverBridge() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "avahi-browse", "--resolve", "--terminate", "--parsable", "_eufy-wall._tcp").Output()
-	if err != nil {
-		return "", fmt.Errorf("avahi-browse: %w", err)
-	}
-	return parseAvahi(string(out))
-}
-
-func parseAvahi(output string) (string, error) {
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Split(line, ";")
-		if len(fields) < 10 || fields[0] != "=" || fields[4] != "_eufy-wall._tcp" || fields[8] != "3000" {
-			continue
-		}
-		port := ""
-		for _, field := range fields[9:] {
-			if value, ok := strings.CutPrefix(strings.Trim(field, "\""), "rtsp="); ok {
-				if n, err := strconv.Atoi(value); err == nil && n > 0 && n <= 65535 {
-					port = value
-				}
-			}
-		}
-		if port == "" {
-			continue
-		}
-		if ip := net.ParseIP(fields[7]); ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
-			return "rtsp://" + net.JoinHostPort(ip.String(), port), nil
-		}
-	}
-	return "", fmt.Errorf("no resolved bridge with HTTP port 3000 and a valid rtsp TXT port")
-}
+func discoverBridge() (string, error) { return discoverBridgePinned("") }
 
 // runDynamic follows /ws and keeps the running pipelines matching what each tile should be showing.
-func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles []layout.Placed, mgr *supervisor.Manager, static []pipeline.Plan) {
+func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles []layout.Placed, mgr *supervisor.Manager, static []pipeline.Plan) string {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	bridgeFailures := make(chan struct{}, 1)
 	endpoint := wsclient.EventURL(c.RTSPBase)
 	if endpoint == "" {
 		log.Printf("[wall] cannot derive the event channel from rtsp_base %q — running a static wall", c.RTSPBase)
 		if err := writeTileConfigs(static); err != nil {
 			log.Printf("[wall] tile controls: %v", err)
-			return
+			return ""
 		}
 		_ = mgr.Run(ctx, static)
-		return
+		return ""
 	}
 	log.Printf("[wall] following events at %s", endpoint)
 
@@ -578,6 +651,23 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	// refreshing it; no longer showing one means releasing it, or a battery camera would be held awake
 	// by a tile that stopped looking at it.
 	holding := map[string]bool{}
+	releaseHeld := func() {
+		mu.Lock()
+		held := make([]string, 0, len(holding))
+		for camera := range holding {
+			held = append(held, camera)
+		}
+		mu.Unlock()
+		release, done := context.WithTimeout(context.Background(), 3*time.Second)
+		defer done()
+		var wg sync.WaitGroup
+		for _, camera := range held {
+			wg.Add(1)
+			go func(sn string) { defer wg.Done(); holdRequest(release, c.RTSPBase, http.MethodDelete, sn) }(camera)
+		}
+		wg.Wait()
+	}
+	defer func() { cancel(); releaseHeld() }()
 
 	apply := func() {
 		mu.Lock()
@@ -713,7 +803,18 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 			caps.MotionFlash(index)
 			log.Printf("[motion] flash tile=%d camera=%s", index, camera)
 		}
-	}, func(line string) { log.Printf("[wall] %s", line) })
+	}, func(line string) {
+		if caps.ConnectionStatus != nil {
+			caps.ConnectionStatus(line)
+		}
+		if caps.ResolveBridge != nil && strings.HasPrefix(line, "events:") && line != "events: connected" {
+			select {
+			case bridgeFailures <- struct{}{}:
+			default:
+			}
+		}
+		log.Printf("[wall] %s", line)
+	})
 
 	// A hold is deliberately short-lived on the server, so a wall that is still showing a camera has to
 	// say so. Refreshing well inside that window keeps the picture up without ever pinning a battery
@@ -723,23 +824,14 @@ func runDynamic(ctx context.Context, c *config.Config, caps pipeline.Caps, tiles
 	for {
 		select {
 		case <-ctx.Done():
-			mu.Lock()
-			held := make([]string, 0, len(holding))
-			for cam := range holding {
-				held = append(held, cam)
-			}
-			mu.Unlock()
-			// Let the cameras sleep rather than waiting out the hold we took.
-			release, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			var wg sync.WaitGroup
-			for _, cam := range held {
-				wg.Add(1)
-				go func(c2 string) { defer wg.Done(); holdRequest(release, c.RTSPBase, http.MethodDelete, c2) }(cam)
-			}
-			wg.Wait()
-			cancel()
 			updatePlans(ctx, mgr, nil)
-			return
+			return ""
+		case <-bridgeFailures:
+			if caps.ResolveBridge != nil {
+				if next, err := caps.ResolveBridge(); err == nil && next != "" {
+					return next
+				}
+			}
 		case <-refresh.C:
 			mu.Lock()
 			held := make([]string, 0, len(holding))
@@ -832,11 +924,11 @@ func describe(tiles []layout.Placed, showing, content map[int]string) string {
 
 // holdRequest takes (POST) or releases (DELETE) this wall's hold on a camera.
 func holdRequest(ctx context.Context, rtspBase, method, sn string) {
-	u := wsclient.EventURL(rtspBase)
-	if u == "" {
+	base := wsclient.APIBase(rtspBase)
+	if base == "" {
 		return
 	}
-	endpoint := strings.Replace(strings.Replace(u, "ws://", "http://", 1), "/ws", "/hold/"+sn, 1)
+	endpoint := base + "/hold/" + url.PathEscape(sn)
 	req, err := http.NewRequestWithContext(ctx, method, endpoint+"?owner=wall", nil)
 	if err != nil {
 		return

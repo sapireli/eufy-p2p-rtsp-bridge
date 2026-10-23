@@ -38,6 +38,9 @@ type Caps struct {
 	MotionClear        func(tileIndex int)
 	LatencyGutter      int
 	DotImage           string
+	CaptionDir         string
+	ConnectionStatus   func(string)
+	ResolveBridge      func() (string, error)
 	OutputStatus       bool
 	DotSelect          func(index int, camera string, live, measured bool)
 	StampReader        bool
@@ -177,6 +180,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 			args = append(args, "!", "videoconvert", "!", fmt.Sprintf("mix.sink_%d", i))
 		}
 		args = append(args, dotSources(tiles, caps.DotImage)...)
+		args = append(args, captionSources(tiles, caps.CaptionDir)...)
 		args = append(args, "compositor", "name=mix", "background=black")
 		for i, t := range tiles {
 			args = append(args,
@@ -185,6 +189,7 @@ func Build(c *config.Config, tiles []layout.Placed, caps Caps) ([]string, error)
 				fmt.Sprintf("sink_%d::sizing-policy=keep-aspect-ratio", i))
 		}
 		args = append(args, dotPads(tiles, caps.DotImage)...)
+		args = append(args, captionPads(tiles, caps.CaptionDir)...)
 		args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d", caps.Screen.Width, caps.Screen.Height))
 		if caps.DecodedPacing {
 			// Rebase the final composite clock, not each input plus the final sink.

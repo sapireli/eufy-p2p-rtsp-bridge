@@ -9,9 +9,13 @@ package wsclient
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -30,7 +34,15 @@ const (
 // EventURL turns an rtsp_base (or any http/rtsp URL of the bridge) into its /ws endpoint. The wall is
 // already configured with where the bridge is; making the operator repeat it as a second URL would be
 // one more thing to get wrong.
+var discoveredOrigins sync.Map
+
+// RegisterDiscoveredAPI binds both address families and the advertised HTTP port to this resolved bridge.
+func RegisterDiscoveredAPI(rtspBase, apiBase string) { discoveredOrigins.Store(rtspBase, apiBase) }
+
 func EventURL(rtspBase string) string {
+	if api, ok := discoveredOrigins.Load(rtspBase); ok {
+		rtspBase = api.(string)
+	}
 	u, err := url.Parse(strings.TrimSpace(rtspBase))
 	if err != nil || u.Host == "" {
 		return ""
@@ -39,8 +51,26 @@ func EventURL(rtspBase string) string {
 	if host == "" {
 		return ""
 	}
-	// The bridge serves RTSP on 8554 (go2rtc) and its HTTP/WS API on 3000.
-	return "ws://" + host + ":3000/ws"
+
+	port := "3000"
+	scheme := "ws"
+	switch u.Scheme {
+	case "http", "https", "ws", "wss":
+		port = "80"
+		if u.Scheme == "https" || u.Scheme == "wss" {
+			port = "443"
+		}
+		if u.Port() != "" {
+			port = u.Port()
+		}
+	case "rtsp", "rtsps":
+	default:
+		return ""
+	}
+	if u.Scheme == "https" || u.Scheme == "wss" {
+		scheme = "wss"
+	}
+	return (&url.URL{Scheme: scheme, Host: net.JoinHostPort(host, port), Path: "/ws"}).String()
 }
 
 // StillURL is where the bridge serves a camera's last retained thumbnail. Derived from the same
@@ -50,7 +80,14 @@ func StillURL(rtspBase, sn string) string {
 	if u == "" {
 		return ""
 	}
-	return strings.Replace(strings.Replace(u, "ws://", "http://", 1), "/ws", "/snapshot/"+sn, 1)
+	parsed, _ := url.Parse(u)
+	if parsed.Scheme == "wss" {
+		parsed.Scheme = "https"
+	} else {
+		parsed.Scheme = "http"
+	}
+	parsed.Path = "/snapshot/" + sn
+	return parsed.String()
 }
 
 // APIBase is the bridge HTTP endpoint paired with the configured RTSP service.
@@ -59,7 +96,14 @@ func APIBase(rtspBase string) string {
 	if endpoint == "" {
 		return ""
 	}
-	return strings.TrimSuffix(strings.Replace(endpoint, "ws://", "http://", 1), "/ws")
+	parsed, _ := url.Parse(endpoint)
+	if parsed.Scheme == "wss" {
+		parsed.Scheme = "https"
+	} else {
+		parsed.Scheme = "http"
+	}
+	parsed.Path = ""
+	return parsed.String()
 }
 
 // Run follows the channel until ctx is cancelled, applying every message to `store` and calling
@@ -73,7 +117,7 @@ func Run(ctx context.Context, endpoint string, store *wallstate.Store, changed f
 func RunWithMotion(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), motion func(string), log func(string)) {
 	backoff := minBackoff
 	for ctx.Err() == nil {
-		err := follow(ctx, endpoint, store, changed, motion)
+		err := follow(ctx, endpoint, store, changed, motion, log)
 		if ctx.Err() != nil {
 			return
 		}
@@ -97,7 +141,7 @@ func reason(err error) string {
 	return err.Error()
 }
 
-func follow(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), motion func(string)) error {
+func follow(ctx context.Context, endpoint string, store *wallstate.Store, changed func(), motion func(string), report func(string)) error {
 	dialCtx, cancelDial := context.WithTimeout(ctx, 10*time.Second)
 	defer cancelDial()
 	c, _, err := websocket.Dial(dialCtx, endpoint, &websocket.DialOptions{HTTPClient: &http.Client{}})
@@ -105,6 +149,7 @@ func follow(ctx context.Context, endpoint string, store *wallstate.Store, change
 		return err
 	}
 	defer c.CloseNow()
+	report("events: connected")
 	// The wall only reads; a frame larger than this is not something it knows how to act on.
 	c.SetReadLimit(1 << 20)
 
@@ -119,6 +164,17 @@ func follow(ctx context.Context, endpoint string, store *wallstate.Store, change
 		if err := json.Unmarshal(data, &msg); err != nil {
 			continue // a message this client does not understand is not a reason to drop the connection
 		}
+		if msg.Type == "hello" && os.Getenv("EUFY_WALL_BRIDGE_ID") != "" && msg.BridgeID != os.Getenv("EUFY_WALL_BRIDGE_ID") {
+			return fmt.Errorf("bridge identity changed; select intended bridge address")
+		}
+		if (msg.Type == "hello" || msg.Type == "auth") && (msg.Auth != nil || msg.Ready != nil) {
+			state := ""
+			if msg.Auth != nil {
+				state = msg.Auth.State
+			}
+			report(authReport(state, msg.Ready))
+		}
+
 		if store.Apply(msg) {
 			if changed != nil {
 				changed()
@@ -128,4 +184,15 @@ func follow(ctx context.Context, endpoint string, store *wallstate.Store, change
 			}
 		}
 	}
+}
+
+// Account challenges outrank an earlier ready flag retained during reauthentication.
+func authReport(state string, ready *bool) string {
+	if state != "" && state != "ok" {
+		return "auth: " + state
+	}
+	if ready != nil && !*ready {
+		return "auth: starting"
+	}
+	return "auth: ready"
 }

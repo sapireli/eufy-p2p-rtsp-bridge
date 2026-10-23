@@ -156,3 +156,36 @@ func TestStillURL(t *testing.T) {
 		t.Errorf("no bridge configured should yield no URL, got %q", got)
 	}
 }
+
+func TestDualStackOriginsPreservePortsSchemesAndBrackets(t *testing.T) {
+	for _, tc := range []struct{ in, api, event string }{
+		{"rtsp://[2001:db8::2]:8554", "http://[2001:db8::2]:3000", "ws://[2001:db8::2]:3000/ws"},
+		{"rtsp://[fe80::2%25eth0]:8554", "http://[fe80::2%25eth0]:3000", "ws://[fe80::2%25eth0]:3000/ws"},
+		{"http://[::1]:3100", "http://[::1]:3100", "ws://[::1]:3100/ws"},
+		{"https://bridge.example:3443", "https://bridge.example:3443", "wss://bridge.example:3443/ws"},
+		{"http://bridge.example", "http://bridge.example:80", "ws://bridge.example:80/ws"},
+		{"http://192.0.2.1:3123", "http://192.0.2.1:3123", "ws://192.0.2.1:3123/ws"},
+	} {
+		if got := APIBase(tc.in); got != tc.api {
+			t.Errorf("API %q got%q", tc.in, got)
+		}
+		if got := EventURL(tc.in); got != tc.event {
+			t.Errorf("WS %q got%q", tc.in, got)
+		}
+		if got := StillURL(tc.in, "CAM"); got != tc.api+"/snapshot/CAM" {
+			t.Errorf("snapshot %q", got)
+		}
+	}
+}
+
+func TestAuthenticationChallengeOutranksStaleReadyFlag(t *testing.T) {
+	ready, starting := true, false
+	for _, state := range []string{"require_2fa", "require_captcha", "reauth", "error"} {
+		if got := authReport(state, &ready); got != "auth: "+state {
+			t.Fatalf("masked %s: %s", state, got)
+		}
+	}
+	if authReport("ok", &starting) != "auth: starting" || authReport("ok", &ready) != "auth: ready" {
+		t.Fatal("ready/startupstateswrong")
+	}
+}

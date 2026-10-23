@@ -145,3 +145,23 @@ func TestUnknownDotOverlayDoesNotChangeVideoDecoderControls(t *testing.T) {
 		t.Fatal(args)
 	}
 }
+
+func TestActionableCaptionOverlayLeavesVideoControlsAndCadenceAlone(t *testing.T) {
+	c, caps, tiles := isolatedFixture(t)
+	before, err := Plans(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps.CaptionDir = "/private/captions"
+	after, err := Plans(c, tiles, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before[0].TileConfigs, after[0].TileConfigs) {
+		t.Fatal("captionchangeddecodercontrols")
+	}
+	args := String(after[0].Args)
+	if strings.Count(args, "caption-file=") != 2 || !strings.Contains(args, "caption-height=22") || strings.Count(args, " queue ") != strings.Count(String(before[0].Args), " queue ") {
+		t.Fatal(args)
+	}
+}
