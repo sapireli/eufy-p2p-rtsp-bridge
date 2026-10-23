@@ -128,14 +128,16 @@ export function createGo2rtc(ctx) {
 
   /** Codec we currently believe a camera speaks (learned from its live feed, else whatever /api reported). */
   const codecOf = (sn) => state.slots.get(sn)?.codec ?? ctx.getCamera?.(sn)?.codec;
-  /** The egress suffix each enabled camera should get right now, keyed by sn. */
+  /** Stable timed source or codec-selected FFmpeg suffix for each enabled SDK camera. */
   function egressPlan(cameras = ctx.listCameras().filter((x) => x.enabled)) {
     const plan = {};
-    for (const c of cameras) if (!c.external) plan[c.sn] = egressFor(codecOf(c.sn), c.transcode ?? cfg.go2rtcTranscode, cfg.go2rtcMaxHeight, platform, cfg.go2rtcVaapiDevice);
+    for (const c of [...cameras].sort((a, b) => a.sn.localeCompare(b.sn))) if (!c.external) plan[c.sn] = ctx.freshness?.enabledFor(c)
+      ? `http://${urlHost(cfg.selfHost)}:${cfg.port}/timed-stream/${c.sn}`
+      : egressFor(codecOf(c.sn), c.transcode ?? cfg.go2rtcTranscode, cfg.go2rtcMaxHeight, platform, cfg.go2rtcVaapiDevice);
     return plan;
   }
   let lastPlan = {}, lastNativePlan = "";
-  const nativePlan = (cameras = ctx.listCameras()) => cameras.filter((c) => c.enabled && state.slots.get(c.sn)?.codec === "h265" && ctx.freshness?.enabledFor({ ...c, transcode: "never" })).map((c) => c.sn).join("|");
+  const nativePlan = (cameras = ctx.listCameras()) => cameras.filter((c) => c.enabled && !c.external && ctx.freshness?.enabledFor({ ...c, transcode: "never" })).map((c) => c.sn).sort().join("|");
 
   async function generateGo2rtc() {
     const stagingPath = `${cfg.go2rtcConfig}.${randomUUID()}.tmp`;
@@ -217,11 +219,7 @@ export function createGo2rtc(ctx) {
 
   const writeGo2rtc = () => enqueueConfig(generateGo2rtc);
 
-  /**
-   * A camera's codec is only known once its feed delivers a keyframe, which is after go2rtc was first
-   * configured. When that changes the egress mode (H.265 discovered → transcode), rewrite the config and
-   * restart go2rtc so the stream is actually served that way.
-   */
+  /** Reconcile changed producer routes; codec metadata alone preserves stable timed-stream routes. */
   const syncGo2rtc = () => enqueueConfig(async () => {
     if (!state.flags.ready) return;
     const plan = egressPlan();

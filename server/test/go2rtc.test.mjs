@@ -137,25 +137,64 @@ test("explicit CPU-decode override still uses hardware encoding with fallback", 
 });
 
 
-test("learned HEVC adds a lazy native producer while compatible always route remains unchanged", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ewb-native-"));
+for (const mode of ["always", "auto"]) {
+  test(`late HEVC discovery preserves all RTSP sessions and lazy aliases (${mode})`, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ewb-native-"));
+    const cfg = { go2rtcConfig: join(dir, "go2rtc.yaml"), selfHost: "127.0.0.1", port: 3000, go2rtcTranscode: mode };
+    const cams = [{ sn: "A", name: "Balcony", enabled: true }, { sn: "B", name: "Balcony Native", enabled: true }];
+    const state = createState(); state.flags.ready = true;
+    let killed = 0;
+    state.flags.go2rtcProc = { kill: () => { killed++; } };
+    const ctx = { cfg, state, platform: "linux", listCameras: () => cams, getCamera: sn => cams.find(c => c.sn === sn), freshness: { enabledFor: () => true } };
+    const g = createGo2rtc(ctx);
+    await g.writeGo2rtc();
+    const initial = readFileSync(cfg.go2rtcConfig, "utf8");
+    state.slots.set("A", { codec: "h264", width: 1920, height: 1080 });
+    await g.syncGo2rtc();
+    state.slots.set("A", { codec: "h265", width: 1920, height: 1080 });
+    await g.syncGo2rtc();
+    assert.equal(killed, 0, "metadata discovery cannot terminate unrelated RTSP sessions");
+    assert.equal(readFileSync(cfg.go2rtcConfig, "utf8"), initial, "aliases are provisioned before codec discovery");
+    const streams = parse(initial).streams;
+    assert.equal(streams.balcony, "http://127.0.0.1:3000/timed-stream/A");
+    assert.equal(streams.balcony_native, "http://127.0.0.1:3000/timed-stream/B");
+    assert.equal(streams.balcony_native_2, "http://127.0.0.1:3000/timed-stream/A?rendition=native");
+    assert.equal(streams.balcony_native_native, "http://127.0.0.1:3000/timed-stream/B?rendition=native");
+    assert.equal(nativeStreamKeys(cams).get("A"), "balcony_native_2");
+    assert.equal(Object.hasOwn(parse(initial), "preload"), false, "native aliases remain lazy");
+  });
+}
+
+test("native aliases exclude disabled and imported cameras", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ewb-native-exclusions-"));
+  const cams = [{ sn: "A", name: "Door", enabled: true }, { sn: "B", name: "Disabled", enabled: false },
+    { sn: "X", name: "External", enabled: true, external: true }];
+  const cfg = { go2rtcConfig: join(dir, "go2rtc.yaml"), selfHost: "127.0.0.1", port: 3000,
+    go2rtcImported: { streams: { X: "rtsp://example.invalid/camera" } } };
+  const ctx = { cfg, state: createState(), listCameras: () => cams, getCamera: sn => cams.find(c => c.sn === sn), freshness: { enabledFor: () => true } };
+  await createGo2rtc(ctx).writeGo2rtc();
+  assert.deepEqual(parse(readFileSync(cfg.go2rtcConfig, "utf8")).streams, {
+    door: "http://127.0.0.1:3000/timed-stream/A",
+    external: "rtsp://example.invalid/camera",
+    door_native: "http://127.0.0.1:3000/timed-stream/A?rendition=native",
+  });
+});
+
+test("camera enumeration order cannot restart unchanged compatible and native routes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ewb-route-order-"));
   const cfg = { go2rtcConfig: join(dir, "go2rtc.yaml"), selfHost: "127.0.0.1", port: 3000, go2rtcTranscode: "always" };
-  const cams = [{ sn: "A", name: "Balcony", enabled: true }, { sn: "B", name: "Balcony Native", enabled: true }];
+  const cams = [{ sn: "A", name: "Door", enabled: true }, { sn: "B", name: "Door Native", enabled: true }];
   const state = createState(); state.flags.ready = true;
-  const ctx = { cfg, state, platform: "linux", listCameras: () => cams, getCamera: (sn) => cams.find(c => c.sn === sn), freshness: { enabledFor: () => true } };
+  let killed = 0; state.flags.go2rtcProc = { kill: () => { killed++; } };
+  const ctx = { cfg, state, listCameras: () => cams, getCamera: sn => cams.find(c => c.sn === sn), freshness: { enabledFor: () => true } };
   const g = createGo2rtc(ctx);
   await g.writeGo2rtc();
-  assert.deepEqual(Object.keys(parse(readFileSync(cfg.go2rtcConfig,"utf8")).streams), ["balcony", "balcony_native"]);
-  state.slots.set("A", { codec: "h265", width: 1920, height: 1080 });
-  let killed = 0; state.flags.go2rtcProc = { kill: () => { killed++; } };
+  const initial = readFileSync(cfg.go2rtcConfig, "utf8"), keys = nativeStreamKeys(cams);
+  cams.reverse();
+  for (const [sn, key] of keys) assert.equal(nativeStreamKeys(cams).get(sn), key, "reserved aliases still identify the same camera");
   await g.syncGo2rtc();
-  const streams = parse(readFileSync(cfg.go2rtcConfig,"utf8")).streams;
-  assert.equal(streams.balcony, "http://127.0.0.1:3000/timed-stream/A");
-  assert.equal(streams.balcony_native, "http://127.0.0.1:3000/timed-stream/B");
-  assert.equal(streams.balcony_native_2, "http://127.0.0.1:3000/timed-stream/A?rendition=native");
-  assert.equal(killed, 1, "codec discovery rebuilds aliases even when compatible always policy did not change");
-  await g.syncGo2rtc(); assert.equal(killed, 1);
-  assert.equal(nativeStreamKeys(cams).get("A"), "balcony_native_2");
+  assert.equal(killed, 0, "enumeration order is not a producer-route change");
+  assert.equal(readFileSync(cfg.go2rtcConfig, "utf8"), initial, "the published config remains untouched");
 });
 
 test("native capability retains actual geometry and per-client addresses, absent before learned HEVC", () => {
@@ -189,8 +228,8 @@ test("simultaneous codec discoveries and config writes preserve all compatible a
   finally{watching=false;await watcher;}
   assert.ok(observations>3);
   const streams=parse(readFileSync(cfg.go2rtcConfig,"utf8")).streams;
-  assert.deepEqual(Object.keys(streams),["door","garage","balcony","garage_native","balcony_native"]);
-  assert.ok(kills<=1,"serialized plan comparison avoids repeated simultaneous restarts");
+  assert.deepEqual(Object.keys(streams),["door","garage","balcony","door_native","garage_native","balcony_native"]);
+  assert.equal(kills,0,"serialized codec discovery preserves active RTSP sessions");
   assert.deepEqual(readdirSync(dir),["go2rtc.yaml"],"private staging files are removed");
 });
 

@@ -195,6 +195,7 @@ Credentials live only in `/etc/eufy-wall-bridge.env` (mode 600) and the session 
 - 45 s gap → HTTP consumers (go2rtc) disconnected so they reconnect cleanly.
 - Process exit(1) is reserved for every demanded, unblocked SDK camera continuously failing for its own 5 min budget; systemd then restarts it (`Restart=always`). A healthy, starting, or recently failed sibling keeps the bridge running while the failed camera retries independently. Idle, blocked and imported RTSP cameras do not count toward this decision. Advancing source receipts clear failure history; replayed cached frames do not. `stall.exit_after_ms` retains its existing duration and scope of SDK-source recovery.
 - go2rtc child dies → restarted after 3 s.
+- Native RTSP aliases are provisioned lazily for eligible SDK cameras at startup. Codec discovery updates advertised capabilities without restarting go2rtc or disconnecting other feeds; native capability is advertised only after HEVC and geometry are known. Aliases do not preload or wake cameras. Actual changes to non-timed producer routes still require reconciliation.
 - Cloud poll silent ≥ 30 min or push down ≥ 15 min → re-login in place, else exit(1).
 
 ## Verified go2rtc TCP framing repair and build/cache
