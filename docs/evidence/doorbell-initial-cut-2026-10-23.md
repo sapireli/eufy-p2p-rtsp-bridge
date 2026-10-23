@@ -680,3 +680,25 @@ established.
 
 Private summary: `/tmp/eufy-doorbell-runtime-20261023/summary-contention-policy.json`,
 SHA-256 `33f073b22901ea73adff02da7cdb6fa0406fb58e7b10203b4ff8aa98985206b0`.
+
+## Complete native STOP0: no clearance of observed base delivery
+
+A 24.313-second controlled observation began with 120 base channel-0 headers
+over 5.008 seconds, a local channel-1 owner, and fresh private Door/Front views.
+At 18:36:13.326 UTC, exactly one complete native STOP0 was sent: outer keys
+`cmd,payload,account_id`, payload channel 0, header type 0 and 124 encrypted
+bytes, with the same key/socket.
+
+The following ten seconds contained 141 more base channel-0 headers, first
+after 6.79 ms, longest gap 1.328 seconds; desired channel-1 output remained zero.
+Private Door delivered 141 frames and Front 134. Natural START1 retries
+continued, first after 165 ms; none was injected.
+
+The command alone did not clear this delivery or improve recovery. With private
+channel 0 still active, an orphan subscription is not established. This does
+not disprove STOP semantics generally. All 16 hooks were restored, inspector
+closed and both process IDs unchanged. The SDK candidate remains unpublished,
+uncommitted and is not a demonstrated fix.
+
+Private capture: `capture-native-stop0.json` beside the other artifacts,
+SHA-256 `7a54853eca09ffa5c154dee1bfd879a46b9d692739c79b423c81b6b44a2dbde9`.
