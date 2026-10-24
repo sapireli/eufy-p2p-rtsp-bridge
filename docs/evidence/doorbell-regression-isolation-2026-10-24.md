@@ -142,3 +142,26 @@ One separately controlled 1,051 ms main-thread pause did not reproduce prolonged
 | `export-replay/summary.json` | `11afc2e7b23ff989abf6997a35d3b78b8b7572b984514c0dcbb9ff22fb9292c7` |
 
 The original production package remains installed. None of these unsuccessful protocol interventions was deployed as a fix. A bounded, external-only first-fault capture is collecting the next natural primary failure without inspector hooks or added camera demand.
+
+
+## Native upkeep and stream-option checks
+
+The most recent supplied native phone reference contains 160.540 seconds of channel-2 video. It sends no periodic DATA commands in the middle of the run, excluding the initial and final three seconds. An initial 1139 precedes video; there is no repeated START or ongoing 1139 during playback. Maximum raw media gap is 1.038 s, and maximum visible video-header gap is 1.130 s. This does not establish indefinite streaming or current camera identity, but supplies no basis for adding a periodic keepalive as a fix.
+
+Static call-path review found one stored stream-type option passed through initial START, warm retry and silence recovery. No retry-dependent option flip was found.
+
+A cross-session slot audit found three simultaneous attached STARTs using slot 11 in both clean and failing trials. One clean 180-second run delivered 2,728 target and 2,705 Floodlight frames with zero actual command suppressions. Thus shared slot values alone do not establish global overwrite. The production startup capture has disjoint target/sibling slot sets but ends approximately 41 seconds before failure; it cannot exclude later overlap. The slot namespace remains unverified, and no global allocator was introduced.
+
+Completed evidence was refreshed into a second private incremental archive: 84 files, 363,872,933 bytes, all source hashes/sizes/stability and restrictive permissions verified, with zero errors. The active external first-fault capture was excluded.
+
+
+A read-only 60-second check of all three existing Fire TV processes found advancing Front Door and Garage Doorbell output, unchanged hardware pins/PIDs, and the same hardware AVC decoder on all six primary players. Rendered-counter deltas were 775–833 over approximately 55 seconds of sampled counters; hardware queues peaked at zero or one frame. No reconnect, reopen, reclaim, error, pacing-drop or decode-deadline increments appeared. Doorbell pacing resets increased by one or two per TV; this needs interpretation separately from reconnects. Balcony's software decoder advanced but accumulated late frames and queues of 8–21, with pending decode peaks of 0.749–1.278 s. These are distinct current client observations, not proof of the cause of incoming primary silence. No app/device state changed.
+
+
+The TV artifact retained first/last samples and maxima, not intermediate sample times. It cannot align those pacing resets across devices. A reset can indicate a timestamp regression or a mismatch between timestamp and decoder-arrival progression, not necessarily an upstream silence. Receive/decode/render counters are not interchangeable: six primary players had a 23–49-frame decode/render counter deficit in the sampled interval despite no explicit pacing-drop counter increments. Existing metrics cannot distinguish platform discards from informational callback timing. These observations must not be reported as a physical smoothness or sensor-to-screen measurement.
+
+| Additional private audit | SHA-256 |
+|---|---|
+| `native-fresh-ongoing-control-gap-audit.json` | `e94c865d570643e34a7348819c7f88b41e56d2a2855d228a29b24d18f58da79d` |
+| `cross-session-start-slot-exposure-audit.json` | `c1b9745733b60aa947ddeeb37af08a45b1f980eb0822cbfeb0dd501bffdd6973` |
+| `/tmp/eufy-tv-readonly-20261024.json` | `4e0ac934680badf16c06f489e9fa8cdf0d65c3dc8d3ee9bd318524d80ceb596d` |
