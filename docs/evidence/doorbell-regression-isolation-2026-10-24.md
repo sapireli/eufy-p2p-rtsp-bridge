@@ -188,3 +188,29 @@ All owned capture processes were removed. Production PID, installed SDK bundle a
 | `external-firstfault/analysis.json` | `ae97c17d87108405366350584da835df233562fa49810d1dfa085448bc3ef858` |
 | `external-firstfault/gap-boundary-analysis.json` | `2572ec9f6df68d249a5f0943e9ce9cc4e54b2f9ba614d4cadeb3f055bb98151a` |
 | `external-firstfault/journal-window-analysis.json` | `dd72f7a971c0bdc98ea39392d162b4959f1825eefdf5512dcddffcd8dff8120d` |
+
+
+## Short iteration: connection-role reversal
+
+A fresh independent packet review distinguished 31 VIDEO-header gaps over one second from only six complete D1/01 media silences in the retained ring. Doorbell repeatedly delivered frames faster between pauses, preserving approximately 15 frames/s over the full window. These observations establish burst scheduling before NIC ingress, not a validated sensor capture clock. All 31 preceding VIDEO units completed by declared-length accounting within 23.760 ms; eight were IDRs and 23 were non-keyframes. No missing first-arrival UDP sequence was repaired late on either primary flow, so neither long-unit assembly nor the 700 ms reorder wait explains those header gaps.
+
+A short matched A/B/A tested whether pauses followed the SDK connection role. Both primary sources were reset before each arm with the same mode gating, 15-second settle, native 1600×2200 profiles, three VA-API pipelines and existing consumer demand. The inspector was idle during measured arms; no prototype hooks were used. Roles were verified from the actual source/session association and packet tuples.
+
+| 60-second arm | Front connection | Doorbell connection | Doorbell VIDEO gaps >1 s | Front VIDEO gaps >1 s | Doorbell complete media gaps >1 s |
+|---|---|---|---:|---:|---:|
+| Fresh A1 | Base | Private | 5 | 0 | 3 |
+| B | Private | Base | 6 | 0 | 0 |
+| A2 | Base | Private | 6 | 0 | 0 |
+
+The pauses stayed with Doorbell, rather than moving with private-session ownership. The simple connection-role hypothesis was rejected. Complete-media-gap counts remain a separate endpoint; zero in a short arm cannot establish their elimination. Native geometry, encoder policies and desired settings were preserved. Original roles and semantic settings were restored; administrative settings revisions advanced. No SDK change was installed for this trial.
+
+An additional original-SDK full-service-restart control then reproduced four Doorbell VIDEO-header gaps and zero Front gaps in 60 seconds. This controls for the restart needed by the next compiled SDK canary. Its cached parent station model was positively verified as T8030; its bundle still matched pristine source revision `48e4f2f` byte-for-byte. Querying the cached instance took 1,053 ms during labeled setup, before primary warmup and the measured arm. The measured arm had zero socket/global receive-error deltas, zero capture-kernel drops, stable 1600×2200 profiles and three unchanged VA-API process identities.
+
+A narrow off-device candidate tests the remaining channel-zero START-slot discrepancy, scoped to T8030. Its full verification passed 253 files and 4,446 tests. Its pristine base rebuild is exactly the production bundle; the candidate changes only station-model plumbing, the START condition and wire tests. The candidate is an experiment, not an established pause correction. Deployment/acceptance must be decided from matched live results.
+
+| Short-trial artifact | SHA-256 |
+|---|---|
+| `role-aba/summary.json` | `ce4e15a8e90d79213b12ad46ae739dcab4c9afc263c0e39e0c68beeec793ebf3` |
+| `cold-original-control/summary.json` | `9cb6f9fc8c18e47eb4bd7ee6727314933cbb7c9faad86300e066d9ec3ba0020f` |
+| Off-device gated candidate bundle | `ec08734af884a2adf0c17addf21a24a03d8a66b2df22a1c434b702d15f4192d4` |
+| Off-device gated candidate package | `fa66cb0031a8b8a2fd9024dc9c2e5292bfc8b9d1b0bbb520c6e4facb38b20b1d` |
