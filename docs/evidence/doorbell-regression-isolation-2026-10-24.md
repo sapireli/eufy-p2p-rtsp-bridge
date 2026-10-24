@@ -423,3 +423,27 @@ its START does not identify the physical child camera. The healthy 160-second na
 two. SDK native-profile interventions must not be represented as official-app controls. A matched
 native control remains missing; the existing data does not justify attributing pauses to HomeBase
 forwarding, camera recording policy, or a particular untested protocol field.
+
+
+## Deployment lifecycle check
+
+The running Node 26.11.1 service was checked through its actual object-mode, arrival-stamped reader.
+With both primary feeds recently delivering, Doorbell's actual underlying SDK stream was normally
+stopped once. After EOF, the old source remained `stopped`, with no stream and zero consumers. The
+bridge created a different source and received a genuinely advancing source receipt after 4,034 ms.
+It remained live through another ten-second observation. Front retained the same Readable identity
+and its receipt sequence kept advancing throughout this targeted check. This is another controlled
+stop, not proof of the natural pause trigger.
+
+Subsequent logs from all three Fire TVs showed both primary feeds decoded/rendered on their pinned
+Amlogic hardware AVC decoders, with zero queued units in the samples. Short frame gaps remained.
+One TV also recorded earlier primary decode deadline misses, so the preceding sampled zero-miss
+observation must not be generalized to the entire deployed run. No physical display inspection was
+available. Private proof: `production-eof-check.fn`, `production-eof-check.json`, and the three
+`*-after-eof.log` files.
+
+A separate offline check rejected the open keyframe-flag hypothesis for the retained 355-second NIC
+capture. Door had 5,330 VIDEO headers (5,152 flag zero, 178 flag one); Front had 5,333 (5,155 zero,
+178 one). Neither flow had bit `0x40`. Supporting that flag cannot alter these captured inputs. The
+keyframe bodies are encrypted; this is header classification evidence, not independently decoded NAL
+proof. No additional SDK change was made for this hypothesis.
