@@ -214,3 +214,29 @@ A narrow off-device candidate tests the remaining channel-zero START-slot discre
 | `cold-original-control/summary.json` | `9cb6f9fc8c18e47eb4bd7ee6727314933cbb7c9faad86300e066d9ec3ba0020f` |
 | Off-device gated candidate bundle | `ec08734af884a2adf0c17addf21a24a03d8a66b2df22a1c434b702d15f4192d4` |
 | Off-device gated candidate package | `fa66cb0031a8b8a2fd9024dc9c2e5292bfc8b9d1b0bbb520c6e4facb38b20b1d` |
+
+
+## Command-only START-slot comparison: negative
+
+Two whole-package canary attempts ended before a measured arm. The first helper lost its initial setup exception when rollback encountered a startup-readiness 503. The second loaded the candidate and emitted a generated channel-zero slot, but failed an immediate encoder-cohort assertion before its 15-second settle. That helper failed to retain the actual FFmpeg count. Front and Balcony had already stalled before the changed channel-zero START. Neither attempt establishes candidate benefit or regression. The original whole package and desired settings were restored after each attempt.
+
+A subsequent command-only comparison removed those restart/setup confounds. The same original SDK, source, stream, P2P session/socket, RSA/control keys and three encoder process identities remained active. An off-device compatibility fixture proved that the compiled candidate method could run on the original instance, retaining identical decrypted JSON and changing only the request slot beyond normal counters/crypto. During B, the candidate method and model metadata were bound only for one synchronous public nudge, then their exact descriptors were immediately restored. No candidate hook remained during measurement.
+
+Fresh original A1 delivered eight Doorbell VIDEO-header gaps over one second and zero on Front. B delivered twelve on Doorbell and zero on Front; complete media gaps were one and two respectively. The outgoing slot changed 0→13. Incoming Doorbell VIDEO and AUDIO changed entirely to type 13, proving this was an active binding, not merely an ignored command. The final original command changed both back to type zero. No concurrent type mix appeared in either arm. Native 1600×2200 geometry, source identity, keys, encoder identities and settings remained unchanged; socket and capture-drop deltas were zero.
+
+The generated slot did not improve steady playback. No A2 measurement or SDK promotion followed. This live reassertion test does not fully test initial-connection behavior, but it provides no basis for deploying the correction as a steady-pause fix. The alternate package files, inspector and guards were removed. Its inactive ESM code remains cached until process exit; no candidate binding or active instance remains.
+
+## ACKed warm-up retries: exposure and counterexample
+
+An original-SDK fresh Doorbell source sent four acknowledged STARTs before any media, at approximately 0, 2, 3 and 4 seconds. First video/keyframe arrived 5.455 seconds after the initial START, and the SDK accepted one frame. That source then went silent and was retired. This establishes exposure to redundant acknowledged pre-media requests, not their causality. Its intended 60-second baseline never qualified; an instantaneous freshness assertion failed before the measured arm and did not retain its actual age values.
+
+A narrowly scoped guard was subsequently observed on one new source. It would suppress additional STARTs only after the initial matching ACK and before first delivered video or recognized audio. It changed no retransmission, timeout, profile or steady recovery policy, and removed both prototype hooks on first delivered media. In that run there was only one START: its ACK took 8.449 ms and first keyframe arrived 933.564 ms later. No retry opportunity or suppression occurred. The source survived with seven steady video-header gaps in the final 60 seconds, versus zero on Front.
+
+This is not a suppression-efficacy test. It is a counterexample to initial pre-media START retries being necessary for steady Doorbell pauses. No A2 or further retry was run. Original package, settings and process remained active; all guard descriptors, listeners, timers and inspector/capture processes were removed.
+
+| Additional experiment | SHA-256 |
+|---|---|
+| `command-slot-aba/summary.json` | `aca198866f7ef5c7e1b63c0d69d482a7ca6e956be8e19597ecfe3898968d60ec` |
+| `command-slot-aba/incoming-type-analysis.json` | `c159faba11cf392d08fdfef5295c848ba3f6cb5af2dee4fe234375d01a23404d` |
+| Original fresh-source `exposure-analysis.json` | `0bc3e88add4b4e6844e30c26484c83eaceda5af4359f74a55bffefe3c8908ea1` |
+| `door-acked-pre-media-B/summary.json` | `11ba2429a246f3688d61cf18b830a1694af9d0556f9fd11cefe5fdccc4de68cf` |
