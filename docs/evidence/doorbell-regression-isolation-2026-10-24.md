@@ -165,3 +165,26 @@ The TV artifact retained first/last samples and maxima, not intermediate sample 
 | `native-fresh-ongoing-control-gap-audit.json` | `e94c865d570643e34a7348819c7f88b41e56d2a2855d228a29b24d18f58da79d` |
 | `cross-session-start-slot-exposure-audit.json` | `c1b9745733b60aa947ddeeb37af08a45b1f980eb0822cbfeb0dd501bffdd6973` |
 | `/tmp/eufy-tv-readonly-20261024.json` | `4e0ac934680badf16c06f489e9fa8cdf0d65c3dc8d3ee9bd318524d80ceb596d` |
+
+
+## External-only natural failure boundary
+
+An untouched-production observation ran from 09:55:52.225 to 10:25:52.255 UTC on October 24. It used no inspector, SDK hooks, added holds or playback consumers. It collected 1,799 socket and 1,798 API samples; no initial sample was excluded. Both primary streams advanced approximately 27,000 frames with unchanged stall counts. Primary sockets remained stable, socket/global receive-drop deltas were zero, and wall-minus-monotonic clock span was 1.434 ms. The capture reported 826,667 packets and zero kernel drops. Its bounded ring retained only the final 355.853 seconds.
+
+This was **not** uninterrupted playback. In the retained ring, Doorbell received no VIDEO or AUDIO datagrams for 2.960571 seconds at 10:25:06.273683–09.234254 UTC. Front Door received 449 media packets during that interval. API ages sampled approximately 996 ms, 2,002 ms and then 1.5 ms, so the two-sample age-above-2,500-ms trigger did not fire. The absence of a trigger must not be presented as the absence of pauses. Balcony separately recycled its socket once during the observation.
+
+Across the Doorbell boundary, transport sequence advanced 45666→45667, video frame number 28286→28287, and audio frame number 34931→34932. The resumed video was a 1600×2200 keyframe. The ±10-second transport span contained 2,421 unique sequences with no missing sequence and 35 duplicate packets. All 2,456 received media datagrams had outgoing ACKs; the boundary ACK delays were 0.907 and 1.555 ms. There were no outgoing DATA commands on any captured HomeBase tuple within that window. Doorbell continued exchanging ordinary empty PING/PONG packets. Thus the pause was already present at NIC ingress and is not explained by a missing received sequence, a host socket drop, a contemporaneous media-control command, or a decoder queue. This locates the silence; it does not identify its cause or prove station receipt of every ACK.
+
+The source timestamp advanced only 65 ms across a 2.981-second VIDEO-header gap. That field is unvalidated, and post-gap pacing differs; it cannot establish camera-clock correctness, sensor capture age, or that the camera's physical capture process stopped.
+
+Heartbeat timing/payload review found no anomaly: 71 empty SDK PING/PONG exchanges on the usual five-second cadence, and eight empty station PING/SDK PONG exchanges. This gap began 2.189 seconds after the previous SDK PING and recovered 149.637 ms after the next. Earlier long gaps recovered at different phases. No heartbeat correction is justified by those observations.
+
+A bounded journal retrieval found Balcony's adaptive H.265 resolution changes 1.580 seconds before Doorbell silence and during the pause, but earlier primary stalls did not share a tight timing relationship with such changes. No motion/push/recording/power/hold/settings event was logged in this window; logging absence does not establish event absence. The earlier unobserved stall increments were located at 09:29:11.804 UTC for Doorbell and 09:37:20.202 UTC for Front Door. These occurred before the external observer and must not be attributed to its collection or to the old bulk export without further evidence.
+
+All owned capture processes were removed. Production PID, installed SDK bundle and effective settings remained unchanged. No speculative protocol fix was deployed.
+
+| Natural observation artifact | SHA-256 |
+|---|---|
+| `external-firstfault/analysis.json` | `ae97c17d87108405366350584da835df233562fa49810d1dfa085448bc3ef858` |
+| `external-firstfault/gap-boundary-analysis.json` | `2572ec9f6df68d249a5f0943e9ce9cc4e54b2f9ba614d4cadeb3f055bb98151a` |
+| `external-firstfault/journal-window-analysis.json` | `dd72f7a971c0bdc98ea39392d162b4959f1825eefdf5512dcddffcd8dff8120d` |
