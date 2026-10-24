@@ -240,3 +240,41 @@ This is not a suppression-efficacy test. It is a counterexample to initial pre-m
 | `command-slot-aba/incoming-type-analysis.json` | `c159faba11cf392d08fdfef5295c848ba3f6cb5af2dee4fe234375d01a23404d` |
 | Original fresh-source `exposure-analysis.json` | `0bc3e88add4b4e6844e30c26484c83eaceda5af4359f74a55bffefe3c8908ea1` |
 | `door-acked-pre-media-B/summary.json` | `11ba2429a246f3688d61cf18b830a1694af9d0556f9fd11cefe5fdccc4de68cf` |
+
+
+## Full native media profile: negative
+
+A matched comparison tested the native request envelope, IOS profile, P256 public key and authenticated media decoder together, on the existing session. Offline fixtures first verified authenticated H.264 decoding and return to the original RSA/AES path on the same compiled session. This was an experimental profile comparison, not an assertion that native encryption causes the pauses.
+
+| 60-second arm | Doorbell VIDEO gaps >1 s | Front VIDEO gaps >1 s | Doorbell complete-media gaps >1 s | Doorbell SDK input frames |
+|---|---:|---:|---:|---:|
+| Original A1 | 14 | 2 | 4 | 869 |
+| Native profile B | 11 | 1 | 6 | 880 |
+
+Incoming B video/audio used the requested type 10, and authenticated Annex-B/SPS decoding proved the new profile was active at the original 1600×2200 geometry. The same sources, sessions, socket tuples and three VA-API process identities survived both measured arms. Socket/global receive-error deltas and capture-kernel drops were zero. B retained a maximum video-header gap of 3.093 seconds, compared with 2.693 seconds in A1. Delivered cadence remained approximately 15 frames/s overall; this did not eliminate the pauses. No A2 followed the failed screen.
+
+The original type-zero RSA request and real legacy H.264 decoding were verified before restoring the original method and decoder descriptors. Hot rollback required no source reset or service restart. Installed SDK, process and settings bytes remained unchanged; temporary hooks, inspector, capture and staged files were removed. Inactive imported module code remains cached until process exit. A Front stall increment occurred after the measured windows; this comparison does not establish sustained wall playback.
+
+Earlier original-profile setup runs stopped before B: one source was already recovering, and another A1 had one Front gap above the original zero-gap screen. The acceptance policy was revised before native exposure to require zero Doorbell gaps and no worsening of Front relative to its measured A1 baseline. These aborted runs are not native-profile results.
+
+| Artifact | SHA-256 |
+|---|---|
+| `native-profile-aba/summary.json` | `a00867e118a9111c096a4c7219d93fdc9f88f83915014e5dfa2253149c212f9f` |
+| `native-profile-aba/native-binding-and-cadence.json` | `aa5694a1f8f604dadfa407d13c157306e4c8e425df3c04ad1bd5bbf7fcde36a1` |
+
+The full native media profile is rejected as a correction for these steady pauses. No production SDK change is justified by this test.
+
+
+## One-time native connection initialization: negative
+
+A fresh Doorbell-only source received one empty native-shaped command 1139 immediately after connection and before its first START. The packet capture verifies exactly one injection, channel 255/sign zero/type zero/magic 0100, 261.138 ms before START. The temporary connection hook restored its original descriptor immediately, before steady measurement. The original SDK package, settings, process and sibling sources remained unchanged.
+
+After a uniform 15-second exclusion, the 60-second window retained eight Doorbell VIDEO-header gaps over one second and one Front gap. Doorbell delivered 972 unique headers and advanced its SDK input counter by 959; Front delivered 908 headers and advanced by 892. These counters cover different boundaries and are not interchangeable. Doorbell's initial measured-edge receipt age was 4,309.587 ms, versus 12.546 ms at the end; the source, socket and peer survived. The freshness acceptance check also failed. There was no A2, retry or promotion.
+
+Four original STARTs preceded first video, 4.127 seconds after the initial START. Neither this startup nor the added initialization eliminated the steady pauses. Receive-overflow/error deltas and capture-kernel drops were zero. The closed-port counter advanced by 48; that is not a receive-buffer-overflow count. All temporary hooks and owned observer processes were removed.
+
+Private artifact `door-init1139-B/summary.json` SHA-256: `883381b3e79e9af9159d4a20b809c7071ddb1065113c982c184362a1896cb162`.
+
+## Cadence histogram correction
+
+An independent review found omitted non-first histogram bins in the original cadence JSON. Its saved producer was unavailable, so the producer's exact defect is not established. A new offline parser re-read the same SHA-verified PCAPs and retained the originals. Corrected interval counts sum to 5,329 for Doorbell and 5,332 for Front. Exact gap records and the independent volume audit still agree on 31 Doorbell VIDEO-header gaps above one second and six complete media gaps, versus zero on Front. Use `fresh-cadence-audit-corrected.json`, SHA-256 `74ce93660eff31c2c8de855317c1412ea5a3af1b8c3ae56a59706f8db8e7fff5`, for histogram claims.
