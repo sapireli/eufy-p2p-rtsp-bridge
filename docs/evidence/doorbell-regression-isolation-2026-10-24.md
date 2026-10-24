@@ -246,7 +246,7 @@ This is not a suppression-efficacy test. It is a counterexample to initial pre-m
 
 A matched comparison tested the native request envelope, IOS profile, P256 public key and authenticated media decoder together, on the existing session. Offline fixtures first verified authenticated H.264 decoding and return to the original RSA/AES path on the same compiled session. This was an experimental profile comparison, not an assertion that native encryption causes the pauses.
 
-| 60-second arm | Doorbell VIDEO gaps >1 s | Front VIDEO gaps >1 s | Doorbell complete-media gaps >1 s | Doorbell SDK input frames |
+| 60-second arm | Doorbell VIDEO gaps >1 s | Front VIDEO gaps >1 s | Doorbell complete-media gaps >1 s | Doorbell bridge-egress input frames |
 |---|---:|---:|---:|---:|
 | Original A1 | 14 | 2 | 4 | 869 |
 | Native profile B | 11 | 1 | 6 | 880 |
@@ -269,7 +269,7 @@ The full native media profile is rejected as a correction for these steady pause
 
 A fresh Doorbell-only source received one empty native-shaped command 1139 immediately after connection and before its first START. The packet capture verifies exactly one injection, channel 255/sign zero/type zero/magic 0100, 261.138 ms before START. The temporary connection hook restored its original descriptor immediately, before steady measurement. The original SDK package, settings, process and sibling sources remained unchanged.
 
-After a uniform 15-second exclusion, the 60-second window retained eight Doorbell VIDEO-header gaps over one second and one Front gap. Doorbell delivered 972 unique headers and advanced its SDK input counter by 959; Front delivered 908 headers and advanced by 892. These counters cover different boundaries and are not interchangeable. Doorbell's initial measured-edge receipt age was 4,309.587 ms, versus 12.546 ms at the end; the source, socket and peer survived. The freshness acceptance check also failed. There was no A2, retry or promotion.
+After a uniform 15-second exclusion, the 60-second window retained eight Doorbell VIDEO-header gaps over one second and one Front gap. Doorbell delivered 972 unique headers and advanced its bridge-egress input counter by 959; Front delivered 908 headers and advanced by 892. These counters cover different boundaries and are not interchangeable. Doorbell's initial measured-edge receipt age was 4,309.587 ms, versus 12.546 ms at the end; the source, socket and peer survived. The freshness acceptance check also failed. There was no A2, retry or promotion.
 
 Four original STARTs preceded first video, 4.127 seconds after the initial START. Neither this startup nor the added initialization eliminated the steady pauses. Receive-overflow/error deltas and capture-kernel drops were zero. The closed-port counter advanced by 48; that is not a receive-buffer-overflow count. All temporary hooks and owned observer processes were removed.
 
@@ -278,3 +278,54 @@ Private artifact `door-init1139-B/summary.json` SHA-256: `883381b3e79e9af9159d4a
 ## Cadence histogram correction
 
 An independent review found omitted non-first histogram bins in the original cadence JSON. Its saved producer was unavailable, so the producer's exact defect is not established. A new offline parser re-read the same SHA-verified PCAPs and retained the originals. Corrected interval counts sum to 5,329 for Doorbell and 5,332 for Front. Exact gap records and the independent volume audit still agree on 31 Doorbell VIDEO-header gaps above one second and six complete media gaps, versus zero on Front. Use `fresh-cadence-audit-corrected.json`, SHA-256 `74ce93660eff31c2c8de855317c1412ea5a3af1b8c3ae56a59706f8db8e7fff5`, for histogram claims.
+
+
+## Full native-frame content check
+
+A 45.006-second off-device fetch used the existing native timed endpoint without an encoder, reset, SDK hook or settings change. Its FLV contains 670 complete stamped H.264 frames, all 670 decodable, and eight receipt gaps over one second. The largest receipt gap was 2,152.706 ms; source PTS advanced 69 ms. The end API read was delayed by about 35 seconds, so its counter deltas must not be divided by the capture duration.
+
+The burned-in clock is absent in the first picture and in four decoded pictures around the largest gap. All 670 SEI payloads in this artifact are the bridge's own receipt stamp; no independent camera SEI clock is present. Consequently this capture cannot distinguish delayed historical pictures from a source clock that advances synthetically across a production pause. Its metadata remains receipt timing, not validated sensor capture time. No capture-time claim or code correction follows.
+
+Private full-frame artifact SHA-256: `ebe60ef4ae64368f5284b397da6d7dd1b3d25282ceb5cf6792b029ea779f0dab`. Images, source identities and raw frame data remain in the private evidence archive.
+
+
+## Fresh initial-request slots: no improvement established
+
+The earlier generated-slot test changed an existing source; two whole-package attempts ended during setup. A new targeted comparison therefore bound the exact compiled generated-slot method before the first START on one fresh original session. First START used type 11, followed by retries 12, 13 and 14. All four were acknowledged within 8.486 ms, but that first adopted tuple received zero media packets. The source closed after 5.671 seconds. Its replacement's later output cannot be counted as success on the tested source. The helper restored exact descriptors and the controller reset Doorbell to a fresh original connection. An earlier original fresh-source run also failed, so this does not establish that the candidate caused the startup failure.
+
+A further one-field test matched the native capture's initial type 10, preserving original encrypted body bytes, sequence and all other header fields. Its fresh original A1 retained nine VIDEO-header gaps above one second and 805 unique video headers. The SDK source and socket stayed stable, while bridge egress counters reset and the encoder cohort changed from three to two; A1 is valid raw-ingress evidence but not a fully matched egress/pipeline control.
+
+Type-10 B sent one START, acknowledged in 5.695 ms. The peer returned type-10 media: 19 unique native video headers and 329 D1/01 datagrams. Delivery then stopped. The host sent STOP-associated control and END before the peer's END, so there is no evidence of a peer-initiated close. The first source ended after 7.031 seconds. Zero packets on its old socket in the subsequent steady window is a failed output check, not smooth playback. The candidate was removed and Doorbell reset to a fresh original connection. No A2 or promotion followed either failed screen.
+
+Two fully retained sign-one notifications decoded offline as JSON commands 6246 (`payload.num=0`) and 6203 (`payload.dstZoom=1`). They are not START rejection results. The former is interpreted as RTSP livestream status by a separate client implementation; this does not establish a P2P stop. ECB decoding provides structural JSON validation, not authentication.
+
+The native archive also contains authenticated START types 10, 11, 12 and 14 on one conversation, with STOP type zero. Thus native START is not universally type 10; neither the SDK's formula nor the meaning of the header byte is established merely by those examples.
+
+The API's `freshnessStatus.inputFrames` belongs to a bridge egress consumer. Its reset does not by itself establish an SDK source reset. Earlier table labels have been corrected accordingly. Future source-continuity decisions must use actual source/session/socket identities alongside packet-level counts.
+
+| Private artifact | SHA-256 |
+|---|---|
+| `initial-slot-fresh-B/initial-exposure-analysis.json` | `6791bec970e4baff013308183d201d4e8dde59e525cc9e054c502f108c36e472` |
+| `initial-type10-ABA/prefix-analysis.json` | `68dc866c65110c7366856f78ba1b3c57e6bda2708fc0ab5c393c63d0ce7eaf83` |
+| `initial-type10-ABA/1351-payload-structure.json` | `b471cefc881eab820d96c996dddee8783b75ccc8b76da941776dc1b35efc179c` |
+
+
+## Full native profile before the first request: failed playback, successful crypto
+
+A separate real-object offline fixture verified installing the authenticated decoder before the original `LiveStream.start()`, transforming every startup retry, preserving the original session's crypto and restoring exact descriptors/key buffers after close. The live canary then applied that coherent native IOS/P256 profile to one fresh Doorbell source.
+
+Five type-10 STARTs were acknowledged. The first native keyframe arrived 4.258 seconds after connection; authenticated GCM and valid 1600×2200 Annex-B decoding were verified. The source received only 11 unique video headers before media stopped, and local stale recovery later sent STOP/END. The peer's END followed the host's. Another sibling changed during the observation; Balcony also changed resolution and reset its egress counters. This is failed playback and an invalid sustained comparison, not failure to authenticate or a demonstrated profile regression.
+
+The initial verdict incorrectly looked only at the already-closed profile for crypto proof. The saved cleanup state contains the earlier successful proof. Acceptance still fails because the tested source did not survive and deliver the required frames. The correction is to the report, not the playback result.
+
+The original connection was recreated after cleanup. Global/session/decoder descriptors were restored, owned temporary key buffers zeroed, and inactive staged package files removed. The original service PID, installed SDK bundle and desired settings remained unchanged. Inactive imported code remains cached until process exit. No SDK/profile correction was retained.
+
+Private prefix analysis SHA-256: `bf59c10883f5f854e36ff23635872f0f521108bfa0d227ef213c1b172cfc504d`.
+
+## Clock field and control limitations
+
+A separate offline packet review found meaningful high timestamp bytes beyond the SDK's four-byte live VIDEO read. Reading six bytes produces contemporary Unix-millisecond values and agrees with the SDK's recording parser and an independent protocol implementation. This supports preserving the complete field for future investigation. It does not validate sensor capture time: some camera/header clocks were 9.3–9.56 seconds ahead of packet arrival. The original relative queue-debt observations remain conditional on timestamp semantics. No timestamp change is presented as a pause correction.
+
+The official web portal explicitly selects its WebRTC player for T8030, but uses legacy signaling plus a separate portal live-view access PIN. The existing SDK implements NVR signaling, not that contract, and its session does not establish possession of the portal PIN. No speculative cloud bypass, authentication change or replacement RTC client was attempted. Healthy archived native captures remain insufficient as a control for the current failing physical camera.
+
+A cache-only check found both T8214 watermark settings at value one, last updated roughly 35 hours earlier. Reasserting the same desired value through the public SDK returned, but a subsequent 12-second native capture still had no visible clock. The setting's cached value and successful setter return do not establish that an overlay was applied. No alternate overlay value was tried.
