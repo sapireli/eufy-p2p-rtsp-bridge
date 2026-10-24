@@ -329,3 +329,97 @@ A separate offline packet review found meaningful high timestamp bytes beyond th
 The official web portal explicitly selects its WebRTC player for T8030, but uses legacy signaling plus a separate portal live-view access PIN. The existing SDK implements NVR signaling, not that contract, and its session does not establish possession of the portal PIN. No speculative cloud bypass, authentication change or replacement RTC client was attempted. Healthy archived native captures remain insufficient as a control for the current failing physical camera.
 
 A cache-only check found both T8214 watermark settings at value one, last updated roughly 35 hours earlier. Reasserting the same desired value through the public SDK returned, but a subsequent 12-second native capture still had no visible clock. The setting's cached value and successful setter return do not establish that an overlay was applied. No alternate overlay value was tried.
+
+
+## Independent Mac receiver and recovery ordering
+
+The earlier direct version and autoRealtime comparisons ran on the Linux production receiver. A
+separate original48 sole-camera reader now completed on macOS x64, Node 26.8.1, using the same
+original bundle hash `dd649e91323a3b2b5159d68b99c369cfa1cbffc64cfa302392830e482ff4da47`.
+After a 15-second exclusion, its 60-second measurement contains 654 unique VIDEO headers and 11
+header-arrival gaps over one second. Eight gap boundaries advance the video sequence by one; the
+largest measured gap is 7.414 seconds. Event-loop maximum was 26.051 ms. This reproduces pauses
+without the Linux receiver, encoder, or concurrent camera workload. It does not isolate a specific
+host-network difference: these are Node receive callbacks, not Mac NIC captures, and the trials differ
+in time, platform and Node patch version. Some Mac boundaries also skip video sequence values.
+
+The host's five-second stale-feed policy can act before the SDK's default six-second attached-stream
+reassertion. An intervention moved that SDK watch to two seconds on the existing source. The first
+60-second exposure still retained 12 VIDEO-header gaps above one second, up to 4.016 seconds. A
+repeat began on a live source but that source ceased to be current during B, the stall count advanced,
+and recovery continued on replacements. The two-second change therefore did not establish sustained
+recovery or eliminate the pauses. The separate nine-second host-grace proposal was not exposed; it
+has no live result and is not a deployed correction. Temporary watch hooks were removed.
+
+Private records: `mac-original.json` and `mac-linux-pause-clock-comparison.json` under the receiver
+host comparison archive; `soft-recovery-probe-offline-analysis.json` and
+`soft-recovery-repeat-result.json` under the runtime archive.
+
+## Confirmed Readable EOF recovery defect and deployed repair
+
+A separate SDK lifecycle defect was reproduced offline and then tested with actual cameras in two
+baseline/candidate comparisons. Front opened first and held the shared station connection; Doorbell
+opened second on a dedicated media connection. Once both delivered frames, the test normally stopped
+Doorbell's actual SDK stream and let its public Readable reach EOF and destroy itself automatically.
+These were deliberately induced stops, not spontaneous camera failures.
+
+Both original48 arms changed from `stopped` immediately after teardown to `lingering` after the final
+Readable consumer detached, despite having no underlying stream or session claim. Public reacquisition
+returned the same source and old session identity without restoring that claim. Both arms produced
+zero reopened frames during the 20-second wait and reported a typed startup timeout.
+
+Both repaired arms kept the source `stopped` after EOF. Reacquisition created a new source and session
+with a dedicated claim and returned real frames. The second candidate then delivered another 848
+Doorbell frames and 906 Front frames during a 60-second observation after its initial three reopened
+frames. All 60 samples retained the same new source/session, live state, underlying stream and
+session claim. Final counts were 851 reopened Doorbell frames and 1,054 Front frames. Both comparison
+pairs destroyed all readers and disconnected. Visual playback was not inspected.
+
+The one-line repair preserves session-retention release and arms linger only if an underlying stream
+exists. Explicitly destroying a live Readable still enters linger. Real Node EOF regressions cover
+shared and dedicated reacquisition; all three fail without the repair. Full SDK verification passed
+253 test files and 4,443 tests, along with builds, typechecks and guards.
+
+The signed fork commit is [`21576c56eca5a6e057b938491c5e744293e1ba47`](https://github.com/sapireli/eufy-sdk/commit/21576c56eca5a6e057b938491c5e744293e1ba47).
+Its complete tree was checked against the validated candidate as
+`b5694b7e444e5810421d2a3325b9d8a97a685d82`. The installed SDK bundle under
+`/opt/eufy-wall-bridge/server` has SHA-256
+`d4d749def0558f8efc4c18048218a9974a41cb44a0365142e9744732af832e9e`; deployment started service
+PID 104231 and updated the package lock. The original package backup is
+`/var/lib/eufy-wall-bridge/sdk-before-eof-20261024`. The subsequent 90-second production observation retained the Doorbell source, stream, session and
+Readable, with zero stalls or failures and advancing original-arrival receipt sequences. Front had
+separate startup failures during this window and later began delivering; this was not uninterrupted
+all-camera playback.
+
+This repair addresses source/session reacquisition after EOF. It does not establish the cause of
+initial ingress pauses or demonstrate that those pauses are fixed. The SDK evidence document
+`docs/evidence/readable-eof-source-recovery-2026-10-24.md` records generic lifecycle proof and private
+artifact fingerprints. No new upstream PR is included while review on PR #506 remains unresolved.
+
+
+## Production follow-up and rejected policy change
+
+A 45-second original-policy arm and 45-second `recreateClientAfter=2` arm kept the live deadline at
+five seconds. The target entered B healthy, but neither arm exposed a watchdog stall. No reattachment,
+reuse nudge, or reset occurred, so the trial is inconclusive. The original value one was restored.
+Front's independent startup failures also prevent treating this as a controlled all-camera workload
+comparison. No new retirement policy is retained.
+
+After Front recovered, all three Fire TVs reported both primary feeds on the pinned Amlogic hardware
+AVC decoder. Queue depths were zero or one; the sampled current SDK-receipt-to-decode age intervals
+were 34–124 ms, with no primary-feed decode deadline misses. Longest frame gaps remained about
+2.6–4.9 seconds. These logs confirm current hardware playback and continued pauses; they do not
+prove sensor capture latency or smooth playback. Lower-priority Balcony software decoding on two
+TVs independently showed approximately 0.8–1.1 seconds of current decode age.
+
+The bridge suite passed 345/345 tests with the exact candidate distribution installed locally.
+Initial test attempts lacked local dependencies and then the Git dependency's generated distribution;
+those setup failures were corrected before the passing run. The service remains active at PID 104231,
+with no service restarts after deployment at the check.
+
+An independent archive audit found no mature official-app control for the current physical Doorbell.
+The only archived channel-zero native run lasts 2.615 seconds and predates the reported replacement;
+its START does not identify the physical child camera. The healthy 160-second native run is channel
+two. SDK native-profile interventions must not be represented as official-app controls. A matched
+native control remains missing; the existing data does not justify attributing pauses to HomeBase
+forwarding, camera recording policy, or a particular untested protocol field.
